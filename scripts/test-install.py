@@ -106,7 +106,15 @@ exec "$@"
 """
 HELPER = """#!/bin/bash
 printf '%s\\n' "$*" >> /run/helper.log
-[[ "$1 $2" == 'docker snapshot' && $# == 2 ]] || exit 64
+[[ $# == 2 && "$2" == snapshot && ( "$1" == docker || "$1" == components ) ]] || exit 64
+if [[ "$1" == components ]]; then
+  if [[ -f /run/fail-components-helper ]]; then
+    printf 'components helper execution failed\\n' >&2
+    exit 1
+  fi
+  printf '{"status":"ready","items":[{"name":"python3","status":"missing"},{"name":"go","status":"missing"},{"name":"node","status":"missing"},{"name":"codex","status":"missing"}]}\\n'
+  exit 0
+fi
 if [[ -f /run/fail-helper ]]; then
   printf '{"state":"unknown","message":"helper self-check failed"}\\n'
   printf 'helper execution failed\\n' >&2
@@ -475,7 +483,9 @@ fi
         for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read"):
             self.assertIn(f"-n -u lnmp-panel -- /usr/bin/sudo -n -l -- /usr/local/libexec/lnmp-gopanel-control {command}\n", sudo_log)
         self.assertIn("-n -u lnmp-panel -- /usr/bin/sudo -n -- /usr/local/libexec/lnmp-gopanel-control docker snapshot\n", sudo_log)
-        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\n")
+        self.assertIn("-n -u lnmp-panel -- /usr/bin/sudo -n -- /usr/local/libexec/lnmp-gopanel-control components snapshot\n", sudo_log)
+        self.assertNotIn('"name":"python3"', result.stdout)
+        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\ncomponents snapshot\n")
         self.assertIn("show lnmp-gopanel --property=MainPID --value\n", (self.root / "run/systemctl.log").read_text())
 
     def test_upgrade_preserves_credentials_and_no_start(self):
@@ -487,7 +497,7 @@ fi
         self.assertNotIn("restart lnmp-gopanel", log)
         self.assertNotIn("enable lnmp-gopanel", log)
         self.assertNotIn("show lnmp-gopanel", log)
-        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\n")
+        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\ncomponents snapshot\n")
         self.assertTrue(list((self.root / "var/backups/lnmp-gopanel").glob("*/manifest")))
 
     def test_https_upgrade_adds_log_permissions_without_reading_logs(self):
@@ -502,7 +512,7 @@ fi
             self.assertIn(f"-n -l -- /usr/local/libexec/lnmp-gopanel-control {command}\n", sudo_log)
         # Log files are absent in this chroot. The installer must only check
         # sudo authorization, never invoke a log read or copy its output.
-        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\n")
+        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\ncomponents snapshot\n")
         self.assertEqual((self.root / "usr/local/libexec/lnmp-gopanel-control").read_text(), HELPER)
 
     def test_http_upgrade_migrates_and_preserves_credentials_and_services(self):
@@ -594,13 +604,24 @@ fi
         for target in TARGETS:
             self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
 
+    def test_components_helper_execution_failure_rolls_back(self):
+        previous = self.old_installation(https=True)
+        write(self.root, "/run/fail-components-helper", "")
+        result = self.run_installer(success=False, automatic_tls=False)
+        self.assertIn("components helper execution failed", result.stderr)
+        self.assertIn("Panel account cannot execute the helper: components snapshot", result.stderr)
+        for target in TARGETS:
+            self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
+        self.assertTrue((self.root / "run/panel.active").exists())
+        self.assertTrue((self.root / "run/panel.enabled").exists())
+
     def test_no_new_privileges_rolls_back_despite_successful_shell_helper(self):
         previous = self.old_installation()
         write(self.root, "/proc/4242/status", "NoNewPrivs:\t1\n")
         result = self.run_installer(success=False)
         self.assertIn("Panel process has NoNewPrivs=1", result.stderr)
         self.assertIn("implicit NoNewPrivileges", result.stderr)
-        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\n")
+        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\ncomponents snapshot\n")
         for target in TARGETS:
             self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
         self.assertTrue((self.root / "run/panel.active").exists())

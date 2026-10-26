@@ -240,7 +240,7 @@ Go 测试覆盖指标差分、采集与推送、认证、CSRF、SSE、服务白�
 
 采集异步执行，每个程序最多 8 秒，结果缓存 1 分钟，手动刷新间隔至少 5 秒。最新版本排除预发布，Node.js 按最高正式版本查询，可能高于 LTS 分支；Python 使用 python.org 发布列表与 CPython 对应标签的 NEWS，Go 使用 go.dev 下载接口及发布历史，Node.js 使用官方版本索引与对应标签 Changelog，Codex CLI 使用 OpenAI 官方仓库的正式 GitHub Release。联网查询与服务共用缓存、限流和失败处理。
 
-已有安装需要同步更新面板、辅助程序和 sudoers，新增精确授权 `lnmp-gopanel-control components snapshot`；安装脚本会验证该权限。无需修改 `services.yaml` 或放宽 `/root` 目录权限。
+已有安装需要同步更新面板、辅助程序和 sudoers，新增精确授权 `lnmp-gopanel-control components snapshot`；安装脚本会验证该权限，并以面板账号执行只读组件自检；工具未安装不阻止安装，辅助程序执行失败则回滚升级。无需修改 `services.yaml` 或放宽 `/root` 目录权限。
 
 ## 服务版本与 Redis 监控
 

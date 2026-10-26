@@ -259,7 +259,7 @@ check_helper() {
   # Query exact permissions as the panel account; never run a scan or change a
   # managed service during installation. Syntax validation alone is insufficient
   # when the system sudoers does not include /etc/sudoers.d.
-  # Only check authorization for components, cron and logs: these sources are optional,
+  # Only check authorization for cron and logs: these sources are optional,
   # and their contents must not be copied to installer output or diagnostics.
   for name in nginx docker components storage cron logs-list logs-read; do
     case "$name" in
@@ -278,15 +278,17 @@ check_helper() {
       die "Panel account cannot use helper: $name $action; check /etc/sudoers includes /etc/sudoers.d/lnmp-gopanel"
     fi
   done
-  # Docker snapshot is read-only and also succeeds when Docker is not installed
-  # or its daemon is unavailable. Only show output on failure; the temporary
-  # directory is private and its inventory is removed by cleanup.
-  # shellcheck disable=SC2024
-  if ! /usr/bin/sudo -n -u lnmp-panel -- /usr/bin/sudo -n -- \
-    /usr/local/libexec/lnmp-gopanel-control docker snapshot > "$work_dir/helper-check.json" 2> "$work_dir/helper-check.log"; then
-    cat "$work_dir/helper-check.json" "$work_dir/helper-check.log" >&2
-    die "Panel account cannot execute the helper; check sudo, executable permissions and privilege restrictions"
-  fi
+  # Both snapshots are read-only and succeed when the optional tools are absent.
+  # Exercise each entry point to catch an outdated helper or runtime restrictions.
+  # Keep successful inventories in the private temporary directory until cleanup.
+  for name in docker components; do
+    # shellcheck disable=SC2024
+    if ! /usr/bin/sudo -n -u lnmp-panel -- /usr/bin/sudo -n -- \
+      /usr/local/libexec/lnmp-gopanel-control "$name" snapshot > "$work_dir/helper-check.json" 2> "$work_dir/helper-check.log"; then
+      cat "$work_dir/helper-check.json" "$work_dir/helper-check.log" >&2
+      die "Panel account cannot execute the helper: $name snapshot; check sudo, executable permissions and privilege restrictions"
+    fi
+  done
 }
 check_panel_privileges() {
   local panel_pid no_new_privs
