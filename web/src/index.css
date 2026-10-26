@@ -2156,9 +2156,12 @@ a {
 }
 .vhost-details {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr) minmax(0, 1.25fr);
   gap: 24px;
   margin-top: 21px;
+}
+.vhost-details > .website-preview {
+  margin-bottom: 0;
 }
 .site-section-label {
   display: flex;

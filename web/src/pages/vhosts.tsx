@@ -541,14 +541,12 @@ export function Vhosts() {
                   </div>
                 </div>
                 <div className="vhost-details">
-                  <div className="vhost-site-overview">
-                    {screenshots.preview(site)}
-                    <SiteDirectory
-                      site={site}
-                      usage={data?.usage}
-                      loading={loading || scanning}
-                    />
-                  </div>
+                  {screenshots.preview(site)}
+                  <SiteDirectory
+                    site={site}
+                    usage={data?.usage}
+                    loading={loading || scanning}
+                  />
                   <div className="vhost-certificates">
                     {site.certificates.length ? (
                       site.certificates.map((certificate) => (
