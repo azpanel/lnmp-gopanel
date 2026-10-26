@@ -94,7 +94,13 @@ function SiteStatus({ enabled }: { enabled: boolean }) {
     </Badge>
   );
 }
-function Certificate({ certificate }: { certificate: SiteCertificate }) {
+function Certificate({
+  certificate,
+  showStatus = true,
+}: {
+  certificate: SiteCertificate;
+  showStatus?: boolean;
+}) {
   return (
     <div className="site-certificate">
       <div className="site-certificate-heading">
@@ -102,7 +108,7 @@ function Certificate({ certificate }: { certificate: SiteCertificate }) {
           <LockKeyhole size={13} />
           SSL 证书
         </span>
-        <CertificateStatus certificate={certificate} />
+        {showStatus && <CertificateStatus certificate={certificate} />}
       </div>
       {certificate.error ? (
         <p className="site-detail-error">{certificate.error}</p>
@@ -436,7 +442,6 @@ export function Vhosts() {
               <TableHeader>
                 <TableRow>
                   <TableHead>站点 / 配置</TableHead>
-                  <TableHead>网站画面</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead>监听</TableHead>
                   <TableHead>站点目录 / 占用</TableHead>
@@ -448,6 +453,7 @@ export function Vhosts() {
                 {sites.map((site) => (
                   <TableRow key={site.name}>
                     <TableCell>
+                      {screenshots.preview(site)}
                       <strong className="vhost-table-name">
                         {site.domains[0] || site.name}
                       </strong>
@@ -469,7 +475,6 @@ export function Vhosts() {
                         </div>
                       )}
                     </TableCell>
-                    <TableCell>{screenshots.preview(site)}</TableCell>
                     <TableCell>
                       <SiteStatus enabled={site.enabled} />
                     </TableCell>
@@ -492,7 +497,10 @@ export function Vhosts() {
                                 <CertificateStatus certificate={certificate} />
                                 <span>证书详情</span>
                               </summary>
-                              <Certificate certificate={certificate} />
+                              <Certificate
+                                certificate={certificate}
+                                showStatus={false}
+                              />
                             </details>
                           ))
                         ) : (

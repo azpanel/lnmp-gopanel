@@ -240,27 +240,70 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   await page.getByRole("textbox", { name: "筛选虚拟主机" }).fill("");
   const table = page.getByRole("table", { name: "虚拟主机列表" });
   await expect(table).toBeVisible();
+  await expect(table.getByRole("columnheader")).toHaveText([
+    "站点 / 配置",
+    "状态",
+    "监听",
+    "站点目录 / 占用",
+    "SSL 证书",
+    "操作",
+  ]);
   await expect(table.locator("tbody tr")).toHaveCount(1);
   await expect(page.locator(".vhost-card")).toHaveCount(0);
   await expect(table).toContainText("www.example.com");
   await expect(table).toContainText("2.0 GiB");
   await expect(table).toContainText("/home/wwwroot/example");
-  await expect(table).toContainText("有效 · 剩余 60 天");
+  const certificateStatus = table.getByText("有效 · 剩余 60 天", {
+    exact: true,
+  });
+  await expect(certificateStatus).toHaveCount(1);
+  await expect(certificateStatus).toBeVisible();
+  const siteCell = table.locator("tbody tr").first().getByRole("cell").first();
+  await expect(siteCell).toContainText("example.conf");
+  await expect(siteCell).toContainText("www.example.com");
   await expect(
-    table.getByAltText("example.com 的网站截图", { exact: true }),
+    siteCell.getByAltText("example.com 的网站截图", { exact: true }),
   ).toBeVisible();
+  const previewBounds = await siteCell
+    .locator(".website-preview")
+    .boundingBox();
+  const nameBounds = await siteCell.locator(".vhost-table-name").boundingBox();
+  expect(previewBounds).not.toBeNull();
+  expect(nameBounds).not.toBeNull();
+  expect(previewBounds!.y + previewBounds!.height).toBeLessThan(nameBounds!.y);
   await table.getByRole("button", { name: "查看配置", exact: true }).click();
   await expect(page.locator(".vhost-config-source")).toContainText(
     "# original configuration",
   );
   await page.keyboard.press("Escape");
   await table.locator(".vhost-table-certificates > details > summary").click();
+  await expect(certificateStatus).toHaveCount(1);
+  await expect(certificateStatus).toBeVisible();
   await expect(
     table.getByText("CN=Test Issuer,O=Certificate Authority", { exact: true }),
+  ).toBeVisible();
+  const certificateDetails = table.locator(".site-certificate");
+  await expect(
+    certificateDetails.getByText("生效时间", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    certificateDetails.getByText("到期时间", { exact: true }),
+  ).toBeVisible();
+  await certificateDetails.getByText("证书详情", { exact: true }).click();
+  await expect(
+    certificateDetails.getByText("/etc/nginx/ssl/example/fullchain.pem", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    certificateDetails.getByText("42", { exact: true }),
   ).toBeVisible();
   await page.getByRole("textbox", { name: "筛选虚拟主机" }).fill("example");
   await page.getByRole("button", { name: "卡片视图", exact: true }).click();
   await expect(page.locator(".vhost-card")).toHaveCount(1);
+  await expect(
+    page.locator(".vhost-card").getByText("有效 · 剩余 60 天", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("textbox", { name: "筛选虚拟主机" })).toHaveValue(
     "example",
   );

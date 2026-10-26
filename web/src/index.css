@@ -1898,24 +1898,21 @@ a {
   padding-left: 20px;
 }
 .vhost-table th:nth-child(1) {
-  width: 19%;
+  width: 28%;
 }
 .vhost-table th:nth-child(2) {
-  width: 17%;
+  width: 8%;
 }
 .vhost-table th:nth-child(3) {
   width: 8%;
 }
 .vhost-table th:nth-child(4) {
-  width: 8%;
+  width: 25%;
 }
 .vhost-table th:nth-child(5) {
-  width: 21%;
+  width: 20%;
 }
 .vhost-table th:nth-child(6) {
-  width: 16%;
-}
-.vhost-table th:nth-child(7) {
   width: 11%;
 }
 .vhost-table-name {
@@ -2033,7 +2030,7 @@ a {
   overflow-wrap: anywhere;
 }
 .vhost-table .website-preview {
-  margin-bottom: 0;
+  margin-bottom: 12px;
 }
 .screenshot-service-notice {
   font-size: 14px;
