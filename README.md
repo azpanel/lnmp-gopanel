@@ -8,6 +8,7 @@
 - Nginx、PHP-FPM、MySQL / MariaDB 状态与启停、重启；Nginx 配置检查通过后才允许重载。Redis 提供只读状态监控。
 - 显示服务已安装版本，异步查询官方最新稳定版本及 changelog。
 - Docker 只读概览：运行中容器的基础信息、可写层与虚拟大小，以及镜像、容器、数据卷和构建缓存的空间占用。
+- 定时任务只读查看 root crontab，展示执行周期、命令和原文，支持刷新。
 - 单管理员、bcrypt 密码、内存 Session、CSRF 校验；独立特权辅助程序和精确 sudoers 规则。
 - 中文、深浅主题、移动端导航。仅主题偏好写入 localStorage。
 
@@ -24,7 +25,7 @@ sudo bash install.sh
 
 脚本下载最新 Release 中对应架构的预编译安装包，验证 SHA-256，创建普通服务账号并安装面板、特权辅助程序、精确的 sudoers 规则及 systemd 服务。首次安装交互设置管理员密码（12–72 字节），检测本机 LNMP / Redis 服务，并启动面板。默认仅监听 `127.0.0.1:8090`，可使用下文的 SSH 隧道访问，运行时无需 Go 或 Node.js。
 
-安装时会以 `lnmp-panel` 账号检查服务状态、Docker 查询和文件扫描的精确 sudo 授权，并实际免密调用一次只读 `docker snapshot` 辅助程序（无需安装或启动 Docker，不触发全盘扫描或服务启停）。启动面板后读取实际进程的 `/proc/<MainPID>/status`，确认 `NoNewPrivs: 0`，避免 systemd 隐式限制使所有辅助功能不可用；检查失败会报错并回滚。`--no-start` 只执行辅助程序检查，进程限制需在自行启动后验证。
+安装时会以 `lnmp-panel` 账号检查服务状态、Docker 查询、文件扫描和定时任务读取的精确 sudo 授权，并实际免密调用一次只读 `docker snapshot` 辅助程序（无需安装或启动 Docker，不触发全盘扫描或服务启停）。启动面板后读取实际进程的 `/proc/<MainPID>/status`，确认 `NoNewPrivs: 0`，避免 systemd 隐式限制使所有辅助功能不可用；检查失败会报错并回滚。`--no-start` 只执行辅助程序检查，进程限制需在自行启动后验证。
 
 重复执行同一命令即可升级，现有 `config.yaml`、管理员密码和 `services.yaml` 内容会保留。升级只重启面板服务，不重启 Nginx、PHP、数据库、Redis 或 Docker；已有面板会话需重新登录。替换前的文件保存在 `/var/backups/lnmp-gopanel/`，替换或启动失败时自动恢复旧文件。
 
@@ -59,6 +60,8 @@ bash scripts/package.sh arm64 v0.1.0
 ```
 
 包内包含 `bin/lnmp-gopanel`、`bin/lnmp-gopanel-control`、`deploy/`、`install.sh`、`README.md` 和 `VERSION`；本机配置、账号密码、依赖目录、测试截图和构建缓存不会提交或打包。
+
+从当前源码升级本机时，先构建前端，再运行上述打包命令，最后使用项目中的安装脚本执行 `sudo bash install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz`（arm64 使用对应文件名）。这样两个二进制、systemd 单元及 sudoers 会一起更新，并使用相同的备份、授权检查及失败回滚流程。定时任务只检查 `cron list` 授权，不读取或记录任务内容；未安装 crontab 不会阻止安装。
 
 ## 构建
 
@@ -268,3 +271,13 @@ screenshots:
 部署后可用 `sudo -u lnmp-panel /usr/local/bin/lnmp-gopanel check-screenshots` 检查截图组件，仅访问临时本地测试页面，不访问业务站点。源码集成测试使用 `SCREENSHOT_TEST_BROWSER=/path/to/chromium go test -race ./internal/screenshots -run TestChromiumIntegration`，所有目标都是本地测试服务器；仅隔离的 root 测试进程会关闭浏览器沙箱，生产代码不提供该开关。
 
 新增接口：`GET /api/v1/vhosts/screenshots`、`PUT /api/v1/vhosts/screenshot?name=…`、`POST /api/v1/vhosts/screenshot/refresh?name=…`、`DELETE /api/v1/vhosts/screenshot?name=…`、`GET /api/v1/vhosts/screenshot/image?name=…`。均需登录，写操作需 CSRF；设置与刷新返回 202，图片通过面板鉴权后读取且禁止缓存。
+
+### 定时任务
+
+左侧“定时任务”页面只读展示 root 用户的 crontab，包含执行周期、执行命令、原始行号、任务数量和最近读取时间，可手动刷新并展开查看原文。支持五字段 Cron 表达式及 `@reboot` 等特殊周期；环境变量、注释和空行不计为任务，未识别内容会显示提示并保留原文。此页面不包含其他用户、`/etc/crontab`、系统 Cron 目录或 systemd timer，也不提供编辑或立即执行功能。
+
+接口 `GET /api/v1/cron` 需要登录，返回 `tasks`、`raw`、`warnings` 和 `updated_at`。读取失败会明确提示，刷新失败时保留上次成功的数据并标记可能过期；没有 root crontab 时显示空列表。辅助程序仅接受固定的 `cron list`，在可信路径下执行 `crontab -u root -l`，有超时及输出大小限制，不接受用户输入的参数。
+
+升级时同步更新面板、辅助程序和 `deploy/lnmp-gopanel.sudoers`，新增精确授权 `/usr/local/libexec/lnmp-gopanel-control cron list`，先通过 `visudo -cf` 验证再安装并重启面板。安装脚本会检查该只读操作的 sudo 授权；未安装 crontab 不影响安装，页面会提示无法读取。
+
+定时任务表达式支持鼠标悬停、键盘聚焦或手机点击预览之后 5 次预计执行时间。预览接口 `GET /api/v1/cron/preview?line=行号` 需要登录，以服务器当前时间重新读取并计算，默认使用服务器时区，任务前的 `CRON_TZ` 声明可覆盖时区；每个时间保留时区偏移。`@reboot`、无效表达式、无效时区和没有匹配日期时会显示说明。预览不检查 Cron 守护进程是否运行，不代表任务已执行或执行成功。原文展开后按需加载 Prism，对周期、环境变量、注释和 Shell 语法高亮，保留原始文本并由 React 安全渲染。此更新沿用 `cron list` 授权，安装脚本无需新增权限。

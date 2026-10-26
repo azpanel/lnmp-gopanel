@@ -3,6 +3,7 @@
 Defaults:lnmp-panel !requiretty
 Cmnd_Alias LNMP_PANEL = /usr/local/libexec/lnmp-gopanel-control nginx status, \
  /usr/local/libexec/lnmp-gopanel-control docker snapshot, \
+ /usr/local/libexec/lnmp-gopanel-control cron list, \
  /usr/local/libexec/lnmp-gopanel-control redis status, \
  /usr/local/libexec/lnmp-gopanel-control nginx start, \
  /usr/local/libexec/lnmp-gopanel-control nginx stop, \

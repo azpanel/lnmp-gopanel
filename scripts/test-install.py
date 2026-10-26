@@ -235,11 +235,15 @@ fi
         self.assertIn("username: operator", config.read_text())
         self.assertEqual(config.stat().st_mode & 0o777, 0o640)
         self.assertEqual((self.root / "etc/sudoers.d/lnmp-gopanel").stat().st_mode & 0o777, 0o440)
+        self.assertIn(
+            " /usr/local/libexec/lnmp-gopanel-control cron list, \\\n",
+            (self.root / "etc/sudoers.d/lnmp-gopanel").read_text(),
+        )
         self.assertTrue((self.root / "run/panel.active").exists())
         self.assertTrue((self.root / "run/panel.enabled").exists())
         self.assertTrue((self.root / "usr/local/bin/lnmp-gopanel").read_text().startswith("#!/bin/bash"))
         sudo_log = (self.root / "run/sudo.log").read_text()
-        for command in ("nginx status", "docker snapshot", "storage scan"):
+        for command in ("nginx status", "docker snapshot", "storage scan", "cron list"):
             self.assertIn(f"-n -u lnmp-panel -- /usr/bin/sudo -n -l -- /usr/local/libexec/lnmp-gopanel-control {command}\n", sudo_log)
         self.assertIn("-n -u lnmp-panel -- /usr/bin/sudo -n -- /usr/local/libexec/lnmp-gopanel-control docker snapshot\n", sudo_log)
         self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\n")
@@ -259,7 +263,7 @@ fi
 
     def test_missing_helper_permissions_rolls_back(self):
         previous = self.old_installation()
-        for command in ("nginx status", "docker snapshot", "storage scan"):
+        for command in ("nginx status", "docker snapshot", "storage scan", "cron list"):
             with self.subTest(command=command):
                 write(self.root, "/run/deny-helper-command", f"/usr/local/libexec/lnmp-gopanel-control {command}\n")
                 result = self.run_installer(success=False)

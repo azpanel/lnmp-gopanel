@@ -14,6 +14,7 @@ import (
 	"github.com/azpanel/lnmp-gopanel/internal/auth"
 	"github.com/azpanel/lnmp-gopanel/internal/config"
 	"github.com/azpanel/lnmp-gopanel/internal/control"
+	"github.com/azpanel/lnmp-gopanel/internal/cron"
 	"github.com/azpanel/lnmp-gopanel/internal/docker"
 	"github.com/azpanel/lnmp-gopanel/internal/metrics"
 	"github.com/azpanel/lnmp-gopanel/internal/releases"
@@ -30,6 +31,7 @@ type Server struct {
 	Metrics     *metrics.Collector
 	Services    *control.Manager
 	Docker      *docker.Manager
+	Cron        cron.Reader
 	Releases    *releases.Manager
 	Storage     *storage.Manager
 	Vhosts      *vhosts.Manager
@@ -41,7 +43,7 @@ type Server struct {
 }
 
 func New(c config.Config, m *metrics.Collector, svc *control.Manager, assets fs.FS) *Server {
-	return &Server{Config: c, Sessions: auth.New(), Metrics: m, Services: svc, Docker: docker.NewManager(context.Background(), control.Helper{Path: c.Helper}), Releases: releases.NewManager(context.Background(), releases.NewFetcher()), Host: metrics.HostInfo(context.Background()), Storage: storage.NewManager(context.Background(), control.Helper{Path: c.Helper}), Vhosts: vhosts.NewManager(context.Background(), control.Helper{Path: c.Helper}), Assets: assets, streams: make(chan struct{}, 32)}
+	return &Server{Config: c, Sessions: auth.New(), Metrics: m, Services: svc, Cron: control.Helper{Path: c.Helper}, Docker: docker.NewManager(context.Background(), control.Helper{Path: c.Helper}), Releases: releases.NewManager(context.Background(), releases.NewFetcher()), Host: metrics.HostInfo(context.Background()), Storage: storage.NewManager(context.Background(), control.Helper{Path: c.Helper}), Vhosts: vhosts.NewManager(context.Background(), control.Helper{Path: c.Helper}), Assets: assets, streams: make(chan struct{}, 32)}
 }
 func fail(c *gin.Context, status int, msg string) { c.AbortWithStatusJSON(status, gin.H{"error": msg}) }
 func (s *Server) Handler() http.Handler {
@@ -92,6 +94,19 @@ func (s *Server) Handler() http.Handler {
 	private.POST("/services/releases/refresh", s.csrf, func(c *gin.Context) { s.serviceReleases(c, true) })
 	private.POST("/services/:name/actions/:action", s.csrf, s.action)
 	private.GET("/docker", func(c *gin.Context) { s.dockerSnapshot(c, false) })
+	private.GET("/cron", func(c *gin.Context) {
+		if s.Cron == nil {
+			fail(c, 503, "定时任务读取未配置")
+			return
+		}
+		result, err := s.Cron.Cron(c.Request.Context())
+		if err != nil {
+			fail(c, 503, err.Error())
+			return
+		}
+		c.JSON(200, result)
+	})
+	private.GET("/cron/preview", s.cronPreview)
 	private.POST("/docker/refresh", s.csrf, func(c *gin.Context) { s.dockerSnapshot(c, true) })
 	private.GET("/storage/mounts", func(c *gin.Context) {
 		result, err := storage.Mounts(c.Request.Context())

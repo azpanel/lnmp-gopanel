@@ -9,6 +9,7 @@ import (
 
 	"github.com/azpanel/lnmp-gopanel/internal/config"
 	"github.com/azpanel/lnmp-gopanel/internal/control"
+	"github.com/azpanel/lnmp-gopanel/internal/cron"
 	"github.com/azpanel/lnmp-gopanel/internal/docker"
 	"github.com/azpanel/lnmp-gopanel/internal/storage"
 	"syscall"
@@ -25,6 +26,15 @@ func main() {
 func run() error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("辅助程序需要 root 权限")
+	}
+	if len(os.Args) == 3 && os.Args[1] == "cron" && os.Args[2] == "list" {
+		ctx, cancel := context.WithTimeout(context.Background(), cron.Timeout)
+		defer cancel()
+		result, err := control.RootCrontab(ctx)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(result)
 	}
 	if len(os.Args) == 3 && os.Args[1] == "docker" && os.Args[2] == "snapshot" {
 		ctx, cancel := context.WithTimeout(context.Background(), docker.Timeout)

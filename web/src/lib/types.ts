@@ -176,3 +176,23 @@ export type DockerSnapshot = {
   message?: string;
   errors: Record<string, string>;
 };
+export interface CronTask {
+  line: number;
+  schedule: string;
+  command: string;
+}
+
+export interface CronSnapshot {
+  tasks: CronTask[];
+  raw: string;
+  warnings: string[];
+  updated_at: string;
+}
+
+export interface CronPreview {
+  line: number;
+  schedule: string;
+  timezone: string;
+  times: string[];
+  message?: string;
+}

@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   ChevronRight,
   CircleHelp,
+  Clock3,
   Container,
   LayoutDashboard,
   HardDrive,
@@ -31,6 +32,7 @@ import { System } from "@/pages/system";
 import { Storage } from "@/pages/storage";
 import { Vhosts } from "@/pages/vhosts";
 import { Docker } from "@/pages/docker";
+import { Cron } from "@/pages/cron";
 import { api, fetchSession, logout } from "@/lib/api";
 import type { Host, Service, Session } from "@/lib/types";
 import { useMonitor } from "@/lib/use-monitor";
@@ -172,6 +174,7 @@ function Workspace({ session }: { session: Session }) {
             { to: "/services", label: "LNMP 服务", icon: Settings2 },
             { to: "/docker", label: "Docker 管理", icon: Container },
             { to: "/storage", label: "硬盘空间", icon: HardDrive },
+            { to: "/cron", label: "定时任务", icon: Clock3 },
             { to: "/system", label: "系统信息", icon: Server },
           ].map((item) => (
             <NavLink
@@ -313,6 +316,7 @@ function Workspace({ session }: { session: Session }) {
             <Route path="/storage" element={<Storage />} />
             <Route path="/vhosts" element={<Vhosts />} />
             <Route path="/docker" element={<Docker />} />
+            <Route path="/cron" element={<Cron />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
