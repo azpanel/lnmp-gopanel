@@ -48,7 +48,9 @@ function Stat({
       <CardContent>
         <div className="stat-label">
           {label}
-          <span>{icon}</span>
+          <span className="stat-icon" aria-hidden="true">
+            {icon}
+          </span>
         </div>
         <div className="stat-value">
           {value}

@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test("programming component versions, changelogs and refresh without services", async ({
   page,
-}) => {
+}, testInfo) => {
   const now = new Date().toISOString();
   let componentRefreshes = 0;
   let releaseRefreshes = 0;
@@ -94,6 +94,21 @@ test("programming component versions, changelogs and refresh without services", 
     page.getByRole("heading", { name: "编程组件", exact: true }),
   ).toBeVisible();
   await expect(page.locator("[data-component]")).toHaveCount(4);
+  for (const name of ["python3", "go", "node", "codex"]) {
+    const logo = page.locator(`[data-component="${name}"] .component-logo img`);
+    await expect(logo).toBeVisible();
+    await expect
+      .poll(() =>
+        logo.evaluate(
+          (img: HTMLImageElement) => img.complete && img.naturalWidth > 0,
+        ),
+      )
+      .toBe(true);
+  }
+  await page.screenshot({
+    path: testInfo.outputPath("programming-component-logos.png"),
+    fullPage: true,
+  });
   const python = page.locator('[data-component="python3"]');
   const go = page.locator('[data-component="go"]');
   const node = page.locator('[data-component="node"]');

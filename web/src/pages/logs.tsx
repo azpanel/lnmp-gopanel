@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   FileText,
@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LogViewport } from "@/components/log-viewport";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -33,103 +34,8 @@ import {
 import { api } from "@/lib/api";
 import { bytes } from "@/lib/format";
 import { loadLogRules, logLines, validateLogRules } from "@/lib/logs";
-import type { LogCatalog, LogLine, LogRule } from "@/lib/logs";
+import type { LogCatalog, LogRule } from "@/lib/logs";
 import { useLogReader } from "@/lib/use-log-reader";
-
-const rowHeight = 30;
-function LogViewport({
-  lines,
-  follow,
-  onFollow,
-}: {
-  lines: LogLine[];
-  follow: boolean;
-  onFollow: (value: boolean) => void;
-}) {
-  const viewport = useRef<HTMLDivElement>(null);
-  const anchor = useRef<{ offset: string; y: number } | null>(null);
-  const [scroll, setScroll] = useState(0),
-    [height, setHeight] = useState(480);
-  useEffect(() => {
-    const node = viewport.current!;
-    const observer = new ResizeObserver(() => setHeight(node.clientHeight));
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-  useLayoutEffect(() => {
-    const node = viewport.current!;
-    if (follow) node.scrollTop = node.scrollHeight;
-    else if (anchor.current) {
-      const index = lines.findIndex(
-        (line) => line.offset === anchor.current!.offset,
-      );
-      if (index >= 0) node.scrollTop = index * rowHeight + anchor.current.y;
-    }
-    setScroll(node.scrollTop);
-  }, [lines, follow]);
-  const first = Math.max(0, Math.floor(scroll / rowHeight) - 8);
-  const last = Math.min(
-    lines.length,
-    Math.ceil((scroll + height) / rowHeight) + 8,
-  );
-  return (
-    <div
-      ref={viewport}
-      className="log-viewport"
-      tabIndex={0}
-      aria-label="日志内容"
-      onScroll={(event) => {
-        const node = event.currentTarget,
-          index = Math.floor(node.scrollTop / rowHeight);
-        setScroll(node.scrollTop);
-        anchor.current = lines[index]
-          ? {
-              offset: lines[index].offset,
-              y: node.scrollTop - index * rowHeight,
-            }
-          : null;
-        const atBottom =
-          node.scrollHeight - node.scrollTop - node.clientHeight < 8;
-        if (!atBottom && follow) onFollow(false);
-      }}
-    >
-      {lines.length === 0 ? (
-        <div className="log-empty">当前范围没有可显示的日志行</div>
-      ) : (
-        <div
-          className="log-virtual"
-          style={{ height: lines.length * rowHeight }}
-        >
-          <div style={{ paddingTop: first * rowHeight }}>
-            {lines.slice(first, last).map((line) => (
-              <div
-                className="log-line"
-                key={line.offset}
-                style={{ height: rowHeight }}
-              >
-                <span className="log-offset" title="文件字节偏移">
-                  {line.offset}
-                </span>
-                <span>
-                  {line.text}
-                  {line.truncated && (
-                    <span className="log-mark">
-                      {" "}
-                      …[超长行已截断，按前 64 KiB 匹配]
-                    </span>
-                  )}
-                  {line.partial && (
-                    <span className="log-mark"> [尚未换行]</span>
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function Logs() {
   const catalog = useQuery({
@@ -165,6 +71,15 @@ export function Logs() {
   const lines = useMemo(() => logLines(reader.pages), [reader.pages]);
   const first = reader.pages[0],
     last = reader.pages.at(-1);
+  const status = reader.paused
+    ? "已暂停追踪"
+    : reader.error
+      ? "等待重试"
+      : !file?.available
+        ? "尚未读取"
+        : last?.has_after
+          ? "正在分批追赶新增内容"
+          : "";
   const patchRule = (index: number, patch: Partial<LogRule>) => {
     setRules((old) =>
       old.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)),
@@ -188,25 +103,6 @@ export function Logs() {
   };
   return (
     <Dialog open={rulesOpen} onOpenChange={setRulesOpen}>
-      <div className="page-heading">
-        <div>
-          <div className="eyebrow muted">LOG VIEWER</div>
-          <h1>日志读取</h1>
-          <p>分批浏览历史日志，实时跟踪新增内容。</p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={catalog.isFetching}
-          onClick={() => void catalog.refetch()}
-        >
-          <RefreshCw
-            size={14}
-            className={catalog.isFetching ? "animate-spin" : ""}
-          />
-          刷新文件
-        </Button>
-      </div>
       {catalog.error && (
         <div className="notice" role="alert">
           日志列表读取失败：{catalog.error.message}
@@ -249,7 +145,7 @@ export function Logs() {
               >
                 <SelectValue
                   placeholder={
-                    catalog.isPending ? "正在读取文件列表…" : "没有可读取的日志"
+                    catalog.isPending ? "选择日志文件" : "没有可读取的日志"
                   }
                 />
               </SelectTrigger>
@@ -269,6 +165,15 @@ export function Logs() {
             </Select>
           </div>
           <div className="log-actions">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={catalog.isFetching}
+              onClick={() => void catalog.refetch()}
+            >
+              <RefreshCw size={14} />
+              刷新文件
+            </Button>
             <DialogTrigger asChild>
               <Button size="sm" variant="outline">
                 <ListFilter size={14} />
@@ -308,26 +213,13 @@ export function Logs() {
               所选日志已不在文件列表中，请重新选择文件。
             </p>
           )}
-          {file && (
-            <p className="small-note log-meta">
-              {file.error ||
-                `${bytes(last?.size ?? file.size)} · 修改时间 ${new Date(last?.modified || file.modified).toLocaleString("zh-CN")}`}
-            </p>
-          )}
-
           <div className="log-status">
-            <span role="status">
-              {reader.busy
-                ? "读取中…"
-                : reader.paused
-                  ? "已暂停追踪"
-                  : reader.error
-                    ? "等待重试"
-                    : file?.available
-                      ? "实时追踪 · 约每秒更新"
-                      : "尚未读取"}
-              {last?.has_after ? " · 正在分批追赶新增内容" : ""}
-            </span>
+            {file && (
+              <p className="small-note log-file-meta">
+                {file.error ||
+                  `${bytes(last?.size ?? file.size)} · 修改时间 ${new Date(last?.modified || file.modified).toLocaleString("zh-CN")}`}
+              </p>
+            )}
             <label className="log-check">
               <Checkbox
                 checked={reader.follow}
@@ -338,6 +230,9 @@ export function Logs() {
               自动滚动
             </label>
           </div>
+          <span className="log-reader-status" role="status">
+            {status}
+          </span>
           <LogViewport
             key={path}
             lines={lines}

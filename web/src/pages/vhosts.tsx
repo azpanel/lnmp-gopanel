@@ -62,6 +62,35 @@ function date(value: string | null) {
     ? new Date(value).toLocaleString("zh-CN", { hour12: false })
     : "—";
 }
+
+function ListenEndpoints({ listens }: { listens: string[] }) {
+  if (!listens.length) return <span className="small-note">—</span>;
+  return (
+    <ul className="listen-endpoints" aria-label="监听端口">
+      {listens.map((listen, index) => {
+        const parts = listen.trim().split(/\s+/);
+        const endpoint = parts.shift();
+        const secure = parts.includes("ssl");
+        const options = parts.filter((part) => part !== "ssl");
+        return (
+          <li
+            className={`listen-endpoint${secure ? " listen-endpoint-tls" : ""}`}
+            key={`${listen}-${index}`}
+            title={listen}
+          >
+            {secure && <LockKeyhole size={12} aria-hidden="true" />}
+            <span className="font-mono">{endpoint}</span>
+            {secure && <span className="listen-protocol">SSL</span>}
+            {options.length > 0 && (
+              <span className="listen-options">{options.join(" ")}</span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function CertificateStatus({ certificate }: { certificate: SiteCertificate }) {
   return (
     <Badge
@@ -478,8 +507,8 @@ export function Vhosts() {
                     <TableCell>
                       <SiteStatus enabled={site.enabled} />
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {site.listens.join(" · ") || "—"}
+                    <TableCell>
+                      <ListenEndpoints listens={site.listens} />
                     </TableCell>
                     <TableCell>
                       <SiteDirectory
@@ -545,7 +574,7 @@ export function Vhosts() {
                     <span className="small-note">未解析到 server_name</span>
                   )}
                   <div className="vhost-listens">
-                    监听 {site.listens.join(" · ") || "—"}
+                    <ListenEndpoints listens={site.listens} />
                   </div>
                 </div>
                 <div className="vhost-details">

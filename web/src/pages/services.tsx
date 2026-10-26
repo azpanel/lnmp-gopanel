@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   Check,
   CircuitBoard,
-  Code2,
   ExternalLink,
   Loader2,
   Play,
@@ -290,7 +289,14 @@ export function Services({
               <Card key={name} data-component={name}>
                 <CardContent>
                   <div className="service-card-head">
-                    <Code2 size={24} className="text-primary" />
+                    <span className="component-logo" aria-hidden="true">
+                      <img
+                        src={`/brands/${name}.svg`}
+                        alt=""
+                        width={36}
+                        height={36}
+                      />
+                    </span>
                     <div className="grow">
                       <h3>{title}</h3>
                       <p className="small-note">{subtitle}</p>
@@ -336,8 +342,8 @@ export function Services({
           })}
         </div>
       </section>
-      <div className="info-note">
-        <AlertTriangle size={17} />
+      <div className="info-note" role="note">
+        <AlertTriangle size={18} aria-hidden="true" />
         <div>
           <strong>服务操作会影响正在运行的网站</strong>
           <p>

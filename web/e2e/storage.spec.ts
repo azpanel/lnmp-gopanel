@@ -125,14 +125,15 @@ test("storage mounts, asynchronous file ranking, treemap and retry", async ({
     page.getByRole("heading", { name: "硬盘空间", exact: true }),
   ).toBeVisible();
   await expect(page.getByText("正在扫描文件，完成后自动更新")).toBeVisible();
+  const capacitySwitch = page.getByRole("switch", { name: "隐藏无容量挂载" });
+  await expect(capacitySwitch).toBeChecked();
+  await expect(page.locator(".mounts-table tbody tr")).toHaveCount(3);
+  await capacitySwitch.click();
   await expect(page.getByText("/proc", { exact: true })).toBeVisible();
   await expect(page.getByText("不提供容量", { exact: true })).toBeVisible();
   await expect(page.getByText("容量暂不可读取", { exact: true })).toBeVisible();
-  const capacitySwitch = page.getByRole("switch", { name: "隐藏无容量挂载" });
-  await expect(capacitySwitch).not.toBeChecked();
   await capacitySwitch.click();
   await expect(capacitySwitch).toBeChecked();
-  await expect(page.locator(".mounts-table tbody tr")).toHaveCount(3);
   await expect(page.getByText("/proc", { exact: true })).not.toBeVisible();
   await expect(
     page.getByText("/unreadable", { exact: true }),

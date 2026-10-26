@@ -114,11 +114,16 @@ test("cron previews five server-zone times on hover, focus and touch", async ({
   page,
 }, testInfo) => {
   let previewCalls = 0;
+  let releasePreview: () => void = () => {};
+  const pendingPreview = new Promise<void>((resolve) => {
+    releasePreview = resolve;
+  });
   await page.route("**/api/v1/cron", (route) =>
     route.fulfill({ json: snapshot }),
   );
-  await page.route("**/api/v1/cron/preview?*", (route) => {
+  await page.route("**/api/v1/cron/preview?*", async (route) => {
     previewCalls++;
+    if (previewCalls === 1) await pendingPreview;
     const reboot =
       new URL(route.request().url()).searchParams.get("line") === "4";
     return route.fulfill({
@@ -145,6 +150,15 @@ test("cron previews five server-zone times on hover, focus and touch", async ({
   else await trigger.hover();
   const tooltip = page.getByRole("tooltip");
   await expect(tooltip).toContainText("接下来 5 次预计执行时间");
+  const skeleton = tooltip.locator(".cron-preview-skeleton");
+  await expect(skeleton).toBeVisible();
+  await expect(skeleton.locator("li")).toHaveCount(5);
+  await expect(tooltip.locator("time")).toHaveCount(0);
+  await page.screenshot({
+    path: testInfo.outputPath("cron-preview-skeleton.png"),
+  });
+  releasePreview();
+  await expect(skeleton).toHaveCount(0);
   await expect(tooltip).toContainText("Asia/Shanghai");
   await expect(tooltip.locator("time")).toHaveCount(5);
   await expect(tooltip.locator("time").first()).toHaveText(

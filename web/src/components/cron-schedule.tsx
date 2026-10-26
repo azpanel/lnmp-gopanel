@@ -65,10 +65,23 @@ export function CronSchedule({
           onCloseAutoFocus={(event) => event.preventDefault()}
           onMouseEnter={show}
           onMouseLeave={hide}
+          aria-busy={query.isFetching || query.isPending}
         >
           <strong>接下来 5 次预计执行时间</strong>
           {query.isFetching || query.isPending ? (
-            <p role="status">正在计算…</p>
+            <div className="cron-preview-skeleton" role="status">
+              <span className="sr-only">正在计算执行时间</span>
+              <div aria-hidden="true">
+                <span className="cron-skeleton-zone" />
+                <ol>
+                  {Array.from({ length: 5 }, (_, i) => (
+                    <li key={i}>
+                      <span />
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </div>
           ) : query.error ? (
             <p role="alert">{query.error.message}，请再次悬停重试。</p>
           ) : changed ? (

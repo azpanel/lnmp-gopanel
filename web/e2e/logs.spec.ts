@@ -171,11 +171,19 @@ test("log filters, bounded viewport, history, rotation and per-file preferences"
   await page.getByRole("button", { name: "登录面板" }).click();
   await expect(
     page.getByRole("heading", { name: "日志读取", exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
+  await expect(page.getByText("LOG VIEWER", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByText("分批浏览历史日志，实时跟踪新增内容。", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("实时追踪 · 约每秒更新", { exact: true }),
+  ).toHaveCount(0);
   await expect(page.locator(".log-line").first()).toBeVisible();
   expect(await page.locator(".log-line").count()).toBeLessThan(80);
   const drawer = page.getByRole("dialog", { name: "显示与隐藏规则" });
   const filters = page.getByRole("button", { name: /^筛选规则/ });
+  await expect(filters).toHaveCSS("font-size", "14px");
   const logCard = page.locator('[data-slot="card"]').filter({
     has: page
       .locator('[data-slot="card-title"]')
@@ -183,6 +191,16 @@ test("log filters, bounded viewport, history, rotation and per-file preferences"
   });
   await expect(logCard.getByLabel("选择日志")).toBeVisible();
   const follow = page.getByRole("checkbox", { name: "自动滚动" });
+  const meta = await page.locator(".log-file-meta").boundingBox();
+  const followLabel = await page
+    .locator(".log-status .log-check")
+    .boundingBox();
+  expect(followLabel!.x).toBeGreaterThanOrEqual(meta!.x + meta!.width);
+  expect(
+    Math.abs(
+      followLabel!.y + followLabel!.height / 2 - meta!.y - meta!.height / 2,
+    ),
+  ).toBeLessThan(2);
   await expect(follow).toBeChecked();
   await page.getByText("自动滚动", { exact: true }).click();
   await expect(follow).not.toBeChecked();
@@ -192,6 +210,9 @@ test("log filters, bounded viewport, history, rotation and per-file preferences"
   await expect(drawer).not.toBeVisible();
   await filters.click();
   await expect(drawer).toBeVisible();
+  await expect(
+    drawer.getByRole("button", { name: "关闭", exact: true }),
+  ).toHaveCSS("font-size", "14px");
   const bounds = await drawer.boundingBox();
   expect(bounds!.y).toBe(0);
   await expect
@@ -395,6 +416,8 @@ test("log polling retries, stops in background and cancels stale file reads", as
     }),
   );
   await expect.poll(() => Boolean(release)).toBe(true);
+  await expect(page.locator(".log-reader-status")).toBeEmpty();
+  await expect(page.getByText("读取中…", { exact: true })).toHaveCount(0);
   await chooseOption(page, "选择日志", php);
   await expect(page.locator(".log-line")).toContainText("php content");
   release!();
@@ -407,5 +430,176 @@ test("log polling retries, stops in background and cancels stale file reads", as
   const leftReads = reads;
   await page.waitForTimeout(1300);
   expect(reads).toBe(leftReads);
+  expect(errors).toEqual([]);
+});
+
+test("wrapped virtual rows preserve history anchors, resize and follow appended content", async ({
+  page,
+}, testInfo) => {
+  const path = "/home/wwwlogs/wrapped.log";
+  const modified = "2026-10-26T12:00:00Z";
+  const longText =
+    "  中文堆栈与无空格日志".repeat(35) +
+    "\n    at requestHandler (server.go:42)";
+  let append = false,
+    end = 1300000;
+  await page.route("**/api/v1/logs", (route) =>
+    route.fulfill({
+      json: {
+        files: [{ path, size: end, modified, available: true }],
+        warnings: [],
+      },
+    }),
+  );
+  await page.route("**/api/v1/logs/read", (route) => {
+    const req = route.request().postDataJSON();
+    const before = req.mode === "before",
+      after = req.mode === "after";
+    const replace = after && append;
+    const from = before ? 50000 : after ? end : 100000;
+    let lines;
+    if (before)
+      lines = Array.from({ length: 50 }, (_, i) => ({
+        offset: String(50000 + i * 1000),
+        text: `HISTORY ${i} ${longText}`,
+      }));
+    else if (!after)
+      lines = Array.from({ length: 1200 }, (_, i) => ({
+        offset: String(100000 + i * 1000),
+        text: `ENTRY ${i} ${i % 3 === 0 || i === 1199 ? longText : "short log"}`,
+        partial: i === 1199,
+      }));
+    else if (replace) {
+      lines = [
+        { offset: "1299000", text: `UPDATED ${longText.repeat(2)}` },
+        { offset: "1300000", text: `LATEST ${longText}` },
+      ];
+      end = 1301000;
+      append = false;
+    } else lines = [];
+    return route.fulfill({
+      json: {
+        lines,
+        from: String(from),
+        to: String(before ? 100000 : end),
+        replace_from: String(replace ? 1299000 : from),
+        start: `c${from}`,
+        end: `c${before ? 100000 : end}`,
+        size: end,
+        modified,
+        has_before: !before,
+        has_after: false,
+        limited: false,
+      },
+    });
+  });
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/logs");
+  await page
+    .getByLabel("密码", { exact: true })
+    .fill("Test-Only-Panel-Password-2026");
+  await page.getByRole("button", { name: "登录面板" }).click();
+  const viewport = page.locator(".log-viewport");
+  const follow = page.getByRole("checkbox", { name: "自动滚动" });
+  const atBottom = () =>
+    viewport.evaluate(
+      (node) => node.scrollHeight - node.scrollTop - node.clientHeight,
+    );
+  await expect(page.locator('.log-line[data-offset="1299000"]')).toContainText(
+    "ENTRY 1199",
+  );
+  await expect.poll(atBottom).toBeLessThan(2);
+  await expect(follow).toBeChecked();
+  expect(await page.locator(".log-line").count()).toBeLessThan(80);
+  await expect
+    .poll(() =>
+      viewport.evaluate((node) => node.scrollWidth <= node.clientWidth),
+    )
+    .toBe(true);
+  const assertNoOverlap = async () => {
+    await expect
+      .poll(() =>
+        page
+          .locator(".log-line")
+          .evaluateAll((nodes) =>
+            nodes.every(
+              (node, i) =>
+                i === 0 ||
+                node.getBoundingClientRect().top >=
+                  nodes[i - 1].getBoundingClientRect().bottom - 1,
+            ),
+          ),
+      )
+      .toBe(true);
+  };
+  await assertNoOverlap();
+  await page.screenshot({
+    path: testInfo.outputPath("wrapped-logs.png"),
+    fullPage: true,
+  });
+  // Scrolling into a wrapped row turns follow off and preserves the source offset.
+  await viewport.evaluate((node) => {
+    node.scrollTop = node.scrollHeight - node.clientHeight - 180;
+  });
+  await expect(follow).not.toBeChecked();
+  const anchor = await viewport.evaluate((node) => {
+    const top = node.getBoundingClientRect().top + node.clientTop;
+    const row = [...node.querySelectorAll<HTMLElement>(".log-line")].find(
+      (row) => row.getBoundingClientRect().bottom > top,
+    )!;
+    return {
+      offset: row.dataset.offset!,
+      y: row.getBoundingClientRect().top - top,
+    };
+  });
+  await page.getByRole("button", { name: "加载更早日志" }).click();
+  await expect(
+    page.getByRole("button", { name: "加载更早日志" }),
+  ).toBeDisabled();
+  await expect
+    .poll(() =>
+      viewport.evaluate((node, anchor) => {
+        const row = node.querySelector<HTMLElement>(
+          `[data-offset="${anchor.offset}"]`,
+        );
+        if (!row) return Infinity;
+        return Math.abs(
+          row.getBoundingClientRect().top -
+            node.getBoundingClientRect().top -
+            node.clientTop -
+            anchor.y,
+        );
+      }, anchor),
+    )
+    .toBeLessThan(2);
+  const originalSize = page.viewportSize()!;
+  await page.setViewportSize({
+    width: originalSize.width + 220,
+    height: originalSize.height,
+  });
+  await assertNoOverlap();
+  await expect
+    .poll(() =>
+      viewport.evaluate((node) => node.scrollWidth <= node.clientWidth),
+    )
+    .toBe(true);
+  await page.setViewportSize(originalSize);
+  await page.getByRole("button", { name: "回到最新" }).click();
+  await expect(follow).toBeChecked();
+  append = true;
+  await expect(page.locator('.log-line[data-offset="1300000"]')).toContainText(
+    "LATEST",
+  );
+  await expect.poll(atBottom).toBeLessThan(2);
+  await expect(follow).toBeChecked();
+  await assertNoOverlap();
+  await viewport.evaluate((node) => {
+    node.scrollTop = node.scrollHeight - node.clientHeight - 300;
+  });
+  await expect(follow).not.toBeChecked();
+  await expect(page.locator('.log-line[data-offset="1299000"]')).toContainText(
+    "UPDATED",
+  );
   expect(errors).toEqual([]);
 });

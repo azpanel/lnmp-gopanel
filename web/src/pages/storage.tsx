@@ -41,7 +41,7 @@ import {
 export function Storage() {
   const client = useQueryClient();
   const [filter, setFilter] = useState("");
-  const [hideUnavailable, setHideUnavailable] = useState(false);
+  const [hideUnavailable, setHideUnavailable] = useState(true);
   const [sort, setSort] = useState<MountSort | null>(null);
   const autoStarted = useRef(false);
   const mounts = useQuery({

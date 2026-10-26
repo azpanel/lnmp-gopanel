@@ -1,0 +1,8 @@
+Brand marks identify installed third-party tools; all trademarks belong to their respective owners.
+
+python3.svg: https://s3.dualstack.us-east-2.amazonaws.com/pythondotorg-assets/media/files/python-logo-only.svg
+go.svg: https://go.dev/images/go-logo-blue.svg
+node.svg: https://nodejs.org/static/logos/nodejsHex.svg
+codex.svg: https://raw.githubusercontent.com/lobehub/lobe-icons/master/packages/static-svg/icons/codex.svg
+
+Codex vector from Lobe Icons (MIT): https://github.com/lobehub/lobe-icons/blob/master/LICENSE

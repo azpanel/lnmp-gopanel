@@ -249,6 +249,13 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
     "操作",
   ]);
   await expect(table.locator("tbody tr")).toHaveCount(1);
+  await expect(
+    table.getByRole("list", { name: "监听端口" }).getByRole("listitem"),
+  ).toHaveText(["80", "443SSL"]);
+  await expect(table.locator(".listen-endpoint-tls")).toHaveAttribute(
+    "title",
+    "443 ssl",
+  );
   await expect(page.locator(".vhost-card")).toHaveCount(0);
   await expect(table).toContainText("www.example.com");
   await expect(table).toContainText("2.0 GiB");
