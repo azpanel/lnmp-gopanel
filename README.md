@@ -23,11 +23,18 @@ sudo bash install.sh
 
 如需网站截图，可在 Debian 12/13 使用 `sudo bash install.sh --with-screenshots`，额外安装 Chromium、沙箱组件和中文字体，并以面板普通账号运行截图冒烟检查。已有 Chromium/Chrome 时优先复用；其他 Linux 发行版请自行安装浏览器，通过 `screenshots.browser` 指定其绝对路径。普通安装不安装浏览器，缺少浏览器只影响截图功能。`--check` 不安装系统依赖；可选安装产生的系统软件包不会在面板文件回滚时卸载。
 
-脚本下载最新 Release 中对应架构的预编译安装包，验证 SHA-256，创建普通服务账号并安装面板、特权辅助程序、精确的 sudoers 规则及 systemd 服务。首次安装交互设置管理员密码（12–72 字节），检测本机 LNMP / Redis 服务，并启动面板。默认仅监听 `127.0.0.1:8090`，可使用下文的 SSH 隧道访问，运行时无需 Go 或 Node.js。
+脚本下载最新 Release 中对应架构的预编译安装包，验证 SHA-256，创建普通服务账号并安装面板、特权辅助程序、精确的 sudoers 规则及 systemd 服务。首次安装交互选择 SSL 证书并设置管理员密码（12–72 字节），检测本机 LNMP / Redis 服务，并启动面板。面板仅提供 HTTPS，监听 `0.0.0.0` 上由系统随机分配的空闲端口；安装完成后显示监听地址和端口，需在安全组及防火墙中放行该 TCP 端口。运行时无需 Go、Node.js 或 OpenSSL。
+
+证书有两种来源：
+
+- 自动生成自签名证书：无需填写域名、组织等表单，自动使用 ECDSA P-256 密钥、随机序列号、一年有效期，以及 localhost、本机主机名和网卡 IP 的 SAN。TLS 最低版本为 1.2，浏览器需要信任该证书；服务器公网 IP 经 NAT 映射时可能不在自动发现的 SAN 中。
+- 借用现有证书：扫描 `/usr/local/nginx/conf/ssl` 下的目录，仅列出存在有效证书及匹配的未加密私钥的目录，支持 `.pem`、`.crt`、`.cer`、`.key` 及 ACME 符号链接，优先使用 fullchain。选择后复制到面板专用目录，不修改源证书或私钥权限。使用证书覆盖的域名访问。
+
+证书和私钥安装到 `/etc/lnmp-gopanel/tls/`，目录权限 `0750`、文件权限 `0640`、所有者 `root:lnmp-panel`。借用的证书不会自动跟随原证书续期；续期后重新执行 `sudo bash install.sh --certificate-dir /usr/local/nginx/conf/ssl/域名`，同步证书并重启面板，已有 HTTPS 端口保持不变。自签名证书可通过 `--tls-mode self-signed` 重新生成。
 
 安装时会以 `lnmp-panel` 账号检查服务状态、Docker 查询、文件扫描和定时任务读取的精确 sudo 授权，并实际免密调用一次只读 `docker snapshot` 辅助程序（无需安装或启动 Docker，不触发全盘扫描或服务启停）。启动面板后读取实际进程的 `/proc/<MainPID>/status`，确认 `NoNewPrivs: 0`，避免 systemd 隐式限制使所有辅助功能不可用；检查失败会报错并回滚。`--no-start` 只执行辅助程序检查，进程限制需在自行启动后验证。
 
-重复执行同一命令即可升级，现有 `config.yaml`、管理员密码和 `services.yaml` 内容会保留。升级只重启面板服务，不重启 Nginx、PHP、数据库、Redis 或 Docker；已有面板会话需重新登录。替换前的文件保存在 `/var/backups/lnmp-gopanel/`，替换或启动失败时自动恢复旧文件。
+重复执行同一命令即可升级，已有 HTTPS 配置、端口、证书、管理员密码和 `services.yaml` 会保留。旧版 HTTP 安装升级时会询问证书来源、迁移为随机端口的 HTTPS，并保留管理员凭据及服务配置；原 HTTP 端口不再使用，需调整安全组或反向代理。升级只重启面板服务，不重启 Nginx、PHP、数据库、Redis 或 Docker；已有面板会话需重新登录。替换前的文件保存在 `/var/backups/lnmp-gopanel/`，替换或启动失败时自动恢复旧文件，包含原配置及证书。
 
 指定版本、自定义首次安装用户名、只验证包及离线安装：
 
@@ -38,7 +45,7 @@ bash install.sh --version v0.1.0 --check
 sudo bash install.sh --archive ./lnmp-gopanel_linux_amd64.tar.gz
 ```
 
-离线安装同时需要 `lnmp-gopanel_linux_amd64.tar.gz.sha256`（或通过 `--checksum-file` 指定校验文件）。`--no-start` 用于安装后自行检查配置，脚本不会启用或重启面板；检查后执行 `sudo systemctl enable --now lnmp-gopanel`，已有运行实例升级后需执行 `sudo systemctl restart lnmp-gopanel`。非交互首次安装可通过 `--password-stdin` 从标准输入读取密码，勿把密码放入命令行参数。
+离线安装同时需要 `lnmp-gopanel_linux_amd64.tar.gz.sha256`（或通过 `--checksum-file` 指定校验文件）。`--no-start` 用于安装后自行检查配置，脚本不会启用或重启面板；检查后执行 `sudo systemctl enable --now lnmp-gopanel`，已有运行实例升级后需执行 `sudo systemctl restart lnmp-gopanel`。非交互首次安装使用 `--password-stdin --tls-mode self-signed`，或 `--password-stdin --tls-mode existing --certificate-dir /usr/local/nginx/conf/ssl/域名`；密码从标准输入读取，勿把密码放入命令行参数。非交互旧版 HTTP 升级也需显式选择证书模式。
 
 ## GitHub Actions 产物
 
@@ -82,11 +89,11 @@ make build
 ./bin/lnmp-gopanel --config ./config.yaml --services ./services.yaml
 ```
 
-访问 http://127.0.0.1:8090 。默认用户名为 `admin`，密码为初始化时设置的值。CLI 也支持 `init --username NAME` 和 `--password-stdin`，请勿将密码直接写入命令历史。
+访问 https://127.0.0.1:8090 ，并信任初始化生成的自签名证书。默认用户名为 `admin`，密码为初始化时设置的值。CLI 也支持 `init --username NAME`、`--password-stdin`、`--listen HOST:PORT` 和 `--certificate-dir DIR`；端口设为 `0` 时自动选择空闲端口。请勿将密码直接写入命令历史。
 
 如果开发容器只能以 root 运行，可临时添加 `--allow-root-for-development`；生产环境使用下面的普通用户部署。未安装辅助程序时仍可查看系统指标，服务状态显示未知，不会模拟服务数据。
 
-前端开发：先运行后端，再在 `web` 目录执行 `npm ci && npm run dev`，访问 Vite 输出的本地地址；`/api` 自动代理到 8090，使用 Cookie 认证。普通 `go run ./cmd/panel` 从 `web/dist` 读取构建产物，不带生产嵌入标签。
+前端开发：先运行后端，再在 `web` 目录执行 `npm ci && npm run dev`，访问 Vite 输出的本地 HTTPS 地址并信任证书；Vite 使用仓库根目录 `tls/` 中初始化生成的证书，`/api` 自动代理到 HTTPS 8090，使用 Secure Cookie 认证。普通 `go run ./cmd/panel` 从 `web/dist` 读取构建产物，不带生产嵌入标签。
 
 ## Linux 部署
 
@@ -109,6 +116,9 @@ sudo /usr/local/bin/lnmp-gopanel init
 sudo chown root:lnmp-panel /etc/lnmp-gopanel /etc/lnmp-gopanel/config.yaml
 sudo chmod 0750 /etc/lnmp-gopanel
 sudo chmod 0640 /etc/lnmp-gopanel/config.yaml
+sudo chown -R root:lnmp-panel /etc/lnmp-gopanel/tls
+sudo chmod 0750 /etc/lnmp-gopanel/tls
+sudo chmod 0640 /etc/lnmp-gopanel/tls/panel.crt /etc/lnmp-gopanel/tls/panel.key
 sudo chown root:root /etc/lnmp-gopanel/services.yaml
 sudo chmod 0644 /etc/lnmp-gopanel/services.yaml
 sudo visudo -cf deploy/lnmp-gopanel.sudoers
@@ -120,35 +130,34 @@ sudo systemctl enable --now lnmp-gopanel
 
 Web 进程没有任意命令接口。它只能通过 `/usr/bin/sudo -n` 调用固定辅助程序；辅助程序只读取固定位置的 root 配置，验证配置与可执行文件及其父目录为 root 所有、不可由组或其他用户写入，再执行白名单服务操作。不使用 setuid 文件权限。systemd 配置显式关闭 `NoNewPrivileges`，同时关闭在 systemd 252 等版本中会对普通服务账号隐式启用它的 `ProtectKernelTunables`、`ProtectKernelModules`、`RestrictRealtime` 和 `LockPersonality`；仅设置 `NoNewPrivileges=false` 不足以解除这些隐式限制。保留 `ProtectControlGroups=true`，不启用 `RestrictSUIDSGID`。辅助程序会继承 systemd 的文件系统视图，因此不启用 `ProtectHome` 或将 `/usr/local` 设为只读，避免阻止 LNMP 脚本读写 PID、日志及配置检查所需路径。普通 Web 用户仍受 Unix 文件权限限制。
 
-默认仅监听回环地址，可以从个人电脑建立 SSH 隧道：
+脚本安装默认对外提供 HTTPS，实际端口以 `/etc/lnmp-gopanel/config.yaml` 的 `listen` 为准，并在重启后保持不变。例如安装结果为 `0.0.0.0:39481`，则访问 `https://服务器公网IP:39481/`，借用证书时访问 `https://证书域名:39481/`。`0.0.0.0` 表示绑定所有 IPv4 网卡，不是浏览器访问地址。需要放行对应 TCP 端口；脚本不自动修改安全组或防火墙。
+
+可在服务器本机检查 HTTPS（自签名证书用安装的证书验证）：
+
+```bash
+sudo ss -lntp 'sport = :39481'
+curl --cacert /etc/lnmp-gopanel/tls/panel.crt -I https://127.0.0.1:39481/
+```
+
+以上 `39481` 是示例，需替换为实际端口；借用证书时使用证书域名和对应的 CA 信任链。明文 HTTP 请求不会进入面板。若本机 HTTPS 正常但公网不通，检查安全组、防火墙及公网 IP / NAT 端口映射。
+
+手工执行 `init` 默认监听 `127.0.0.1:8090` 并生成自签名证书，仅接受本机 HTTPS；可通过 `--listen 0.0.0.0:0` 初始化为随机公网监听端口，或使用 SSH 隧道访问：
 
 ```bash
 ssh -N -L 8090:127.0.0.1:8090 user@your-server
 ```
 
-然后访问 http://127.0.0.1:8090 。
+然后访问 `https://127.0.0.1:8090/`。脚本安装使用隧道时，将隧道目标端口替换为实际随机端口。
 
-若要直接通过公网 IP 和端口访问，在新安装的服务器上修改监听并重启面板：
+安装时显示的 `/tmp/lnmp-gopanel-install.*/config` 是暂存目录；实际配置安装在 `/etc/lnmp-gopanel/`。
 
-```bash
-sudo sed -i.bak 's/^listen:.*/listen: 0.0.0.0:8090/' /etc/lnmp-gopanel/config.yaml
-sudo systemctl restart lnmp-gopanel
-sudo ss -lntp 'sport = :8090'
-curl -I http://127.0.0.1:8090/
-```
-
-同时在云服务器安全组和系统防火墙中放行 TCP 8090，然后访问 `http://服务器公网IP:8090`。`127.0.0.1` 只接受本机连接，`0.0.0.0` 绑定所有 IPv4 网卡，不是浏览器中使用的地址。若本机 HTTP 检查成功但公网不通，继续检查安全组、防火墙及公网 IP / NAT 端口映射。
-
-安装时显示的 `/tmp/lnmp-gopanel-install.*/config` 是暂存目录；实际配置安装在 `/etc/lnmp-gopanel/`。首次安装前查询 systemd 启用状态时，旧版安装脚本可能提示 `No such file or directory`；只要随后安装完成且 `systemctl is-active lnmp-gopanel` 返回 `active`，这条提示不表示安装失败。
-
-使用域名及 HTTPS 反向代理时，面板可继续监听 `127.0.0.1:8090`。参考 `deploy/nginx.conf.example` 配置代理，并将面板配置设置为：
+使用 HTTPS 反向代理时，面板的上游连接也必须使用 HTTPS。参考 `deploy/nginx.conf.example`，将代理端口改为实际监听端口，配置证书信任及匹配的 `proxy_ssl_name`，并将面板配置设置为：
 
 ```yaml
-secure_cookie: true
 public_origin: https://panel.example.com
 ```
 
-配置改变后重启面板。SSE 的代理路径必须关闭缓冲与缓存。若面板依赖被管理的 Nginx 代理，停止它会中断访问，应使用 SSH 隧道或独立 HTTPS 入口保留管理通道。
+面板始终启用 Secure Cookie。配置改变后重启面板；旧的 HTTP `public_origin` 在迁移时清空。SSE 的代理路径必须关闭缓冲与缓存。若面板依赖被管理的 Nginx 代理，停止它会中断访问，可使用面板自身的 HTTPS 端口或 SSH 隧道保留管理通道。
 
 ## 配置与状态说明
 

@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"github.com/azpanel/lnmp-gopanel/internal/control"
 	"github.com/azpanel/lnmp-gopanel/internal/docker"
 	"github.com/azpanel/lnmp-gopanel/internal/metrics"
+	"github.com/azpanel/lnmp-gopanel/internal/paneltls"
 	"github.com/azpanel/lnmp-gopanel/internal/releases"
 	"github.com/azpanel/lnmp-gopanel/internal/screenshots"
 	"github.com/azpanel/lnmp-gopanel/internal/server"
@@ -45,6 +47,9 @@ func run() error {
 	if len(os.Args) > 1 && os.Args[1] == "check-screenshots" {
 		return checkScreenshots(os.Args[2:])
 	}
+	if len(os.Args) > 1 && os.Args[1] == "https" {
+		return configureHTTPS(os.Args[2:])
+	}
 	flags := flag.NewFlagSet("lnmp-gopanel", flag.ContinueOnError)
 	path := flags.String("config", "/etc/lnmp-gopanel/config.yaml", "panel configuration")
 	servicesPath := flags.String("services", "/etc/lnmp-gopanel/services.yaml", "service configuration")
@@ -58,6 +63,10 @@ func run() error {
 	c, err := config.Load(*path)
 	if err != nil {
 		return err
+	}
+	certificate, err := paneltls.Load(c.TLS.CertFile, c.TLS.KeyFile)
+	if err != nil {
+		return fmt.Errorf("HTTPS certificate: %w", err)
 	}
 	services, err := config.LoadServices(*servicesPath)
 	if err != nil {
@@ -79,10 +88,11 @@ func run() error {
 		slog.Warn("截图状态存储初始化失败，其他功能继续运行", "error", err)
 	}
 	httpServer := &http.Server{Addr: c.Listen, Handler: app.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 * 1024}
+	httpServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
 	httpServer.BaseContext = func(net.Listener) context.Context { return ctx }
-	slog.Info("LNMP GoPanel listening", "address", c.Listen, "services", len(services))
+	slog.Info("LNMP GoPanel HTTPS listening", "address", c.Listen, "services", len(services))
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- httpServer.ListenAndServe() }()
+	go func() { serveErr <- httpServer.ListenAndServeTLS("", "") }()
 	select {
 	case err := <-serveErr:
 		if errors.Is(err, http.ErrServerClosed) {
@@ -136,6 +146,9 @@ func initialize(args []string) error {
 	dir := flags.String("dir", "/etc/lnmp-gopanel", "configuration directory (existing files are never overwritten)")
 	username := flags.String("username", "admin", "administrator name")
 	stdin := flags.Bool("password-stdin", false, "read a password from stdin instead of terminal")
+	listen := flags.String("listen", "127.0.0.1:8090", "HTTPS listen address; port 0 selects an unused port")
+	tlsDir := flags.String("tls-dir", "", "installed TLS directory (defaults to DIR/tls)")
+	certificateDir := flags.String("certificate-dir", "", "import an existing certificate/key pair instead of generating a self-signed certificate")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -186,6 +199,10 @@ func initialize(args []string) error {
 	if err := os.MkdirAll(*dir, 0750); err != nil {
 		return err
 	}
+	c := config.Config{Listen: *listen, Username: *username, PasswordHash: string(hash), Helper: "/usr/local/libexec/lnmp-gopanel-control"}
+	if err := prepareHTTPS(&c, *dir, *tlsDir, *certificateDir); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	services := control.Detect(ctx)
@@ -193,7 +210,7 @@ func initialize(args []string) error {
 		name  string
 		value any
 		mode  os.FileMode
-	}{{"config.yaml", config.Config{Listen: "127.0.0.1:8090", Username: *username, PasswordHash: string(hash), Helper: "/usr/local/libexec/lnmp-gopanel-control"}, 0640}, {"services.yaml", config.Services{Services: services}, 0644}}
+	}{{"config.yaml", c, 0640}, {"services.yaml", config.Services{Services: services}, 0644}}
 	for _, file := range files {
 		data, err := yaml.Marshal(file.value)
 		if err != nil {

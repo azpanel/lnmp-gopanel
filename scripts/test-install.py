@@ -6,6 +6,7 @@ import io
 import os
 from pathlib import Path
 import platform
+import pty
 import re
 import shutil
 import subprocess
@@ -23,6 +24,8 @@ TARGETS = (
     "/etc/sudoers.d/lnmp-gopanel",
     "/etc/lnmp-gopanel/config.yaml",
     "/etc/lnmp-gopanel/services.yaml",
+    "/etc/lnmp-gopanel/tls/panel.crt",
+    "/etc/lnmp-gopanel/tls/panel.key",
 )
 
 
@@ -102,6 +105,38 @@ fi
 printf '{"status":"unavailable","message":"Docker not installed"}\\n'
 """
 PANEL = """#!/bin/bash
+if [[ "$1" == https ]]; then
+  shift
+  config=/etc/lnmp-gopanel/config.yaml
+  check=false
+  while (($#)); do
+    case "$1" in
+      --check) check=true; shift ;;
+      --list-certificates)
+        for dir in /usr/local/nginx/conf/ssl/*; do
+          [[ -f "$dir/fullchain.pem" && -f "$dir/privkey.pem" ]] && printf '%s\\n' "$dir"
+        done
+        exit 0 ;;
+      --config) config="$2"; shift 2 ;;
+      --tls-dir) tls_dir="$2"; shift 2 ;;
+      --certificate-dir) certificate_dir="$2"; shift 2 ;;
+      *) exit 64 ;;
+    esac
+  done
+  if "$check"; then
+    [[ -f "$config" ]] || exit 1
+    awk '/^tls:/ { found=1 } END { exit !found }' "$config" || exit 1
+    [[ ! -f /run/fail-tls-check ]] || exit 1
+    printf '0.0.0.0:39481\\n'
+    exit 0
+  fi
+  config_dir="${config%/*}"
+  mkdir -p "$config_dir/tls"
+  printf 'tls:\\n  cert_file: %s/panel.crt\\n  key_file: %s/panel.key\\nlisten: 0.0.0.0:39481\\nsecure_cookie: true\\n' "$tls_dir" "$tls_dir" >> "$config"
+  printf 'test cert\\n' > "$config_dir/tls/panel.crt"
+  printf 'test key\\n' > "$config_dir/tls/panel.key"
+  exit 0
+fi
 if [[ "$1" == check-screenshots ]]; then
   printf '%s\\n' "$*" >> /run/screenshot-check.log
   [[ -x /usr/bin/chromium && ! -f /run/fail-screenshot-check ]] || exit 1
@@ -114,6 +149,9 @@ while (($#)); do
     --dir) config_dir="$2"; shift 2 ;;
     --username) username="$2"; shift 2 ;;
     --password-stdin) shift ;;
+    --listen) shift 2 ;;
+    --tls-dir) tls_dir="$2"; shift 2 ;;
+    --certificate-dir) certificate_dir="$2"; shift 2 ;;
     *) exit 64 ;;
   esac
 done
@@ -122,6 +160,11 @@ IFS= read -r password
 mkdir -p "$config_dir"
 printf 'username: %s\\npassword_hash: test-only-placeholder\\n' "$username" > "$config_dir/config.yaml"
 printf 'services: []\\n' > "$config_dir/services.yaml"
+"$0" https --config "$config_dir/config.yaml" --tls-dir "$tls_dir"
+if [[ -n "$certificate_dir" ]]; then
+  cp "$certificate_dir/fullchain.pem" "$config_dir/tls/panel.crt"
+  cp "$certificate_dir/privkey.pem" "$config_dir/tls/panel.key"
+fi
 """
 
 
@@ -202,7 +245,9 @@ fi
         digest = hashlib.sha256(self.archive.read_bytes()).hexdigest()
         self.archive.with_suffix(self.archive.suffix + ".sha256").write_text(f"{digest}  {ASSET}\n")
 
-    def run_installer(self, *options, success=True):
+    def run_installer(self, *options, success=True, automatic_tls=True):
+        if automatic_tls and "--tls-mode" not in options and "--certificate-dir" not in options:
+            options = (*options, "--tls-mode", "self-signed")
         result = subprocess.run(
             ["chroot", str(self.root), "/bin/bash", "/install.sh", "--archive", f"/tmp/{ASSET}", *options],
             input="installer-test-password\n", text=True, capture_output=True, timeout=20,
@@ -213,7 +258,7 @@ fi
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         return result
 
-    def old_installation(self):
+    def old_installation(self, https=False):
         # Let real shadow utilities create the dedicated account inside chroot.
         subprocess.run(["chroot", str(self.root), "groupadd", "--system", "lnmp-panel"], check=True)
         subprocess.run(["chroot", str(self.root), "useradd", "--system", "--gid", "lnmp-panel", "--no-create-home", "lnmp-panel"], check=True)
@@ -223,6 +268,8 @@ fi
             else:
                 content = "previous:" + target + "\n"
             write(self.root, target, content, 0o640 if target.endswith("config.yaml") else 0o644)
+        if https:
+            write(self.root, "/etc/lnmp-gopanel/config.yaml", "username: previous-admin\npassword_hash: preserved-hash\ntls:\n  cert_file: /etc/lnmp-gopanel/tls/panel.crt\n  key_file: /etc/lnmp-gopanel/tls/panel.key\nlisten: 0.0.0.0:39481\n", 0o640)
         write(self.root, "/run/panel.active", "")
         write(self.root, "/run/panel.enabled", "")
         return {target: (self.root / target.lstrip("/")).read_bytes() for target in TARGETS}
@@ -233,6 +280,11 @@ fi
         self.assertNotIn("Docker not installed", result.stdout)
         config = self.root / "etc/lnmp-gopanel/config.yaml"
         self.assertIn("username: operator", config.read_text())
+        self.assertIn("secure_cookie: true", config.read_text())
+        self.assertIn("HTTPS listener: 0.0.0.0:39481", result.stdout)
+        self.assertNotIn("http://", result.stdout)
+        for name in ("panel.crt", "panel.key"):
+            self.assertEqual((self.root / "etc/lnmp-gopanel/tls" / name).stat().st_mode & 0o777, 0o640)
         self.assertEqual(config.stat().st_mode & 0o777, 0o640)
         self.assertEqual((self.root / "etc/sudoers.d/lnmp-gopanel").stat().st_mode & 0o777, 0o440)
         self.assertIn(
@@ -250,9 +302,9 @@ fi
         self.assertIn("show lnmp-gopanel --property=MainPID --value\n", (self.root / "run/systemctl.log").read_text())
 
     def test_upgrade_preserves_credentials_and_no_start(self):
-        previous = self.old_installation()
-        self.run_installer("--no-start")
-        for target in TARGETS[-2:]:
+        previous = self.old_installation(https=True)
+        self.run_installer("--no-start", automatic_tls=False)
+        for target in TARGETS[4:]:
             self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
         log = (self.root / "run/systemctl.log").read_text()
         self.assertNotIn("restart lnmp-gopanel", log)
@@ -260,6 +312,73 @@ fi
         self.assertNotIn("show lnmp-gopanel", log)
         self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\n")
         self.assertTrue(list((self.root / "var/backups/lnmp-gopanel").glob("*/manifest")))
+
+    def test_http_upgrade_migrates_and_preserves_credentials_and_services(self):
+        previous = self.old_installation()
+        self.run_installer()
+        config = (self.root / "etc/lnmp-gopanel/config.yaml").read_bytes()
+        self.assertIn(previous[TARGETS[4]], config)
+        self.assertIn(b"tls:", config)
+        self.assertIn(b"listen: 0.0.0.0:39481", config)
+        self.assertEqual((self.root / TARGETS[5].lstrip("/")).read_bytes(), previous[TARGETS[5]])
+
+    def test_existing_certificate_selection(self):
+        directory = "/usr/local/nginx/conf/ssl/example.com"
+        write(self.root, directory + "/fullchain.pem", "existing cert\n")
+        key = write(self.root, directory + "/privkey.pem", "existing key\n", 0o600)
+        self.run_installer("--password-stdin", "--certificate-dir", directory)
+        self.assertEqual((self.root / "etc/lnmp-gopanel/tls/panel.crt").read_text(), "existing cert\n")
+        self.assertEqual((self.root / "etc/lnmp-gopanel/tls/panel.key").read_text(), "existing key\n")
+        self.assertEqual(key.stat().st_mode & 0o777, 0o600)
+
+    def test_interactive_certificate_menu(self):
+        directory = "/usr/local/nginx/conf/ssl/example.com"
+        write(self.root, directory + "/fullchain.pem", "existing cert\n")
+        write(self.root, directory + "/privkey.pem", "existing key\n")
+        master, slave = pty.openpty()
+        try:
+            process = subprocess.Popen(
+                ["chroot", str(self.root), "/bin/bash", "/install.sh", "--archive", f"/tmp/{ASSET}", "--password-stdin"],
+                stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            os.close(slave)
+            slave = None
+            os.write(master, b"2\n1\ninstaller-test-password\n")
+            stdout, stderr = process.communicate(timeout=20)
+            self.assertEqual(process.returncode, 0, stdout + stderr)
+            self.assertIn("自动生成自签名证书", stdout)
+            self.assertIn(directory, stdout)
+            self.assertEqual((self.root / "etc/lnmp-gopanel/tls/panel.crt").read_text(), "existing cert\n")
+        finally:
+            os.close(master)
+            if slave is not None:
+                os.close(slave)
+
+    def test_noninteractive_certificate_choice_is_required(self):
+        result = self.run_installer("--password-stdin", success=False, automatic_tls=False)
+        self.assertIn("Certificate selection needs a terminal", result.stderr)
+        self.assertFalse((self.root / "usr/local/bin/lnmp-gopanel").exists())
+
+    def test_no_usable_existing_certificate_fails_before_mutation(self):
+        result = self.run_installer("--password-stdin", "--tls-mode", "existing", success=False)
+        self.assertIn("No valid certificate/key pairs", result.stderr)
+        self.assertFalse((self.root / "usr/local/bin/lnmp-gopanel").exists())
+
+    def test_certificate_outside_scanned_directories_is_rejected(self):
+        directory = "/usr/local/nginx/conf/ssl/example.com"
+        write(self.root, directory + "/fullchain.pem", "existing cert\n")
+        write(self.root, directory + "/privkey.pem", "existing key\n")
+        result = self.run_installer("--password-stdin", "--certificate-dir", "/other/cert", success=False)
+        self.assertIn("not a usable scanned directory", result.stderr)
+        self.assertFalse((self.root / "usr/local/bin/lnmp-gopanel").exists())
+
+    def test_tls_readability_failure_restores_previous_files(self):
+        previous = self.old_installation()
+        write(self.root, "/run/fail-tls-check", "")
+        result = self.run_installer(success=False)
+        self.assertIn("Panel account cannot read a valid HTTPS certificate", result.stderr)
+        for target in TARGETS:
+            self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
 
     def test_missing_helper_permissions_rolls_back(self):
         previous = self.old_installation()

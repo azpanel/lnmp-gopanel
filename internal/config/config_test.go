@@ -39,8 +39,8 @@ func TestHTTPSOriginAndMalformedOrigins(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := filepath.Join(t.TempDir(), "config.yaml")
-	for _, origin := range []string{"https://panel.example.com/", "https://panel.example.com/path", "https://user:pass@panel.example.com", "https://", "javascript:alert(1)", "https://panel.example.com?x=1"} {
-		c := Config{Username: "admin", PasswordHash: string(hash), PublicOrigin: origin}
+	for _, origin := range []string{"https://panel.example.com/", "http://panel.example.com", "https://panel.example.com/path", "https://user:pass@panel.example.com", "https://", "javascript:alert(1)", "https://panel.example.com?x=1"} {
+		c := Config{Username: "admin", PasswordHash: string(hash), PublicOrigin: origin, TLS: TLSConfig{CertFile: "/tls/panel.crt", KeyFile: "/tls/panel.key"}}
 		data, _ := yaml.Marshal(c)
 		if err := os.WriteFile(file, data, 0600); err != nil {
 			t.Fatal(err)
@@ -63,7 +63,7 @@ func TestScreenshotConfigDefaultsAndAbsolutePaths(t *testing.T) {
 	}
 	file := filepath.Join(t.TempDir(), "config.yaml")
 	for _, settings := range []ScreenshotConfig{{}, {Browser: "chromium"}, {StateDir: "state"}, {Browser: "/usr/bin/chromium", StateDir: "/var/lib/lnmp-gopanel"}} {
-		c := Config{Username: "admin", PasswordHash: string(hash), Screenshots: settings}
+		c := Config{Username: "admin", PasswordHash: string(hash), Screenshots: settings, TLS: TLSConfig{CertFile: "/tls/panel.crt", KeyFile: "/tls/panel.key"}}
 		data, _ := yaml.Marshal(c)
 		if err := os.WriteFile(file, data, 0600); err != nil {
 			t.Fatal(err)
@@ -80,6 +80,28 @@ func TestScreenshotConfigDefaultsAndAbsolutePaths(t *testing.T) {
 		}
 		if settings.StateDir == "" && loaded.Screenshots.StateDir != filepath.Join(filepath.Dir(file), "screenshots-state") {
 			t.Fatal("local config should use local state")
+		}
+	}
+}
+
+func TestHTTPSRequired(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("test-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "config.yaml")
+	for _, tls := range []TLSConfig{{}, {CertFile: "/cert.pem"}, {KeyFile: "/key.pem"}, {CertFile: "cert.pem", KeyFile: "/key.pem"}, {CertFile: "/cert.pem", KeyFile: "/key.pem"}} {
+		data, _ := yaml.Marshal(Config{Username: "admin", PasswordHash: string(hash), TLS: tls})
+		if err := os.WriteFile(file, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		c, err := Load(file)
+		valid := filepath.IsAbs(tls.CertFile) && filepath.IsAbs(tls.KeyFile)
+		if valid && (err != nil || !c.SecureCookie) {
+			t.Fatalf("HTTPS must force secure cookies: %+v %v", c, err)
+		}
+		if !valid && err == nil {
+			t.Fatalf("accepted missing or relative TLS paths: %+v", tls)
 		}
 	}
 }

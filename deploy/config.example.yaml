@@ -1,9 +1,13 @@
-listen: 127.0.0.1:8090
+# The installer replaces port 0 with a randomly selected unused port.
+listen: 0.0.0.0:0
 username: admin
 # Generate the actual hash with lnmp-gopanel init (never a default password).
 password_hash: REPLACE_WITH_GENERATED_BCRYPT_HASH
-secure_cookie: false
-# Set both public_origin and secure_cookie when using an HTTPS reverse proxy.
+secure_cookie: true
+tls:
+  cert_file: /etc/lnmp-gopanel/tls/panel.crt
+  key_file: /etc/lnmp-gopanel/tls/panel.key
+# Optional fixed HTTPS origin, including the port when using a non-default port.
 public_origin: ""
 helper: /usr/local/libexec/lnmp-gopanel-control
 # Optional Chromium executable; empty detects Chromium/Chrome on PATH.

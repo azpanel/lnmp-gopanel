@@ -12,6 +12,9 @@ password_stdin=false
 start_service=true
 check_only=false
 with_screenshots=false
+tls_mode=""
+certificate_dir=""
+tls_changed=false
 work_dir=""
 backup_dir=""
 mutation_started=false
@@ -25,6 +28,8 @@ targets=(
   /etc/sudoers.d/lnmp-gopanel
   /etc/lnmp-gopanel/config.yaml
   /etc/lnmp-gopanel/services.yaml
+  /etc/lnmp-gopanel/tls/panel.crt
+  /etc/lnmp-gopanel/tls/panel.key
 )
 
 usage() {
@@ -39,10 +44,13 @@ Usage: sudo bash install.sh [options]
   --no-start             Install without enabling or restarting the panel service
   --check                Download and validate the package without installing
   --with-screenshots     Ensure Chromium is installed (automatic install: Debian 12/13)
+  --tls-mode MODE        self-signed or existing (otherwise prompt when TLS is needed)
+  --certificate-dir DIR  Use a certificate directory under /usr/local/nginx/conf/ssl
   -h, --help             Show this help
 
 Requires Linux amd64/arm64, systemd and root. New installations prompt for a
-12-72 byte password. Upgrades preserve existing credentials and services.yaml.
+12-72 byte password and a certificate choice. Only HTTPS is supported.
+Upgrades preserve credentials, services.yaml and an existing HTTPS listener.
 EOF
 }
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
@@ -57,6 +65,8 @@ while (($#)); do
     --no-start) start_service=false; shift ;;
     --check) check_only=true; shift ;;
     --with-screenshots) with_screenshots=true; shift ;;
+    --tls-mode) need_value "$@"; tls_mode="$2"; shift 2 ;;
+    --certificate-dir) need_value "$@"; certificate_dir="${2%/}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
@@ -70,6 +80,11 @@ case "$(uname -m)" in
 esac
 [[ "$release_version" == latest || "$release_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]] || die "Invalid release tag"
 [[ -n "$admin_username" && ${#admin_username} -le 128 ]] || die "Invalid administrator name"
+[[ -z "$tls_mode" || "$tls_mode" == self-signed || "$tls_mode" == existing ]] || die "--tls-mode must be self-signed or existing"
+if [[ -n "$certificate_dir" ]]; then
+  [[ "$tls_mode" != self-signed ]] || die "--certificate-dir cannot be used with self-signed mode"
+  tls_mode=existing
+fi
 if ! "$check_only"; then
   [[ $EUID -eq 0 ]] || die "Run this installer as root"
   [[ -d /run/systemd/system ]] || die "A running systemd installation is required"
@@ -83,6 +98,47 @@ atomic_install() {
   local staged="${destination}.new.$$"
   install -o root -g "$group" -m "$mode" "$source" "$staged"
   mv -fT -- "$staged" "$destination"
+}
+choose_certificate() {
+  local choice index found=false
+  local -a certificate_dirs=()
+  if [[ -z "$tls_mode" ]]; then
+    [[ -t 0 ]] || die "Certificate selection needs a terminal; use --tls-mode self-signed or --tls-mode existing --certificate-dir DIR"
+    printf '面板仅提供 HTTPS，请选择 SSL 证书：\n  1) 自动生成自签名证书（无需填写表单）\n  2) 借用服务器现有证书（扫描 /usr/local/nginx/conf/ssl）\n'
+    while true; do
+      read -r -p '请选择 [1/2，默认 1]：' choice || die "Certificate selection cancelled"
+      case "$choice" in
+        ""|1) tls_mode=self-signed; break ;;
+        2) tls_mode=existing; break ;;
+        *) printf '请输入 1 或 2。\n' ;;
+      esac
+    done
+  fi
+  if [[ "$tls_mode" == existing ]]; then
+    "$payload/bin/lnmp-gopanel" https --list-certificates > "$work_dir/certificates"
+    mapfile -t certificate_dirs < "$work_dir/certificates"
+    ((${#certificate_dirs[@]})) || die "No valid certificate/key pairs found under /usr/local/nginx/conf/ssl; use --tls-mode self-signed"
+    if [[ -z "$certificate_dir" ]]; then
+      [[ -t 0 ]] || die "Existing certificate selection needs a terminal or --certificate-dir DIR"
+      printf '可用的证书目录（已校验证书有效期及私钥匹配）：\n'
+      for index in "${!certificate_dirs[@]}"; do
+        printf '  %d) %s\n' "$((index + 1))" "${certificate_dirs[$index]}"
+      done
+      while true; do
+        read -r -p '请选择证书目录编号：' choice || die "Certificate selection cancelled"
+        if [[ "$choice" =~ ^[1-9][0-9]{0,5}$ ]] && ((choice <= ${#certificate_dirs[@]})); then
+          certificate_dir="${certificate_dirs[$((choice - 1))]}"
+          break
+        fi
+        printf '请输入列表中的编号。\n'
+      done
+    fi
+    for choice in "${certificate_dirs[@]}"; do
+      if [[ "$choice" == "$certificate_dir" ]]; then found=true; break; fi
+    done
+    "$found" || die "Certificate directory is not a usable scanned directory: $certificate_dir"
+    tls_args+=(--certificate-dir "$certificate_dir")
+  fi
 }
 check_helper() {
   local name action
@@ -222,7 +278,7 @@ done
 [[ -x /usr/bin/sudo ]] || die "Install sudo first (the panel requires /usr/bin/sudo)"
 exec 9>/run/lnmp-gopanel-install.lock
 flock -n 9 || die "Another installation is running"
-for destination in "${targets[@]}" /etc/lnmp-gopanel; do
+for destination in "${targets[@]}" /etc/lnmp-gopanel /etc/lnmp-gopanel/tls; do
   [[ ! -L "$destination" ]] || die "Refusing a symlink destination: $destination"
 done
 fresh_install=false
@@ -234,15 +290,24 @@ else
   die "Incomplete configuration: expected both config.yaml and services.yaml"
 fi
 visudo -cf "$payload/deploy/lnmp-gopanel.sudoers"
+chmod 0755 "$payload/bin/lnmp-gopanel"
+tls_args=(--tls-dir /etc/lnmp-gopanel/tls)
+if "$fresh_install" || [[ -n "$tls_mode" ]] || ! "$payload/bin/lnmp-gopanel" https --check >/dev/null 2>&1; then
+  tls_changed=true
+  choose_certificate
+fi
 if "$fresh_install"; then
-  chmod 0755 "$payload/bin/lnmp-gopanel"
-  init_args=(init --dir "$work_dir/config" --username "$admin_username")
+  init_args=(init --dir "$work_dir/config" --username "$admin_username" --listen 0.0.0.0:0 "${tls_args[@]}")
   if "$password_stdin"; then
     init_args+=(--password-stdin)
   elif [[ ! -t 0 ]]; then
     die "A new installation needs a terminal or --password-stdin"
   fi
   "$payload/bin/lnmp-gopanel" "${init_args[@]}"
+elif "$tls_changed"; then
+  mkdir -p "$work_dir/config"
+  cp -- /etc/lnmp-gopanel/config.yaml "$work_dir/config/config.yaml"
+  "$payload/bin/lnmp-gopanel" https --config "$work_dir/config/config.yaml" "${tls_args[@]}"
 fi
 if ! getent group lnmp-panel >/dev/null; then groupadd --system lnmp-panel; fi
 if ! getent passwd lnmp-panel >/dev/null; then
@@ -269,8 +334,13 @@ atomic_install "$payload/bin/lnmp-gopanel" /usr/local/bin/lnmp-gopanel 0755
 atomic_install "$payload/bin/lnmp-gopanel-control" /usr/local/libexec/lnmp-gopanel-control 0755
 atomic_install "$payload/deploy/lnmp-gopanel.service" /etc/systemd/system/lnmp-gopanel.service 0644
 atomic_install "$payload/deploy/lnmp-gopanel.sudoers" /etc/sudoers.d/lnmp-gopanel 0440
-if "$fresh_install"; then
+if "$tls_changed"; then
+  install -d -o root -g lnmp-panel -m 0750 /etc/lnmp-gopanel/tls
+  atomic_install "$work_dir/config/tls/panel.crt" /etc/lnmp-gopanel/tls/panel.crt 0640 lnmp-panel
+  atomic_install "$work_dir/config/tls/panel.key" /etc/lnmp-gopanel/tls/panel.key 0640 lnmp-panel
   atomic_install "$work_dir/config/config.yaml" /etc/lnmp-gopanel/config.yaml 0640 lnmp-panel
+fi
+if "$fresh_install"; then
   atomic_install "$work_dir/config/services.yaml" /etc/lnmp-gopanel/services.yaml 0644
 fi
 chown root:lnmp-panel /etc/lnmp-gopanel/config.yaml
@@ -278,6 +348,7 @@ chmod 0640 /etc/lnmp-gopanel/config.yaml
 chown root:root /etc/lnmp-gopanel/services.yaml
 chmod 0644 /etc/lnmp-gopanel/services.yaml
 visudo -cf /etc/sudoers
+panel_address="$(/usr/bin/sudo -n -u lnmp-panel -- /usr/local/bin/lnmp-gopanel https --check)" || die "Panel account cannot read a valid HTTPS certificate and key"
 check_helper
 if "$with_screenshots"; then
   if ! /usr/bin/sudo -n -u lnmp-panel -- /usr/local/bin/lnmp-gopanel check-screenshots; then
@@ -301,8 +372,12 @@ installation_complete=true
 printf 'Installation complete. Backups: %s\n' "$backup_dir"
 printf 'Configuration: /etc/lnmp-gopanel/config.yaml\n'
 printf 'Check /etc/lnmp-gopanel/services.yaml and use systemctl status lnmp-gopanel.\n'
-if "$fresh_install"; then
-  printf 'Default address: http://127.0.0.1:8090 (local access only).\n'
-  printf 'For direct public access, set listen: 0.0.0.0:8090 in the configuration, restart lnmp-gopanel, and allow TCP 8090 in your cloud security group and host firewall.\n'
-  printf 'For HTTPS access, see the reverse proxy example in the README.\n'
+printf 'HTTPS listener: %s\n' "$panel_address"
+printf '访问地址：https://服务器IP或证书域名:%s/；请在安全组和防火墙中放行该 TCP 端口。\n' "${panel_address##*:}"
+if "$tls_changed"; then
+  if [[ "$tls_mode" == self-signed ]]; then
+    printf '已自动生成 ECDSA P-256 自签名证书（有效期一年），浏览器需要信任该证书。\n'
+  else
+    printf '已复制证书：%s；请使用证书覆盖的域名访问。原证书续期后，使用相同 --certificate-dir 参数重新安装以同步证书。\n' "$certificate_dir"
+  fi
 fi

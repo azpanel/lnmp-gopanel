@@ -19,8 +19,13 @@ type Config struct {
 	PasswordHash string           `yaml:"password_hash"`
 	SecureCookie bool             `yaml:"secure_cookie"`
 	PublicOrigin string           `yaml:"public_origin"`
+	TLS          TLSConfig        `yaml:"tls"`
 	Helper       string           `yaml:"helper"`
 	Screenshots  ScreenshotConfig `yaml:"screenshots"`
+}
+type TLSConfig struct {
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
 }
 type ScreenshotConfig struct {
 	Browser  string `yaml:"browser"`
@@ -67,6 +72,10 @@ func Load(path string) (Config, error) {
 	if _, _, err := net.SplitHostPort(c.Listen); err != nil {
 		return c, fmt.Errorf("listen: %w", err)
 	}
+	if !filepath.IsAbs(c.TLS.CertFile) || !filepath.IsAbs(c.TLS.KeyFile) {
+		return c, errors.New("HTTPS requires absolute tls.cert_file and tls.key_file paths")
+	}
+	c.SecureCookie = true
 	if c.Helper == "" {
 		c.Helper = "/usr/local/libexec/lnmp-gopanel-control"
 	}
@@ -92,13 +101,10 @@ func Load(path string) (Config, error) {
 	}
 	if c.PublicOrigin != "" {
 		parsed, err := url.Parse(c.PublicOrigin)
-		if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" || parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
-			return c, errors.New("public_origin must be an http(s) origin without credentials, path, query or fragment")
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return c, errors.New("public_origin must be an https origin without credentials, path, query or fragment")
 		}
 		c.PublicOrigin = strings.TrimSuffix(c.PublicOrigin, "/")
-		if parsed.Scheme == "https" {
-			c.SecureCookie = true
-		}
 	}
 	return c, nil
 }

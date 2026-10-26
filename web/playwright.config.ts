@@ -4,7 +4,11 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   timeout: 30000,
-  use: { baseURL: "http://127.0.0.1:18091", trace: "retain-on-failure" },
+  use: {
+    baseURL: "https://127.0.0.1:18091",
+    ignoreHTTPSErrors: true,
+    trace: "retain-on-failure",
+  },
   projects: [
     {
       name: "desktop",
@@ -15,13 +19,19 @@ export default defineConfig({
     },
     {
       name: "mobile",
-      use: { ...devices["iPhone 13"], defaultBrowserType: "chromium" },
+      use: {
+        ...devices["iPhone 13"],
+        defaultBrowserType: "chromium",
+        baseURL: "https://127.0.0.1:18092",
+      },
     },
   ],
-  webServer: {
-    command: "node scripts/e2e-server.mjs",
-    url: "http://127.0.0.1:18091",
+  // Each project has its own sessions and login rate limit.
+  webServer: [18091, 18092].map((port) => ({
+    command: `node scripts/e2e-server.mjs ${port}`,
+    url: `https://127.0.0.1:${port}`,
+    ignoreHTTPSErrors: true,
     reuseExistingServer: false,
     timeout: 30000,
-  },
+  })),
 });
