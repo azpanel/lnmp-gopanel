@@ -1,0 +1,31 @@
+# EXAMPLE ONLY. Use lnmp-gopanel init to detect actual local services.
+# A service uses exactly one manager: init, systemd, or lnmp.
+services:
+  - name: nginx
+    manager: init
+    program: /etc/init.d/nginx
+    target: ""
+    check_program: /usr/local/nginx/sbin/nginx
+  - name: php-fpm
+    manager: init
+    program: /etc/init.d/php-fpm
+    target: ""
+  - name: mysql
+    manager: init
+    program: /etc/init.d/mysql
+    target: ""
+  # Redis is displayed read-only: status and version, with no service actions.
+  - name: redis
+    manager: init
+    program: /etc/init.d/redis
+    target: ""
+# Example systemd service:
+# - name: mariadb
+#   manager: systemd
+#   program: /usr/bin/systemctl
+#   target: mariadb.service
+# Example LNMP wrapper (only if status is supported by the installed script):
+# - name: php-fpm
+#   manager: lnmp
+#   program: /usr/bin/lnmp
+#   target: php-fpm

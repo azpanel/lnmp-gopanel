@@ -1,0 +1,229 @@
+# LNMP GoPanel
+
+面向 lnmp.org 安装环境的单机实时监控与服务管理面板。Go + Gin 后端，React + TypeScript + Vite 前端，使用 shadcn/ui、Tailwind CSS 和 Recharts。
+
+- CPU、内存、Swap、负载、运行时间、磁盘容量、磁盘 I/O 和网络速率。
+- SSE 每 2 秒推送；统一采集，多浏览器共享。无数据库、Redis 和指标历史文件。
+- 浏览器仅在内存中保留最近 5 分钟、最多 150 个采样点；刷新或退出登录即清空。重连只取最新数据，断档不补线。
+- Nginx、PHP-FPM、MySQL / MariaDB 状态与启停、重启；Nginx 配置检查通过后才允许重载。Redis 提供只读状态监控。
+- 显示服务已安装版本，异步查询官方最新稳定版本及 changelog。
+- Docker 只读概览：运行中容器的基础信息、可写层与虚拟大小，以及镜像、容器、数据卷和构建缓存的空间占用。
+- 单管理员、bcrypt 密码、内存 Session、CSRF 校验；独立特权辅助程序和精确 sudoers 规则。
+- 中文、深浅主题、移动端导航。仅主题偏好写入 localStorage。
+
+## 安装与升级
+
+在 Linux amd64 / arm64 机器上，以 root 或具备 sudo 权限的账号执行。需要运行中的 systemd、`curl`、`tar`、`gzip`、`sudo`（含 `visudo`）和常见系统工具；Debian / Ubuntu 可先执行 `sudo apt-get install -y curl ca-certificates tar gzip sudo`。
+
+```bash
+curl -fsSL https://github.com/azpanel/lnmp-gopanel/releases/latest/download/install.sh -o install.sh
+sudo bash install.sh
+```
+
+脚本下载最新 Release 中对应架构的预编译安装包，验证 SHA-256，创建普通服务账号并安装面板、特权辅助程序、精确的 sudoers 规则及 systemd 服务。首次安装交互设置管理员密码（12–72 字节），检测本机 LNMP / Redis 服务，并启动面板。默认仅监听 `127.0.0.1:8090`，可使用下文的 SSH 隧道访问，运行时无需 Go 或 Node.js。
+
+重复执行同一命令即可升级，现有 `config.yaml`、管理员密码和 `services.yaml` 内容会保留。升级只重启面板服务，不重启 Nginx、PHP、数据库、Redis 或 Docker；已有面板会话需重新登录。替换前的文件保存在 `/var/backups/lnmp-gopanel/`，替换或启动失败时自动恢复旧文件。
+
+指定版本、自定义首次安装用户名、只验证包及离线安装：
+
+```bash
+sudo bash install.sh --version v0.1.0 --username admin
+bash install.sh --version v0.1.0 --check
+# 从 Release 下载两个同名配套文件后执行；arm64 使用对应的 arm64 文件名
+sudo bash install.sh --archive ./lnmp-gopanel_linux_amd64.tar.gz
+```
+
+离线安装同时需要 `lnmp-gopanel_linux_amd64.tar.gz.sha256`（或通过 `--checksum-file` 指定校验文件）。`--no-start` 用于安装后自行检查配置，脚本不会启用或重启面板；检查后执行 `sudo systemctl enable --now lnmp-gopanel`，已有运行实例升级后需执行 `sudo systemctl restart lnmp-gopanel`。非交互首次安装可通过 `--password-stdin` 从标准输入读取密码，勿把密码放入命令行参数。
+
+## GitHub Actions 产物
+
+[Build and release](https://github.com/azpanel/lnmp-gopanel/actions/workflows/build.yml) 在主分支推送、Pull Request 和手动触发时检查格式、运行 Go 竞态测试与前端测试、执行隔离的安装脚本测试，然后构建 Linux amd64 / arm64 安装包。前端被嵌入面板程序，两个 Go 程序均禁用 CGO。Actions 的 `lnmp-gopanel-linux` Artifact 保留 30 天。
+
+推送 `v*` 标签会在构建通过后自动创建 GitHub Release，包含两种架构的 `.tar.gz`、各自的 `.sha256`、汇总的 `SHA256SUMS` 和 `install.sh`：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+本地生成相同布局的包：
+
+```bash
+cd web && npm ci && npm run build && cd ..
+bash scripts/package.sh amd64 v0.1.0
+bash scripts/package.sh arm64 v0.1.0
+```
+
+包内包含 `bin/lnmp-gopanel`、`bin/lnmp-gopanel-control`、`deploy/`、`install.sh`、`README.md` 和 `VERSION`；本机配置、账号密码、依赖目录、测试截图和构建缓存不会提交或打包。
+
+## 构建
+
+构建机需要 Go 1.26+、Node.js 22.12+、npm、make。目标机器为 Linux，运行时无需 Node.js。
+
+```bash
+make build
+```
+
+生成 `bin/lnmp-gopanel` 和 `bin/lnmp-gopanel-control`。生产面板使用 `-tags embed` 将前端嵌入 Go 二进制；服务辅助程序为独立二进制。
+
+## 本地运行
+
+从仓库根目录执行，首次初始化会提示输入密码（12–72 字节），检测本机服务，不执行服务启停：
+
+```bash
+./bin/lnmp-gopanel init --dir .
+./bin/lnmp-gopanel --config ./config.yaml --services ./services.yaml
+```
+
+访问 http://127.0.0.1:8090 。默认用户名为 `admin`，密码为初始化时设置的值。CLI 也支持 `init --username NAME` 和 `--password-stdin`，请勿将密码直接写入命令历史。
+
+如果开发容器只能以 root 运行，可临时添加 `--allow-root-for-development`；生产环境使用下面的普通用户部署。未安装辅助程序时仍可查看系统指标，服务状态显示未知，不会模拟服务数据。
+
+前端开发：先运行后端，再在 `web` 目录执行 `npm ci && npm run dev`，访问 Vite 输出的本地地址；`/api` 自动代理到 8090，使用 Cookie 认证。普通 `go run ./cmd/panel` 从 `web/dist` 读取构建产物，不带生产嵌入标签。
+
+## Linux 部署
+
+先将 `bin/` 和 `deploy/` 复制到目标机器。以下命令由管理员在项目目录执行，需要系统具备 systemd、sudo 和 visudo（通常来自 sudo 软件包）：
+
+```bash
+sudo groupadd --system lnmp-panel
+sudo useradd --system --gid lnmp-panel --no-create-home --shell /usr/sbin/nologin lnmp-panel
+sudo install -d -o root -g root -m 0755 /usr/local/libexec
+sudo install -o root -g root -m 0755 bin/lnmp-gopanel /usr/local/bin/lnmp-gopanel
+sudo install -o root -g root -m 0755 bin/lnmp-gopanel-control /usr/local/libexec/lnmp-gopanel-control
+sudo /usr/local/bin/lnmp-gopanel init
+```
+
+**检查 `/etc/lnmp-gopanel/services.yaml`**：每个服务固定一种管理方式，不要同时调用 systemd 与 init 管理同一服务。初始化优先探测已加载的原生 systemd 单元（排除 systemd 自动生成的 SysV 包装单元），其次探测 init 脚本，再对有已知程序的服务探测 LNMP 命令。对于已有 init 脚本、实际进程运行但原生 unit 为 failed/inactive 的 Nginx/PHP-FPM，保留 init 管理方式，避免误报停止或重复启动。路径与服务名使用白名单，暂不支持非标准 PHP 版本命名或自定义 unit。可删除不需要管理的服务；未检测到服务时允许 `services: []`。
+
+确认服务配置后安装权限规则并启动：
+
+```bash
+sudo chown root:lnmp-panel /etc/lnmp-gopanel /etc/lnmp-gopanel/config.yaml
+sudo chmod 0750 /etc/lnmp-gopanel
+sudo chmod 0640 /etc/lnmp-gopanel/config.yaml
+sudo chown root:root /etc/lnmp-gopanel/services.yaml
+sudo chmod 0644 /etc/lnmp-gopanel/services.yaml
+sudo visudo -cf deploy/lnmp-gopanel.sudoers
+sudo install -o root -g root -m 0440 deploy/lnmp-gopanel.sudoers /etc/sudoers.d/lnmp-gopanel
+sudo install -o root -g root -m 0644 deploy/lnmp-gopanel.service /etc/systemd/system/lnmp-gopanel.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now lnmp-gopanel
+```
+
+Web 进程没有任意命令接口。它只能通过 `/usr/bin/sudo -n` 调用固定辅助程序；辅助程序只读取固定位置的 root 配置，验证配置与可执行文件及其父目录为 root 所有、不可由组或其他用户写入，再执行白名单服务操作。不使用 setuid 文件权限。systemd 配置特意没有 `NoNewPrivileges`，因为此设置会阻止 sudo；内核和控制组等限制仍启用。辅助程序会继承 systemd 的文件系统视图，因此不启用 `ProtectHome` 或将 `/usr/local` 设为只读，避免阻止 LNMP 脚本读写 PID、日志及配置检查所需路径。普通 Web 用户仍受 Unix 文件权限限制。
+
+默认仅监听回环地址，可以从个人电脑建立 SSH 隧道：
+
+```bash
+ssh -N -L 8090:127.0.0.1:8090 user@your-server
+```
+
+然后访问 http://127.0.0.1:8090 。公网访问参考 `deploy/nginx.conf.example` 配置 HTTPS，并将面板配置设置为：
+
+```yaml
+secure_cookie: true
+public_origin: https://panel.example.com
+```
+
+配置改变后重启面板。SSE 的代理路径必须关闭缓冲与缓存。若面板依赖被管理的 Nginx 代理，停止它会中断访问，应使用 SSH 隧道或独立 HTTPS 入口保留管理通道。
+
+## 配置与状态说明
+
+`deploy/config.example.yaml`、`deploy/services.example.yaml` 展示所有配置字段。面板配置和辅助程序配置都应由 root 管理，普通 Web 用户仅有读取权限。服务配置修改后重启面板，使两侧读取一致。
+
+- 系统采集每 2 秒一次，服务状态每 5 秒一次，磁盘容量每 30 秒一次。
+- CPU、磁盘和网络速率需要两次采样；首次或计数器重置时返回 `null`，界面显示计算中或不可用。
+- 网络为所有非回环网卡合计；有虚拟网桥、容器网卡的主机可能重复计算同一流量，不等同于外网带宽。
+- Linux 磁盘 I/O 统计 `/sys/block` 中的整盘，排除分区、loop、ram、dm 层；复杂 RAID / 虚拟磁盘可能有重叠，应结合实际设备解释。
+- 不开启 Nginx stub_status、PHP-FPM status 或额外数据库连接；第一版仅管理服务运行状态，进程存在不代表应用健康。
+- LNMP 的 Nginx/PHP-FPM init 脚本可能不支持 `status`；这两类服务使用 `/proc` 中的完整可执行文件路径检查进程，避免将 usage 输出当作运行状态。systemd 服务仍使用对应 unit 状态。
+- 不支持或无法明确解释的状态返回“未知”；systemd 的切换状态单独显示，不误报停止。
+- 服务操作最多执行 30 秒，同服务互斥；超时后重新检查实际状态，不自动重试启停。
+- 会话最长 8 小时，重启面板会清空会话。登录每分钟最多 10 次，系统最多 32 条 SSE 连接；慢连接写入限时，单个订阅仅缓存最新一份快照。
+- 必要运行和服务操作记录写入标准日志（systemd journal），不记录密码、令牌、指标样本或服务命令原始输出。`journalctl -u lnmp-gopanel` 可查看部署错误。
+
+## API
+
+所有数据接口要求 Cookie 会话。响应禁止缓存；写操作要求 `X-CSRF-Token`，其值从登录响应或当前会话获得。跨源 Origin 被拒绝，不开启 CORS。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | `/api/v1/auth/login` | JSON `{ "username": "admin", "password": "…" }` |
+| GET | `/api/v1/auth/session` | 用户名、CSRF 令牌、到期时间 |
+| POST | `/api/v1/auth/logout` | 清除当前会话 |
+| GET | `/api/v1/host` | 主机静态信息 |
+| GET | `/api/v1/metrics` | 最新指标快照，首次采集前返回 503 |
+| GET | `/api/v1/metrics/stream` | SSE：`connected`、`metrics`、`heartbeat`、`auth_expired` |
+| GET | `/api/v1/services` | 服务状态、可用动作、检查时间与忙碌状态 |
+| GET | `/api/v1/services/releases` | 立即返回版本查询缓存，首次或过期时后台联网查询 |
+| POST | `/api/v1/services/releases/refresh` | 手动异步检查最新稳定版本（需要 CSRF，返回 202） |
+| GET | `/api/v1/docker` | Docker 只读快照，首次及过期时后台刷新 |
+| POST | `/api/v1/docker/refresh` | 手动刷新 Docker 快照（需要 CSRF，返回 202） |
+| POST | `/api/v1/services/:name/actions/:action` | 服务操作，无请求体 |
+
+快照包含 `timestamp`、`cpu`、`memory`、`swap`、`load`、`uptime`、`network`、`disk_io`、`disks` 和 `errors`。容量单位为字节、速率为字节/秒、使用率为 0–100，时间为 RFC 3339。无法采集的字段为 `null`，详细信息在 `errors` 中；接口错误统一为 `{ "error": "说明" }`。
+
+## 验证
+
+```bash
+make test
+make check
+# 可选浏览器测试：先 make build，再安装 Chromium 与所需系统库
+cd web
+npx playwright install --with-deps chromium
+npm run test:e2e
+```
+
+Go 测试覆盖指标差分、采集与推送、认证、CSRF、SSE、服务白名单与互斥、操作超时和 Nginx 重载前检查。前端测试覆盖曲线内存上限、窗口裁剪、断档与重复数据。Go 服务操作测试使用替身执行器；浏览器测试在临时目录创建独立账号配置，禁用真实服务清单，服务弹窗测试拦截 API，不会启停真实服务。生产服务脚本仍应在对应 LNMP 测试机上验证。
+
+## Docker 只读概览
+
+左侧“Docker 管理”页面展示与 `docker ps --size --no-trunc` 对应的运行中容器信息：名称、容器 ID、镜像、启动命令、创建时间、运行状态、端口、可写层大小和虚拟大小；不展示已停止的容器。空间汇总来自 `docker system df`，包含镜像、容器可写层、本地数据卷及构建缓存的数量、使用中数量、占用空间和可回收空间。
+
+容器可写层不包含日志和挂载目录，数据卷在空间汇总中单独列出；虚拟大小包含可能共享的镜像层，不能按容器直接相加，因此本页不把这些值相加作为 Docker 的实际总磁盘占用。
+
+数据在打开页面后后台采集，多个客户端共享 30 秒缓存和正在执行的查询，手动刷新至少间隔 5 秒；每条 Docker 命令最多 12 秒。容器列表或空间统计单独失败时保留对应的旧数据并显示错误。Docker 未安装、服务未启动或权限未配置时会显示状态说明。
+
+辅助程序仅接受固定的 `docker snapshot`，内部只执行上述两条只读命令，并固定连接本机 `/var/run/docker.sock`；面板账号不加入 docker 组，不接受任意 Docker 参数，也不提供容器启停、exec 或清理功能。升级需同步安装面板、辅助程序和 `deploy/lnmp-gopanel.sudoers`（新增精确的 `docker snapshot` 权限，先通过 `visudo -cf` 验证），然后重启面板，无需重启 Docker。
+
+## 服务版本与 Redis 监控
+
+服务卡片展示 Nginx、PHP-FPM、MySQL / MariaDB、Redis 的已安装版本。版本号通过固定的服务可执行文件及 `-v` / `--version` 参数读取，由面板普通用户执行，不连接数据库、不读取凭据；本机版本成功缓存 1 小时，失败后 1 分钟重试，失败不覆盖上次版本或服务运行状态。
+
+进入“LNMP 服务”页面后，后台独立查询每个已配置服务的最新正式版本。Nginx 选择官方 Stable 分支（不包括 Mainline），PHP 使用 php.net 发布接口与 php-src 的 NEWS，MariaDB 使用官方发布接口与 changelog，MySQL 使用官方源码仓库的正式标签及官方 Release Notes，Redis 使用官方 GitHub Releases。这里的“最新稳定版”可能跨越本机版本分支，不表示当前安装分支的补丁更新建议。
+
+联网查询由普通面板进程执行，单次请求最多 12 秒，每个服务整体最多 30 秒，只访问固定官方 HTTPS 域名，并限制响应大小与重定向。服务之间并行，状态 API 不等待联网；多个客户端共享内存缓存和正在执行的查询，成功缓存 6 小时，失败或 changelog 不可用时 15 分钟后自动重试；手动检查至少间隔 1 分钟。版本查询失败保留上次结果；changelog 失败仍展示最新版本与官方原文链接。上游限流、网络故障或 HTTP 403 会明确显示原因，不生成替代更新日志。更新日志以纯文本显示，长日志截断并提供完整原文链接，不执行上游 HTML。
+
+首次初始化自动识别 `redis.service` / `redis-server.service` 或 `/etc/init.d/redis` / `/etc/init.d/redis-server`。已有安装升级时，需要在 `/etc/lnmp-gopanel/services.yaml` 中增加实际对应的 Redis 配置，例如：
+
+```yaml
+  - name: redis
+    manager: systemd
+    program: /usr/bin/systemctl
+    target: redis.service
+```
+
+Redis 只显示状态和版本，不提供启停按钮，辅助程序也拒绝 Redis 修改操作。升级时同步安装新面板、辅助程序和 `deploy/lnmp-gopanel.sudoers`（新增精确的 `redis status` 权限，先执行 `visudo -cf` 验证），然后重启面板。其余服务无需增加版本查询的 sudo 权限。
+
+## 硬盘空间与大文件排行
+
+左侧“硬盘空间”页面列出全部挂载，包括物理磁盘、内存、虚拟文件系统和绑定挂载；不支持容量的挂载仍显示，标记为“不提供容量”。列表每 30 秒刷新，可筛选挂载点、设备和文件系统类型。
+
+进入页面后异步扫描主文件系统 `/`，每次仅保留最大的 30 个普通文件，按逻辑大小排序（与 `find -type f -printf '%s %p'` 的大小定义一致）。使用 NUL 分隔记录保留含空格、制表符和换行的路径；不读取文件内容、不跟随符号链接，并跳过其他挂载点，包括同设备的绑定挂载。硬链接按路径计数，稀疏文件显示逻辑大小，所以排行总和不代表实际占用的磁盘块数。
+
+矩形树图的面积为文件大小占本次 Top 30 总大小的比例，不是占整盘容量的比例；旁边同时显示路径、文件大小和百分比。扫描以低 CPU 优先级运行，最多 5 分钟；多个浏览器共享同一进行中的任务，切换页面不会停止扫描，可点击“重新扫描”更新。进度和最新结果仅存在后端内存中，不记录历史，面板重启后清空；超时、文件消失或读取失败会标记部分结果。
+
+新增接口：`GET /api/v1/storage/mounts`、`GET /api/v1/storage/scan`、`POST /api/v1/storage/scan`（需要 CSRF，立即返回 202）。所有接口均需登录。扫描通过固定辅助程序参数 `storage scan` 执行，不接受用户输入的路径或命令。升级部署时应同步更新两个二进制和 sudoers 模板，新规则为 `/usr/local/libexec/lnmp-gopanel-control storage scan`。
+
+## 虚拟主机
+
+“虚拟主机”页面按 `/usr/local/nginx/conf/vhost` 中的配置文件展示站点：域名、监听地址、反向代理目标、目录占用、SSL 证书签发者、主体、域名、有效期、剩余天数、序列号及 SHA-256 指纹。可只读查看原始配置。`.conf` 表示启用，`.conf.disabled` 表示停用；同文件的多个 server 块作为一项配置一起管理。
+
+配置解析支持注释、引号、多行指令及静态 include（相对于 Nginx conf 目录，设有深度与读取上限）。动态 root 或证书路径显示无法静态计算，不执行变量或脚本。SSL 信息来自已配置的本地 PEM 叶证书，时间状态不代表证书链信任、域名匹配或在线吊销校验；证书信息解析不读取 `ssl_certificate_key` 指向的私钥文件。无显式 root 的反向代理显示无本地目录。
+
+目录占用在站点元数据加载后异步计算，使用 `du -s -x -B1` 的实际磁盘块大小。root 路径最后一级为 `public` 时统计其上一级目录；相同目录去重计算，符号链接部署目录先解析实际目标。单目录最多 45 秒，总任务最多 5 分钟，结果只保留内存。站点配置和证书可通过“刷新站点”重新读取。
+
+启停时只对普通配置文件原地重命名，保留原文件内容与权限；拒绝目录穿越、符号链接、同名文件冲突及覆盖目标。重命名后执行 `nginx -t`，通过才发出 `nginx -s reload`。检查失败恢复原文件名；重载失败恢复原文件名并尝试重新加载原配置，失败结果明确提示。所有面板触发的 Nginx 修改与站点启停共享进程间锁。
+
+新增接口：`GET /api/v1/vhosts`、`POST /api/v1/vhosts/refresh`（202，异步刷新）、`GET /api/v1/vhosts/config?name=example.conf`、`POST /api/v1/vhosts/toggle`（JSON `{"name":"example.conf","enabled":false}`）。全部需要登录，POST 需要 CSRF。特权操作仅开放固定参数 `vhosts list/config/usage/toggle`，文件名通过有界 JSON stdin 传递；辅助程序重新验证文件名与目录权限。升级时同步安装两个二进制和 sudoers 模板。

@@ -1,0 +1,8 @@
+listen: 127.0.0.1:8090
+username: admin
+# Generate the actual hash with lnmp-gopanel init (never a default password).
+password_hash: REPLACE_WITH_GENERATED_BCRYPT_HASH
+secure_cookie: false
+# Set both public_origin and secure_cookie when using an HTTPS reverse proxy.
+public_origin: ""
+helper: /usr/local/libexec/lnmp-gopanel-control

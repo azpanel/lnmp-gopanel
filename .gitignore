@@ -1,0 +1,16 @@
+/bin/
+/web/node_modules/
+/web/dist/
+/web/*.tsbuildinfo
+/web/playwright-report/
+/web/test-results/
+/dist/
+/.tmp-*/
+/playwright-report/
+/test-results/
+/config.yaml
+/services.yaml
+*.log
+.env
+.env.*
+!.env.example

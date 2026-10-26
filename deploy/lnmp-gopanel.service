@@ -1,0 +1,27 @@
+[Unit]
+Description=LNMP GoPanel real-time monitoring
+After=network.target
+
+[Service]
+Type=simple
+User=lnmp-panel
+Group=lnmp-panel
+ExecStart=/usr/local/bin/lnmp-gopanel
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0077
+# sudo must be able to elevate only the fixed helper. NoNewPrivileges and
+# RestrictSUIDSGID would disable that path. /proc stays visible for host metrics.
+# LNMP init scripts and nginx -t need access to /usr/local and /home.
+# The sudo helper inherits this unit namespace; do not mask these paths.
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+LockPersonality=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
