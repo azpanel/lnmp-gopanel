@@ -66,7 +66,11 @@ func (s *Server) Handler() http.Handler {
 		}
 		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
 			c.Header("Cache-Control", "no-store")
-			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
+			limit := int64(4096)
+			if c.Request.Method == http.MethodPut && c.Request.URL.Path == "/api/v1/vhosts/screenshot" {
+				limit = 128 * 1024
+			}
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 		}
 		c.Next()
 	})

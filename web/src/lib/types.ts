@@ -134,6 +134,9 @@ export type VhostConfig = { filename: string; content: string };
 export type WebsiteScreenshot = {
   name: string;
   url: string;
+  viewport_width: number;
+  viewport_height: number;
+  javascript: string;
   language: string;
   load_timeout_seconds: number;
   auth_enabled: boolean;

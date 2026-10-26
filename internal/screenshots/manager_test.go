@@ -46,8 +46,11 @@ func (f *fakeRenderer) Capture(ctx context.Context, target Target) ([]byte, erro
 	return f.capture(ctx, target)
 }
 func testImage() []byte {
+	return testImageSize(DefaultViewportWidth, DefaultViewportHeight)
+}
+func testImageSize(width, height int) []byte {
 	var b bytes.Buffer
-	_ = jpeg.Encode(&b, image.NewRGBA(image.Rect(0, 0, 1440, 900)), nil)
+	_ = jpeg.Encode(&b, image.NewRGBA(image.Rect(0, 0, width, height)), nil)
 	return b.Bytes()
 }
 func newTestManager(t *testing.T, dir string, f Renderer) *Manager {
@@ -280,7 +283,7 @@ func TestInterruptedTaskAndPrivateFiles(t *testing.T) {
 	if err != nil || items["example.conf"].Status != "failed" {
 		t.Fatal("interrupted task not recovered", err)
 	}
-	if item := items["example.conf"]; item.Language != DefaultLanguage || item.LoadTimeoutSeconds != 30 {
+	if item := items["example.conf"]; item.Language != DefaultLanguage || item.LoadTimeoutSeconds != 30 || item.ViewportWidth != 1440 || item.ViewportHeight != 900 || item.JavaScript != "" {
 		t.Fatal("legacy settings did not receive defaults", item)
 	}
 	if err := os.Chmod(filepath.Join(dir, "screenshot-settings.json"), 0644); err != nil {
@@ -309,6 +312,13 @@ func TestCaptureSettingsValidationAndDeadline(t *testing.T) {
 		{LoadTimeoutSeconds: -1},
 		{LoadTimeoutSeconds: 4},
 		{LoadTimeoutSeconds: 301},
+		{ViewportWidth: 390},
+		{ViewportHeight: 844},
+		{ViewportWidth: -1, ViewportHeight: 900},
+		{ViewportWidth: 319, ViewportHeight: 900},
+		{ViewportWidth: 1440, ViewportHeight: 3841},
+		{JavaScript: strings.Repeat("a", MaxJavaScriptSize+1)},
+		{JavaScript: strings.Repeat("中", MaxJavaScriptSize/3+1)},
 	} {
 		input.URL = "http://localhost/"
 		if _, err := m.Save("example.conf", input); err == nil {
@@ -332,6 +342,57 @@ func TestCaptureSettingsValidationAndDeadline(t *testing.T) {
 		if _, _, err := normalizeSettings("zh-Hant-TW", seconds); err != nil {
 			t.Fatal("valid setting rejected", err)
 		}
+	}
+}
+
+func TestCaptureOptionsPersistenceAndRefresh(t *testing.T) {
+	received := make(chan Target, 1)
+	f := &fakeRenderer{capture: func(_ context.Context, target Target) ([]byte, error) {
+		received <- target
+		return testImageSize(target.ViewportWidth, target.ViewportHeight), nil
+	}}
+	dir := t.TempDir()
+	m := newTestManager(t, dir, f)
+	for _, size := range [][2]int{{1920, 1080}, {390, 844}, {777, 555}, {320, 3840}} {
+		input := Input{URL: "http://localhost/", ViewportWidth: size[0], ViewportHeight: size[1], JavaScript: "await Promise.resolve();\ndocument.body.style.background = 'green';"}
+		if _, err := m.Save("example.conf", input); err != nil {
+			t.Fatal(err)
+		}
+		v := waitStatus(t, m, "example.conf", "ready")
+		target := <-received
+		if target.ViewportWidth != size[0] || target.ViewportHeight != size[1] || target.JavaScript != input.JavaScript {
+			t.Fatal("capture options not forwarded", target)
+		}
+		_, restored, err := openStore(dir)
+		if err != nil || restored["example.conf"].View.ViewportWidth != size[0] || restored["example.conf"].ViewportHeight != size[1] || restored["example.conf"].JavaScript != input.JavaScript {
+			t.Fatal("capture options not restored", restored, err)
+		}
+		if _, err := m.Refresh("example.conf"); err != nil {
+			t.Fatal(err)
+		}
+		updated := waitStatus(t, m, "example.conf", "ready")
+		if target != <-received || updated.ImageVersion == v.ImageVersion {
+			t.Fatal("refresh did not reuse capture options")
+		}
+	}
+	if _, _, err := normalizeCaptureOptions(3840, 320, strings.Repeat("a", MaxJavaScriptSize)); err != nil {
+		t.Fatal("valid bounds rejected", err)
+	}
+}
+
+func TestCaptureDimensionMismatchPreservesPreviousImage(t *testing.T) {
+	f := &fakeRenderer{capture: func(context.Context, Target) ([]byte, error) { return testImage(), nil }}
+	m := newTestManager(t, t.TempDir(), f)
+	if _, err := m.Save("example.conf", Input{URL: "http://localhost/"}); err != nil {
+		t.Fatal(err)
+	}
+	old := waitStatus(t, m, "example.conf", "ready")
+	if _, err := m.Save("example.conf", Input{URL: "http://localhost/", ViewportWidth: 390, ViewportHeight: 844}); err != nil {
+		t.Fatal(err)
+	}
+	v := waitStatus(t, m, "example.conf", "failed")
+	if v.ImageVersion != old.ImageVersion || !strings.Contains(v.Error, "图像无效") {
+		t.Fatal("mismatched screenshot replaced previous image", v)
 	}
 }
 

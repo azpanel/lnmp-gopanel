@@ -4,6 +4,7 @@ import type { WebsiteScreenshot } from "../src/lib/types";
 test("virtual hosts show certificates, public parent usage, configuration and guarded toggles", async ({
   page,
 }, testInfo) => {
+  test.setTimeout(45000);
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   const now = new Date().toISOString();
@@ -57,6 +58,8 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   let screenshot: WebsiteScreenshot | null = null;
   let screenshotPolls = 0;
   let screenshotCaptures = 0;
+  const screenshotScript =
+    'document.querySelector(".popup")?.remove();\nawait new Promise(resolve => setTimeout(resolve, 100));';
   await page.route("**/api/v1/vhosts/screenshots", (route) => {
     if (
       screenshot &&
@@ -89,6 +92,9 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
     const input = route.request().postDataJSON();
     expect(input).toEqual({
       url: "http://127.0.0.1:8080/private",
+      viewport_width: 420,
+      viewport_height: 900,
+      javascript: screenshotScript,
       language: "en-US",
       load_timeout_seconds: 120,
       auth_enabled: true,
@@ -100,6 +106,9 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
     screenshot = {
       name: site.name,
       url: input.url,
+      viewport_width: input.viewport_width,
+      viewport_height: input.viewport_height,
+      javascript: input.javascript,
       language: input.language,
       load_timeout_seconds: input.load_timeout_seconds,
       auth_enabled: true,
@@ -111,6 +120,9 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
     return route.fulfill({ status: 202, json: screenshot });
   });
   await page.route("**/api/v1/vhosts/screenshot/refresh?*", (route) => {
+    expect(screenshot!.viewport_width).toBe(420);
+    expect(screenshot!.viewport_height).toBe(900);
+    expect(screenshot!.javascript).toBe(screenshotScript);
     screenshotCaptures++;
     screenshotPolls = 0;
     screenshot!.status = "queued";
@@ -119,7 +131,7 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   await page.route("**/api/v1/vhosts/screenshot/image?*", (route) =>
     route.fulfill({
       contentType: "image/svg+xml",
-      body: '<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900"><rect width="1440" height="900" fill="#153e37"/><text x="80" y="150" fill="#fff" font-size="64">Website preview</text></svg>',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="420" height="900"><rect width="420" height="900" fill="#153e37"/><text x="20" y="100" fill="#fff" font-size="32">Website preview</text></svg>',
     }),
   );
   await page.route("**/api/v1/vhosts", (route) =>
@@ -190,6 +202,30 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   );
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "截图设置", exact: true }).click();
+  const resolution = page.getByRole("combobox", { name: "截图分辨率" });
+  await expect(resolution).toContainText("1440 × 900（默认）");
+  await expect(
+    page.getByLabel("截图前 JavaScript", { exact: true }),
+  ).toHaveValue("");
+  await resolution.click();
+  await page.getByRole("option", { name: "手机尺寸 · 390 × 844" }).click();
+  await expect(resolution).toContainText("390 × 844");
+  await expect(page.getByLabel("截图宽度（像素）")).not.toBeVisible();
+  await resolution.click();
+  await page.getByRole("option", { name: "自定义", exact: true }).click();
+  await expect(page.getByLabel("截图宽度（像素）")).toHaveValue("390");
+  await expect(page.getByLabel("截图高度（像素）")).toHaveValue("844");
+  await page.getByLabel("截图宽度（像素）").fill("319");
+  expect(
+    await page
+      .getByLabel("截图宽度（像素）")
+      .evaluate((input: HTMLInputElement) => input.checkValidity()),
+  ).toBe(false);
+  await page.getByLabel("截图宽度（像素）").fill("420");
+  await page.getByLabel("截图高度（像素）").fill("900");
+  await page
+    .getByLabel("截图前 JavaScript", { exact: true })
+    .fill(screenshotScript);
   await expect(page.getByLabel("浏览器语言", { exact: true })).toHaveValue(
     "zh-CN",
   );
@@ -208,11 +244,25 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   await page
     .getByLabel("Basic Auth 密码", { exact: true })
     .fill("test-screenshot-password");
+  await page
+    .getByLabel("截图前 JavaScript", { exact: true })
+    .fill("中".repeat(6000));
+  await page.getByRole("button", { name: "保存并截图", exact: true }).click();
+  await expect(
+    page.getByText("截图前 JavaScript 不能超过 16 KiB"),
+  ).toBeVisible();
+  expect(screenshotCaptures).toBe(0);
+  await page
+    .getByLabel("截图前 JavaScript", { exact: true })
+    .fill(screenshotScript);
   await page.getByRole("button", { name: "保存并截图", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(
     page.getByAltText("example.com 的网站截图", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByAltText("example.com 的网站截图", { exact: true }),
+  ).toHaveCSS("object-fit", "contain");
   await page
     .getByRole("button", { name: "放大网站截图 example.com", exact: true })
     .click();
@@ -221,8 +271,19 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
       .getByRole("dialog")
       .getByAltText("example.conf 的完整网站截图", { exact: true }),
   ).toBeVisible();
+  const enlargedImage = page
+    .getByRole("dialog")
+    .getByAltText("example.conf 的完整网站截图", { exact: true });
+  await expect(enlargedImage).toHaveJSProperty("naturalWidth", 420);
+  await expect(enlargedImage).toHaveJSProperty("naturalHeight", 900);
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "截图设置", exact: true }).click();
+  await expect(resolution).toContainText("自定义");
+  await expect(page.getByLabel("截图宽度（像素）")).toHaveValue("420");
+  await expect(page.getByLabel("截图高度（像素）")).toHaveValue("900");
+  await expect(
+    page.getByLabel("截图前 JavaScript", { exact: true }),
+  ).toHaveValue(screenshotScript);
   await expect(page.getByLabel("Basic Auth 密码", { exact: true })).toHaveValue(
     "",
   );

@@ -89,6 +89,10 @@ func (c *Chromium) Capture(parent context.Context, target Target) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
+	width, height, err := normalizeCaptureOptions(target.ViewportWidth, target.ViewportHeight, target.JavaScript)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(parent, time.Duration(seconds)*time.Second)
 	defer cancel()
 	profile, err := os.MkdirTemp(c.StateDir, ".browser-*")
@@ -105,7 +109,7 @@ func (c *Chromium) Capture(parent context.Context, target Target) ([]byte, error
 	defer closeAllocator()
 	ctx, closeBrowser := chromedp.NewContext(allocator, chromedp.WithLogf(func(string, ...any) {}), chromedp.WithErrorf(func(string, ...any) {}))
 	defer closeBrowser()
-	if err := chromedp.Do(ctx, chromedp.EmulateViewport(1440, 900)); err != nil {
+	if err := chromedp.Do(ctx, chromedp.EmulateViewport(int64(width), int64(height))); err != nil {
 		return nil, browserError(ctx, err)
 	}
 	session := chromedp.FromContext(ctx).Target
@@ -185,21 +189,41 @@ func (c *Chromium) Capture(parent context.Context, target Target) ([]byte, error
 	if err := chromedp.Do(ctx, chromedp.WaitReady(chromedp.CSS("body"))); err != nil {
 		return nil, browserError(ctx, err)
 	}
-	if err := resources.wait(ctx); err != nil {
+	if err := waitForRendering(ctx, resources); err != nil {
 		return nil, browserError(ctx, err)
 	}
-	if _, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`(async () => {
-		await document.fonts.ready;
-		await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-		return true;
-	})()`, chromedp.EvalAwaitPromise)); err != nil {
-		return nil, browserError(ctx, err)
+	if strings.TrimSpace(target.JavaScript) != "" {
+		// Ignore the script's return value; only completion or rejection matters.
+		if _, err := chromedp.Run(ctx, chromedp.Evaluate[bool]("(async () => {\n"+target.JavaScript+"\n})().then(() => true)", chromedp.EvalAwaitPromise)); err != nil {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return nil, errors.New("截图前 JavaScript 执行超时，请增加最长加载时间或检查代码")
+			}
+			if ctx.Err() != nil {
+				return nil, browserError(ctx, err)
+			}
+			return nil, errors.New("截图前 JavaScript 执行失败，请检查代码")
+		}
+		if err := waitForRendering(ctx, resources); err != nil {
+			return nil, browserError(ctx, err)
+		}
 	}
 	image, err := cdp.Call(ctx, session, page.CaptureScreenshot, page.CaptureScreenshotParams{Format: page.CaptureScreenshotFormatJpeg, Quality: ptr(int64(80)), CaptureBeyondViewport: ptr(false)})
 	if err != nil {
 		return nil, browserError(ctx, err)
 	}
 	return image.Data, nil
+}
+
+func waitForRendering(ctx context.Context, resources *resourceWaiter) error {
+	if err := resources.wait(ctx); err != nil {
+		return err
+	}
+	_, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`(async () => {
+		await document.fonts.ready;
+		await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+		return true;
+	})()`, chromedp.EvalAwaitPromise))
+	return err
 }
 
 // Track completion separately because the typed CDP subscriptions may be read

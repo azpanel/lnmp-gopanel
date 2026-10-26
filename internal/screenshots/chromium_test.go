@@ -3,6 +3,7 @@ package screenshots
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"image/jpeg"
 	"net/http"
 	"net/http/httptest"
@@ -164,6 +165,128 @@ func TestChromiumIntegrationLanguageAndDelayedCSS(t *testing.T) {
 	_, err = c.Capture(context.Background(), Target{URL: site.URL + "/timeout", LoadTimeoutSeconds: 5})
 	if err == nil || !strings.Contains(err.Error(), "超时") || time.Since(started) > 8*time.Second {
 		t.Fatal("configured resource loading timeout was not enforced", err)
+	}
+}
+
+func TestChromiumIntegrationViewportAndJavaScript(t *testing.T) {
+	path := os.Getenv("SCREENSHOT_TEST_BROWSER")
+	if path == "" {
+		t.Skip("set SCREENSHOT_TEST_BROWSER to run real Chromium integration tests")
+	}
+	dir := t.TempDir()
+	c := &Chromium{Browser: path, StateDir: dir, testNoSandbox: os.Geteuid() == 0}
+	var executions atomic.Int32
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/executed":
+			executions.Add(1)
+		case "/script.css":
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(time.Second):
+			}
+			w.Header().Set("Content-Type", "text/css")
+			_, _ = w.Write([]byte("body { background: #00ff00; }"))
+		default:
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<!doctype html><html><body style="margin:0"><div id="popup" style="position:fixed;inset:0;background:red"></div></body></html>`))
+		}
+	}))
+	defer site.Close()
+	t.Run("synchronous custom viewport", func(t *testing.T) {
+		data, err := c.Capture(context.Background(), Target{URL: site.URL, ViewportWidth: 777, ViewportHeight: 555, JavaScript: `
+			if (innerWidth !== 777 || innerHeight !== 555 || devicePixelRatio !== 1) throw Error("incorrect viewport");
+			document.querySelector("#popup").remove();
+			document.body.style.background = "#00ff00";
+			return document.body;
+		`})
+		assertGreenScreenshot(t, data, err, 777, 555)
+	})
+	t.Run("async script and added stylesheet", func(t *testing.T) {
+		data, err := c.Capture(context.Background(), Target{URL: site.URL, ViewportWidth: 390, ViewportHeight: 844, JavaScript: `
+			if (innerWidth !== 390 || innerHeight !== 844 || devicePixelRatio !== 1) throw Error("incorrect viewport");
+			await new Promise(resolve => setTimeout(resolve, 100));
+			await fetch("/executed");
+			document.querySelector("#popup").remove();
+			const css = document.createElement("link");
+			css.rel = "stylesheet"; css.href = "/script.css";
+			document.head.appendChild(css);
+		`})
+		assertGreenScreenshot(t, data, err, 390, 844)
+		if executions.Load() != 1 {
+			t.Fatal("script was not executed exactly once")
+		}
+	})
+	t.Run("script failures preserve the last image", func(t *testing.T) {
+		m := newTestManager(t, dir, c)
+		if _, err := m.Save("example.conf", Input{URL: site.URL}); err != nil {
+			t.Fatal(err)
+		}
+		old := waitStatus(t, m, "example.conf", "ready")
+		for _, tc := range []struct {
+			name, script string
+			timeout      bool
+		}{
+			{"syntax", "const =", false},
+			{"exception", `throw new Error("private-script-token")`, false},
+			{"rejection", `await Promise.reject("private-script-token")`, false},
+			{"unresolved promise", "await new Promise(() => {});", true},
+			{"infinite loop", "while (true) {}", true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				started := time.Now()
+				if _, err := m.Save("example.conf", Input{URL: site.URL, JavaScript: tc.script, LoadTimeoutSeconds: 5}); err != nil {
+					t.Fatal(err)
+				}
+				deadline := time.Now().Add(10 * time.Second)
+				var v View
+				for time.Now().Before(deadline) {
+					v = m.Latest().Items["example.conf"]
+					if v.Status == "failed" {
+						break
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
+				if v.Status != "failed" || !strings.Contains(v.Error, "JavaScript") || strings.Contains(v.Error, "private-script-token") {
+					t.Fatal("script failure not handled safely", v)
+				}
+				if strings.Contains(v.Error, "超时") != tc.timeout || time.Since(started) > 8*time.Second {
+					t.Fatal("incorrect script timeout handling", v.Error, time.Since(started))
+				}
+				if v.ImageVersion != old.ImageVersion {
+					t.Fatal("script failure replaced previous screenshot")
+				}
+				if data, err := m.Image("example.conf"); err != nil || len(data) == 0 {
+					t.Fatal("previous screenshot unavailable", err)
+				}
+			})
+		}
+		// A fresh capture must still work after a script blocked the renderer.
+		if _, err := m.Save("example.conf", Input{URL: site.URL}); err != nil {
+			t.Fatal(err)
+		}
+		if v := waitStatus(t, m, "example.conf", "ready"); v.ImageVersion == old.ImageVersion {
+			t.Fatal("capture did not recover after timeout")
+		}
+	})
+	if files, err := filepath.Glob(filepath.Join(dir, ".browser-*")); err != nil || len(files) != 0 {
+		t.Fatal("browser profiles leaked", files, err)
+	}
+}
+
+func assertGreenScreenshot(t *testing.T, data []byte, captureErr error, width, height int) {
+	t.Helper()
+	if captureErr != nil {
+		t.Fatal(captureErr)
+	}
+	decoded, err := jpeg.Decode(bytes.NewReader(data))
+	if err != nil || decoded.Bounds().Dx() != width || decoded.Bounds().Dy() != height {
+		t.Fatal("incorrect screenshot dimensions", err, fmt.Sprintf("want %dx%d", width, height))
+	}
+	r, g, b, _ := decoded.At(width-10, height-10).RGBA()
+	if r > 10000 || g < 50000 || b > 10000 {
+		t.Fatal("script modifications or added resources missing from screenshot")
 	}
 }
 

@@ -99,10 +99,12 @@ func openStore(dir string) (*store, map[string]record, error) {
 	}
 	for name, item := range items {
 		language, seconds, settingsErr := normalizeSettings(item.Language, item.LoadTimeoutSeconds)
-		if !validName(name) || item.Name != name || validateURL(item.URL) != nil || !validVersion(item.ImageVersion) || settingsErr != nil {
+		width, height, captureErr := normalizeCaptureOptions(item.ViewportWidth, item.ViewportHeight, item.JavaScript)
+		if !validName(name) || item.Name != name || validateURL(item.URL) != nil || !validVersion(item.ImageVersion) || settingsErr != nil || captureErr != nil {
 			return nil, nil, errors.New("截图设置文件包含无效记录")
 		}
 		item.Language, item.LoadTimeoutSeconds = language, seconds
+		item.ViewportWidth, item.ViewportHeight = width, height
 		if item.AuthEnabled {
 			if _, err := s.decrypt(name, item.PasswordCipher); err != nil {
 				return nil, nil, errors.New("无法解密截图凭据，请恢复匹配的设置和密钥")

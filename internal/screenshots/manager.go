@@ -25,10 +25,28 @@ const MinLoadTimeoutSeconds = 5
 const MaxLoadTimeoutSeconds = 300
 const QueueLimit = 64
 const MaxImageSize = 5 * 1024 * 1024
+const DefaultViewportWidth = 1440
+const DefaultViewportHeight = 900
+const MinViewportSize = 320
+const MaxViewportSize = 3840
+const MaxJavaScriptSize = 16 * 1024
 
 var ErrBusy = errors.New("截图队列已满，请稍后重试")
 var ErrMissing = errors.New("请先保存截图设置")
 var languagePattern = regexp.MustCompile(`^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$`)
+
+func normalizeCaptureOptions(width, height int, javascript string) (int, int, error) {
+	if width == 0 && height == 0 {
+		width, height = DefaultViewportWidth, DefaultViewportHeight
+	}
+	if width < MinViewportSize || width > MaxViewportSize || height < MinViewportSize || height > MaxViewportSize {
+		return 0, 0, errors.New("截图宽度和高度必须均为 320–3840 的整数")
+	}
+	if len(javascript) > MaxJavaScriptSize {
+		return 0, 0, errors.New("截图前 JavaScript 不能超过 16 KiB")
+	}
+	return width, height, nil
+}
 
 func normalizeSettings(language string, seconds int) (string, int, error) {
 	language = strings.TrimSpace(language)
@@ -49,6 +67,9 @@ func normalizeSettings(language string, seconds int) (string, int, error) {
 
 type Input struct {
 	URL                string  `json:"url"`
+	ViewportWidth      int     `json:"viewport_width"`
+	ViewportHeight     int     `json:"viewport_height"`
+	JavaScript         string  `json:"javascript"`
 	Language           string  `json:"language"`
 	LoadTimeoutSeconds int     `json:"load_timeout_seconds"`
 	AuthEnabled        bool    `json:"auth_enabled"`
@@ -57,6 +78,9 @@ type Input struct {
 }
 type Target struct {
 	URL, Username, Password string
+	ViewportWidth           int
+	ViewportHeight          int
+	JavaScript              string
 	AuthEnabled             bool
 	Language                string
 	LoadTimeoutSeconds      int
@@ -64,6 +88,9 @@ type Target struct {
 type View struct {
 	Name               string     `json:"name"`
 	URL                string     `json:"url"`
+	ViewportWidth      int        `json:"viewport_width"`
+	ViewportHeight     int        `json:"viewport_height"`
+	JavaScript         string     `json:"javascript"`
 	Language           string     `json:"language"`
 	LoadTimeoutSeconds int        `json:"load_timeout_seconds"`
 	AuthEnabled        bool       `json:"auth_enabled"`
@@ -207,6 +234,10 @@ func (m *Manager) Save(name string, input Input) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
+	width, height, err := normalizeCaptureOptions(input.ViewportWidth, input.ViewportHeight, input.JavaScript)
+	if err != nil {
+		return View{}, err
+	}
 	if len(input.Username) > 256 || strings.ContainsAny(input.Username, ":\r\n\x00") || (input.Password != nil && len(*input.Password) > 1024) {
 		return View{}, errors.New("认证信息无效或过长")
 	}
@@ -219,6 +250,7 @@ func (m *Manager) Save(name string, input Input) (View, error) {
 	r := old
 	r.Name, r.URL, r.AuthEnabled, r.Username = name, input.URL, input.AuthEnabled, input.Username
 	r.Language, r.LoadTimeoutSeconds = language, seconds
+	r.ViewportWidth, r.ViewportHeight, r.JavaScript = width, height, input.JavaScript
 	r.PasswordCipher = ""
 	r.PasswordSaved = false
 	if input.AuthEnabled {
@@ -333,7 +365,8 @@ func (m *Manager) work() {
 			m.mu.Unlock()
 			continue
 		}
-		target := Target{URL: r.URL, Username: r.Username, AuthEnabled: r.AuthEnabled, Language: r.Language, LoadTimeoutSeconds: r.LoadTimeoutSeconds}
+		target := Target{URL: r.URL, Username: r.Username, AuthEnabled: r.AuthEnabled, Language: r.Language, LoadTimeoutSeconds: r.LoadTimeoutSeconds,
+			ViewportWidth: r.ViewportWidth, ViewportHeight: r.ViewportHeight, JavaScript: r.JavaScript}
 		var err error
 		if r.AuthEnabled {
 			target.Password, err = m.store.decrypt(j.name, r.PasswordCipher)
@@ -365,7 +398,7 @@ func (m *Manager) finish(j job, capturedURL string, image []byte, captureErr err
 	}
 	if captureErr == nil {
 		cfg, err := jpeg.DecodeConfig(bytes.NewReader(image))
-		if err != nil || cfg.Width != 1440 || cfg.Height != 900 || len(image) > MaxImageSize {
+		if err != nil || cfg.Width != r.ViewportWidth || cfg.Height != r.ViewportHeight || len(image) > MaxImageSize {
 			captureErr = errors.New("截图图像无效或超过 5 MiB 限制")
 		}
 	}

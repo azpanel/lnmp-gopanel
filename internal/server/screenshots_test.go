@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"image"
 	"image/jpeg"
 	"net/http"
@@ -19,9 +20,9 @@ import (
 type screenshotRenderer struct{}
 
 func (screenshotRenderer) Available() error { return nil }
-func (screenshotRenderer) Capture(context.Context, screenshots.Target) ([]byte, error) {
+func (screenshotRenderer) Capture(_ context.Context, target screenshots.Target) ([]byte, error) {
 	var b bytes.Buffer
-	_ = jpeg.Encode(&b, image.NewRGBA(image.Rect(0, 0, 1440, 900)), nil)
+	_ = jpeg.Encode(&b, image.NewRGBA(image.Rect(0, 0, target.ViewportWidth, target.ViewportHeight)), nil)
 	return b.Bytes(), nil
 }
 func TestScreenshotAPIsAuthenticationPersistenceAndImages(t *testing.T) {
@@ -70,17 +71,42 @@ func TestScreenshotAPIsAuthenticationPersistenceAndImages(t *testing.T) {
 		`{"url":"http://localhost/","language":"en_US"}`,
 		`{"url":"http://localhost/","load_timeout_seconds":301}`,
 		`{"url":"http://localhost/","load_timeout_seconds":1.5}`,
+		`{"url":"http://localhost/","viewport_width":390}`,
+		`{"url":"http://localhost/","viewport_width":390.5,"viewport_height":844}`,
+		`{"url":"http://localhost/","viewport_width":390,"viewport_height":3841}`,
 	} {
 		if w := request(h, "PUT", base+"?name=example.conf", input, cookie, session.CSRF, ""); w.Code != 400 {
 			t.Fatal("invalid capture settings accepted", w.Code)
 		}
 	}
-	w := request(h, "PUT", base+"?name=example.conf", `{"url":"http://localhost/private","language":"en-US","load_timeout_seconds":120,"auth_enabled":true,"username":"site-user","password":"private-screenshot-password"}`, cookie, session.CSRF, "")
+	// A maximum-size script can expand sixfold when JSON-escaped.
+	script := "/*" + strings.Repeat("\x01", screenshots.MaxJavaScriptSize-4) + "*/"
+	password := "private-screenshot-password"
+	input := screenshots.Input{URL: "http://localhost/private", Language: "en-US", LoadTimeoutSeconds: 120,
+		ViewportWidth: 390, ViewportHeight: 844, JavaScript: script,
+		AuthEnabled: true, Username: "site-user", Password: &password}
+	data, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := request(h, "PUT", base+"?name=example.conf", string(data), cookie, session.CSRF, "")
 	if w.Code != 202 || strings.Contains(w.Body.String(), "private-screenshot-password") || strings.Contains(w.Body.String(), "password_cipher") {
 		t.Fatal("save failed or leaked credentials", w.Code, w.Body.String())
 	}
 	if !strings.Contains(w.Body.String(), `"language":"en-US"`) || !strings.Contains(w.Body.String(), `"load_timeout_seconds":120`) {
 		t.Fatal("capture settings missing from response", w.Body.String())
+	}
+	var view screenshots.View
+	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil || view.ViewportWidth != 390 || view.ViewportHeight != 844 || view.JavaScript != script {
+		t.Fatal("capture options missing from response", err)
+	}
+	for _, body := range []string{
+		`{"url":"http://localhost/","javascript":"` + strings.Repeat("a", screenshots.MaxJavaScriptSize+1) + `"}`,
+		`{"url":"http://localhost/","javascript":"` + strings.Repeat("a", 128*1024) + `"}`,
+	} {
+		if w := request(h, "PUT", base+"?name=example.conf", body, cookie, session.CSRF, ""); w.Code != 400 {
+			t.Fatal("oversized script or request accepted", w.Code)
+		}
 	}
 	deadline = time.Now().Add(3 * time.Second)
 	for s.Screenshots.Latest().Items["example.conf"].Status != "ready" && time.Now().Before(deadline) {
@@ -94,8 +120,8 @@ func TestScreenshotAPIsAuthenticationPersistenceAndImages(t *testing.T) {
 	if w.Code != 200 || w.Header().Get("Content-Type") != "image/jpeg" || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatal("image response", w.Code, w.Header())
 	}
-	if _, err := jpeg.DecodeConfig(w.Body); err != nil {
-		t.Fatal(err)
+	if cfg, err := jpeg.DecodeConfig(w.Body); err != nil || cfg.Width != 390 || cfg.Height != 844 {
+		t.Fatal("incorrect screenshot size", cfg, err)
 	}
 	w = request(h, "POST", base+"/refresh?name=example.conf", "", cookie, session.CSRF, "")
 	if w.Code != 202 {

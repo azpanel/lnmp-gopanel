@@ -298,7 +298,15 @@ Redis 只显示状态和版本，不提供启停按钮，辅助程序也拒绝 R
 
 ### 网站截图
 
-虚拟主机支持卡片和表格视图，两种视图均展示网站预览。通过“截图设置”填写 HTTP/HTTPS 地址，可启用 Basic Auth，并按站点指定浏览器语言（默认 `zh-CN`，例如 `en-US`）和最长加载时间（默认 30 秒，可设为 5–300 秒）。语言同时用于请求语言、浏览器语言及日期、数字格式。保存后后台截取 1440×900 桌面首屏，之后手动“重新截图”，点击图片可放大；没有定时截图、全页截图或历史图库。支持公网、本机和内网地址，浏览器访问的是服务器可达的地址，不使用管理员浏览器中的登录状态。页面加载后等待资源请求结束并连续稳定 2 秒、字体就绪后再截图；CSS、图片等加载较慢时可增加最长加载时间，超时显示原因并保留上次成功截图。持续轮询的页面可能需要更长时间才能稳定。HTTPS 证书错误、HTTP 错误和认证失败会显示原因，保留上次成功截图。
+虚拟主机支持卡片和表格视图，两种视图均展示网站预览。通过“截图设置”填写 HTTP/HTTPS 地址，可启用 Basic Auth，并按站点指定浏览器语言（默认 `zh-CN`，例如 `en-US`）和最长加载时间（默认 30 秒，可设为 5–300 秒）。语言同时用于请求语言、浏览器语言及日期、数字格式。截图分辨率可选 1920×1080、1440×900（默认）、1366×768、768×1024、390×844，也可自定义宽高，均须为 320–3840 的整数。尺寸表示浏览器视口，设备像素比固定为 1；手机和平板尺寸不切换移动端 UA 或启用触摸模拟。保存后后台截取网站首屏，之后手动“重新截图”，点击图片可放大；没有定时截图、全页截图或历史图库。支持公网、本机和内网地址，浏览器访问的是服务器可达的地址，不使用管理员浏览器中的登录状态。页面加载后等待资源请求结束并连续稳定 2 秒、字体就绪后再截图；CSS、图片等加载较慢时可增加最长加载时间，超时显示原因并保留上次成功截图。持续轮询的页面可能需要更长时间才能稳定。HTTPS 证书错误、HTTP 错误和认证失败会显示原因，保留上次成功截图。
+
+可选填写“截图前 JavaScript”（最多 16 KiB，按 UTF-8 字节计算），在目标网站主框架中执行，用于关闭弹窗、点击元素或调整页面。代码在页面正文、资源和字体就绪后执行一次，支持直接使用 `await`，执行结果不回传；完成后再次等待资源稳定、字体及渲染就绪再截图。执行也计入该站点的最长加载时间，脚本语法错误、执行异常、Promise 拒绝或超时会显示原因，并保留上次成功截图。分辨率和脚本随站点保存，重启后保留，重新截图时复用；脚本留空不执行，旧设置默认使用 1440×900。例如：
+
+```javascript
+document.querySelector(".popup")?.remove();
+document.querySelector(".expand-button")?.click();
+await new Promise(resolve => setTimeout(resolve, 500));
+```
 
 截图由 Go 直接控制本机 Chromium，无需生产环境安装 Node.js，不通过 sudo 辅助程序启动浏览器。浏览器必须以普通面板账号运行，保留沙箱，每次任务使用独立临时配置，完成或取消后清理。全局一次执行一个任务、最多排队 64 项，单次任务（含启动浏览器和资源等待）受该站点的最长加载时间限制，排队时间不计入。Basic Auth 只发送给配置地址同源的认证挑战，跨源跳转不会携带凭据；如需在跳转后的站点认证，请直接填写最终地址。密码不回传，编辑时留空保留原密码，更换目标来源或用户名时需重新填写；关闭认证会清除凭据，“清除设置”会同时删除保存的图片。
 
@@ -314,7 +322,7 @@ screenshots:
 
 部署后可用 `sudo -u lnmp-panel /usr/local/bin/lnmp-gopanel check-screenshots` 检查截图组件，仅访问临时本地测试页面，不访问业务站点。源码集成测试使用 `SCREENSHOT_TEST_BROWSER=/path/to/chromium go test -race ./internal/screenshots -run TestChromiumIntegration`，所有目标都是本地测试服务器；仅隔离的 root 测试进程会关闭浏览器沙箱，生产代码不提供该开关。
 
-新增接口：`GET /api/v1/vhosts/screenshots`、`PUT /api/v1/vhosts/screenshot?name=…`、`POST /api/v1/vhosts/screenshot/refresh?name=…`、`DELETE /api/v1/vhosts/screenshot?name=…`、`GET /api/v1/vhosts/screenshot/image?name=…`。均需登录，写操作需 CSRF；设置与刷新返回 202，图片通过面板鉴权后读取且禁止缓存。
+新增接口：`GET /api/v1/vhosts/screenshots`、`PUT /api/v1/vhosts/screenshot?name=…`、`POST /api/v1/vhosts/screenshot/refresh?name=…`、`DELETE /api/v1/vhosts/screenshot?name=…`、`GET /api/v1/vhosts/screenshot/image?name=…`。均需登录，写操作需 CSRF；设置与刷新返回 202，图片通过面板鉴权后读取且禁止缓存。设置输入及返回数据包含 `viewport_width`、`viewport_height`、`javascript`；宽高同时省略或均为 0 时使用默认尺寸，只提供一项非零尺寸会报错。截图设置 PUT 请求体上限为 128 KiB，以容纳脚本和 JSON 转义，其他 API 仍为 4 KiB。
 
 ### 定时任务
 

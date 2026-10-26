@@ -7,6 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogClose,
   DialogContent,
@@ -17,6 +24,29 @@ import {
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import type { ScreenshotSnapshot, Vhost, WebsiteScreenshot } from "@/lib/types";
+
+const resolutions = [
+  {
+    value: "1920x1080",
+    label: "桌面 · 1920 × 1080",
+    width: 1920,
+    height: 1080,
+  },
+  {
+    value: "1440x900",
+    label: "桌面 · 1440 × 900（默认）",
+    width: 1440,
+    height: 900,
+  },
+  { value: "1366x768", label: "桌面 · 1366 × 768", width: 1366, height: 768 },
+  {
+    value: "768x1024",
+    label: "平板尺寸 · 768 × 1024",
+    width: 768,
+    height: 1024,
+  },
+  { value: "390x844", label: "手机尺寸 · 390 × 844", width: 390, height: 844 },
+];
 
 function imageURL(item: WebsiteScreenshot) {
   return `/api/v1/vhosts/screenshot/image?name=${encodeURIComponent(item.name)}&v=${encodeURIComponent(item.image_version || "")}`;
@@ -66,8 +96,8 @@ function Preview({
         {hasImage && item ? (
           <img
             src={imageURL(item)}
-            width={1440}
-            height={900}
+            width={item.viewport_width}
+            height={item.viewport_height}
             loading="lazy"
             alt={`${site.domains[0] || site.name} 的网站截图`}
             onError={() => setFailedImage(item.image_version || "")}
@@ -104,7 +134,7 @@ function Preview({
           <span>
             {item?.captured_at
               ? timestamp(item.captured_at)
-              : "桌面首屏 · 1440 × 900"}
+              : `网站首屏 · ${item?.viewport_width || 1440} × ${item?.viewport_height || 900}`}
           </span>
         )}
         {item && (
@@ -139,6 +169,10 @@ export function useWebsiteScreenshots(enabled: boolean) {
   const [site, setSite] = useState<Vhost | null>(null);
   const [enlarged, setEnlarged] = useState<WebsiteScreenshot | null>(null);
   const [url, setURL] = useState("");
+  const [resolution, setResolution] = useState("1440x900");
+  const [viewportWidth, setViewportWidth] = useState("1440");
+  const [viewportHeight, setViewportHeight] = useState("900");
+  const [javascript, setJavaScript] = useState("");
   const [language, setLanguage] = useState("zh-CN");
   const [loadTimeoutSeconds, setLoadTimeoutSeconds] = useState("30");
   const [authEnabled, setAuthEnabled] = useState(false);
@@ -169,6 +203,9 @@ export function useWebsiteScreenshots(enabled: boolean) {
           method: "PUT",
           body: JSON.stringify({
             url,
+            viewport_width: Number(viewportWidth),
+            viewport_height: Number(viewportHeight),
+            javascript,
             language,
             load_timeout_seconds: Number(loadTimeoutSeconds),
             auth_enabled: authEnabled,
@@ -217,6 +254,15 @@ export function useWebsiteScreenshots(enabled: boolean) {
     }
     const item = query.data?.items[target.name];
     setURL(item?.url || "");
+    const width = item?.viewport_width || 1440;
+    const height = item?.viewport_height || 900;
+    setViewportWidth(String(width));
+    setViewportHeight(String(height));
+    setResolution(
+      resolutions.find((r) => r.width === width && r.height === height)
+        ?.value || "custom",
+    );
+    setJavaScript(item?.javascript || "");
     setLanguage(item?.language || "zh-CN");
     setLoadTimeoutSeconds(String(item?.load_timeout_seconds || 30));
     setAuthEnabled(item?.auth_enabled || false);
@@ -279,12 +325,16 @@ export function useWebsiteScreenshots(enabled: boolean) {
                 截图设置 · {site?.domains[0] || site?.name}
               </DialogTitle>
               <DialogDescription>
-                保存后截取网站桌面首屏，设置与认证信息仅保存在本机。
+                保存后按所选分辨率截取网站首屏，设置与认证信息仅保存在本机。
               </DialogDescription>
             </DialogHeader>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                if (new TextEncoder().encode(javascript).length > 16 * 1024) {
+                  toast.error("截图前 JavaScript 不能超过 16 KiB");
+                  return;
+                }
                 save.mutate();
               }}
             >
@@ -301,6 +351,72 @@ export function useWebsiteScreenshots(enabled: boolean) {
                     onChange={(e) => setURL(e.target.value)}
                   />
                 </div>
+                <div className="form-field">
+                  <Label htmlFor="screenshot-resolution">截图分辨率</Label>
+                  <Select
+                    value={resolution}
+                    disabled={busy}
+                    onValueChange={(value) => {
+                      setResolution(value);
+                      const preset = resolutions.find((r) => r.value === value);
+                      if (preset) {
+                        setViewportWidth(String(preset.width));
+                        setViewportHeight(String(preset.height));
+                      }
+                    }}
+                  >
+                    <SelectTrigger
+                      id="screenshot-resolution"
+                      className="w-full"
+                      aria-describedby="screenshot-resolution-help"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {resolutions.map((preset) => (
+                        <SelectItem key={preset.value} value={preset.value}>
+                          {preset.label}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="custom">自定义</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p id="screenshot-resolution-help" className="small-note">
+                    设置浏览器视口大小，手机和平板尺寸不切换浏览器身份。
+                  </p>
+                </div>
+                {resolution === "custom" && (
+                  <div className="screenshot-dimensions">
+                    <div className="form-field">
+                      <Label htmlFor="screenshot-width">截图宽度（像素）</Label>
+                      <Input
+                        id="screenshot-width"
+                        type="number"
+                        required
+                        min={320}
+                        max={3840}
+                        step={1}
+                        value={viewportWidth}
+                        onChange={(e) => setViewportWidth(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-field">
+                      <Label htmlFor="screenshot-height">
+                        截图高度（像素）
+                      </Label>
+                      <Input
+                        id="screenshot-height"
+                        type="number"
+                        required
+                        min={320}
+                        max={3840}
+                        step={1}
+                        value={viewportHeight}
+                        onChange={(e) => setViewportHeight(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
                 <div className="form-field">
                   <Label htmlFor="screenshot-language">浏览器语言</Label>
                   <Input
@@ -334,6 +450,31 @@ export function useWebsiteScreenshots(enabled: boolean) {
                   <p id="screenshot-timeout-help" className="small-note">
                     默认 30 秒，可设为 5–300 秒。等待
                     CSS、图片和字体等资源加载稳定后截图；加载较慢时可适当增加，超时保留上次成功截图。
+                  </p>
+                </div>
+                <div className="form-field">
+                  <Label htmlFor="screenshot-javascript">
+                    截图前 JavaScript
+                  </Label>
+                  <textarea
+                    id="screenshot-javascript"
+                    className="screenshot-script"
+                    rows={6}
+                    maxLength={16384}
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    value={javascript}
+                    onChange={(e) => setJavaScript(e.target.value)}
+                    placeholder={
+                      'document.querySelector(".popup")?.remove();\nawait new Promise(resolve => setTimeout(resolve, 500));'
+                    }
+                    aria-describedby="screenshot-javascript-help"
+                  />
+                  <p id="screenshot-javascript-help" className="small-note">
+                    可选，最多 16 KiB。页面加载后在目标网站中执行一次，支持
+                    await。
+                    执行完成并等待资源稳定后截图；执行出错或超时会保留上次成功截图。
                   </p>
                 </div>
                 <div className="screenshot-auth-toggle">
@@ -437,8 +578,8 @@ export function useWebsiteScreenshots(enabled: boolean) {
             {enlarged && (
               <img
                 src={imageURL(enlarged)}
-                width={1440}
-                height={900}
+                width={enlarged.viewport_width}
+                height={enlarged.viewport_height}
                 alt={`${enlarged.name} 的完整网站截图`}
               />
             )}
