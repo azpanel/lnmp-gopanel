@@ -187,8 +187,8 @@ if ! getent passwd lnmp-panel >/dev/null; then
   useradd --system --gid lnmp-panel --no-create-home --home-dir /nonexistent --shell "$nologin_shell" lnmp-panel
 fi
 [[ "$(id -u lnmp-panel)" != 0 ]] || die "The panel account must not be root"
-if systemctl is-active --quiet lnmp-gopanel; then was_active=true; fi
-if systemctl is-enabled --quiet lnmp-gopanel; then was_enabled=true; fi
+if systemctl is-active --quiet lnmp-gopanel >/dev/null 2>&1; then was_active=true; fi
+if systemctl is-enabled --quiet lnmp-gopanel >/dev/null 2>&1; then was_enabled=true; fi
 backup_dir="/var/backups/lnmp-gopanel/$(date -u +%Y%m%dT%H%M%SZ)-$$"
 install -d -o root -g root -m 0700 /var/backups/lnmp-gopanel "$backup_dir"
 for index in "${!targets[@]}"; do
@@ -223,5 +223,10 @@ else
 fi
 installation_complete=true
 printf 'Installation complete. Backups: %s\n' "$backup_dir"
+printf 'Configuration: /etc/lnmp-gopanel/config.yaml\n'
 printf 'Check /etc/lnmp-gopanel/services.yaml and use systemctl status lnmp-gopanel.\n'
-if "$fresh_install"; then printf 'Default address: http://127.0.0.1:8090 (accessible through an SSH tunnel).\n'; fi
+if "$fresh_install"; then
+  printf 'Default address: http://127.0.0.1:8090 (local access only).\n'
+  printf 'For direct public access, set listen: 0.0.0.0:8090 in the configuration, restart lnmp-gopanel, and allow TCP 8090 in your cloud security group and host firewall.\n'
+  printf 'For HTTPS access, see the reverse proxy example in the README.\n'
+fi

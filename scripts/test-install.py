@@ -54,7 +54,12 @@ SYSTEMCTL = """#!/bin/bash
 printf '%s\\n' "$*" >> /run/systemctl.log
 case "$1" in
   is-active) [[ -f /run/panel.active ]] ;;
-  is-enabled) [[ -f /run/panel.enabled ]] ;;
+  is-enabled)
+    if [[ ! -f /etc/systemd/system/lnmp-gopanel.service ]]; then
+      printf 'Failed to get unit file state for lnmp-gopanel.service: No such file or directory\\n' >&2
+      exit 1
+    fi
+    [[ -f /run/panel.enabled ]] ;;
   enable) touch /run/panel.enabled ;;
   disable) rm -f /run/panel.enabled ;;
   restart) [[ ! -f /run/fail-restart ]] || exit 1; touch /run/panel.active ;;
@@ -174,7 +179,8 @@ class InstallerTests(unittest.TestCase):
         return {target: (self.root / target.lstrip("/")).read_bytes() for target in TARGETS}
 
     def test_fresh_install(self):
-        self.run_installer("--password-stdin", "--username", "operator")
+        result = self.run_installer("--password-stdin", "--username", "operator")
+        self.assertNotIn("Failed to get unit file state", result.stderr)
         config = self.root / "etc/lnmp-gopanel/config.yaml"
         self.assertIn("username: operator", config.read_text())
         self.assertEqual(config.stat().st_mode & 0o777, 0o640)

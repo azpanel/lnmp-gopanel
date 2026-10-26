@@ -119,7 +119,22 @@ Web 进程没有任意命令接口。它只能通过 `/usr/bin/sudo -n` 调用�
 ssh -N -L 8090:127.0.0.1:8090 user@your-server
 ```
 
-然后访问 http://127.0.0.1:8090 。公网访问参考 `deploy/nginx.conf.example` 配置 HTTPS，并将面板配置设置为：
+然后访问 http://127.0.0.1:8090 。
+
+若要直接通过公网 IP 和端口访问，在新安装的服务器上修改监听并重启面板：
+
+```bash
+sudo sed -i.bak 's/^listen:.*/listen: 0.0.0.0:8090/' /etc/lnmp-gopanel/config.yaml
+sudo systemctl restart lnmp-gopanel
+sudo ss -lntp 'sport = :8090'
+curl -I http://127.0.0.1:8090/
+```
+
+同时在云服务器安全组和系统防火墙中放行 TCP 8090，然后访问 `http://服务器公网IP:8090`。`127.0.0.1` 只接受本机连接，`0.0.0.0` 绑定所有 IPv4 网卡，不是浏览器中使用的地址。若本机 HTTP 检查成功但公网不通，继续检查安全组、防火墙及公网 IP / NAT 端口映射。
+
+安装时显示的 `/tmp/lnmp-gopanel-install.*/config` 是暂存目录；实际配置安装在 `/etc/lnmp-gopanel/`。首次安装前查询 systemd 启用状态时，旧版安装脚本可能提示 `No such file or directory`；只要随后安装完成且 `systemctl is-active lnmp-gopanel` 返回 `active`，这条提示不表示安装失败。
+
+使用域名及 HTTPS 反向代理时，面板可继续监听 `127.0.0.1:8090`。参考 `deploy/nginx.conf.example` 配置代理，并将面板配置设置为：
 
 ```yaml
 secure_cookie: true
