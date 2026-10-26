@@ -11,15 +11,18 @@ Restart=on-failure
 RestartSec=3
 TimeoutStopSec=15
 UMask=0077
-# sudo must be able to elevate only the fixed helper. NoNewPrivileges and
-# RestrictSUIDSGID would disable that path. /proc stays visible for host metrics.
+# sudo must be able to elevate only the fixed helper. On systemd versions such
+# as 252, the four settings below implicitly enable NoNewPrivileges for User=.
+# Setting NoNewPrivileges=false alone does not override those implications.
+# Do not enable RestrictSUIDSGID either. /proc stays visible for host metrics.
 # LNMP init scripts and nginx -t need access to /usr/local and /home.
 # The sudo helper inherits this unit namespace; do not mask these paths.
-ProtectKernelTunables=true
-ProtectKernelModules=true
+NoNewPrivileges=false
+ProtectKernelTunables=false
+ProtectKernelModules=false
 ProtectControlGroups=true
-RestrictRealtime=true
-LockPersonality=true
+RestrictRealtime=false
+LockPersonality=false
 StandardOutput=journal
 StandardError=journal
 

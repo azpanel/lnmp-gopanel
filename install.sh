@@ -81,6 +81,43 @@ atomic_install() {
   install -o root -g "$group" -m "$mode" "$source" "$staged"
   mv -fT -- "$staged" "$destination"
 }
+check_helper() {
+  local name action
+  # Query exact permissions as the panel account; never run a scan or change a
+  # managed service during installation. Syntax validation alone is insufficient
+  # when the system sudoers does not include /etc/sudoers.d.
+  for name in nginx docker storage; do
+    case "$name" in
+      nginx) action=status ;;
+      docker) action=snapshot ;;
+      storage) action=scan ;;
+    esac
+    # The installer is root; redirections intentionally stay outside sudo.
+    # shellcheck disable=SC2024
+    if ! /usr/bin/sudo -n -u lnmp-panel -- /usr/bin/sudo -n -l -- \
+      /usr/local/libexec/lnmp-gopanel-control "$name" "$action" > "$work_dir/helper-check.log" 2>&1; then
+      cat "$work_dir/helper-check.log" >&2
+      die "Panel account cannot use helper: $name $action; check /etc/sudoers includes /etc/sudoers.d/lnmp-gopanel"
+    fi
+  done
+  # Docker snapshot is read-only and also succeeds when Docker is not installed
+  # or its daemon is unavailable. Only show output on failure; the temporary
+  # directory is private and its inventory is removed by cleanup.
+  # shellcheck disable=SC2024
+  if ! /usr/bin/sudo -n -u lnmp-panel -- /usr/bin/sudo -n -- \
+    /usr/local/libexec/lnmp-gopanel-control docker snapshot > "$work_dir/helper-check.json" 2> "$work_dir/helper-check.log"; then
+    cat "$work_dir/helper-check.json" "$work_dir/helper-check.log" >&2
+    die "Panel account cannot execute the helper; check sudo, executable permissions and privilege restrictions"
+  fi
+}
+check_panel_privileges() {
+  local panel_pid no_new_privs
+  panel_pid="$(systemctl show lnmp-gopanel --property=MainPID --value)"
+  [[ "$panel_pid" =~ ^[1-9][0-9]*$ ]] || die "Cannot determine panel MainPID"
+  [[ -r "/proc/$panel_pid/status" ]] || die "Cannot read panel process status: /proc/$panel_pid/status"
+  no_new_privs="$(awk '$1 == "NoNewPrivs:" { print $2 }' "/proc/$panel_pid/status")"
+  [[ "$no_new_privs" == 0 ]] || die "Panel process has NoNewPrivs=$no_new_privs; sudo cannot elevate. Check systemctl cat lnmp-gopanel and overrides for implicit NoNewPrivileges restrictions"
+}
 cleanup() {
   local status=$?
   set +e
@@ -212,14 +249,17 @@ chmod 0640 /etc/lnmp-gopanel/config.yaml
 chown root:root /etc/lnmp-gopanel/services.yaml
 chmod 0644 /etc/lnmp-gopanel/services.yaml
 visudo -cf /etc/sudoers
+check_helper
 systemctl daemon-reload
 if "$start_service"; then
   systemctl enable lnmp-gopanel
   systemctl restart lnmp-gopanel
   sleep 1
   systemctl is-active --quiet lnmp-gopanel || die "Panel did not start; check journalctl -u lnmp-gopanel"
+  check_panel_privileges
 else
   printf 'Service was not enabled or restarted (--no-start).\n'
+  printf 'Helper permissions checked; verify /proc/<MainPID>/status has NoNewPrivs: 0 after starting the panel.\n'
 fi
 installation_complete=true
 printf 'Installation complete. Backups: %s\n' "$backup_dir"

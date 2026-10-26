@@ -65,8 +65,41 @@ case "$1" in
   restart) [[ ! -f /run/fail-restart ]] || exit 1; touch /run/panel.active ;;
   stop) rm -f /run/panel.active ;;
   daemon-reload) exit 0 ;;
+  show) cat /run/panel.pid ;;
   *) exit 1 ;;
 esac
+"""
+SUDO = """#!/bin/bash
+# Model sudo argument handling and failures; no host privilege changes occur.
+printf '%s\\n' "$*" >> /run/sudo.log
+if [[ "$1" == -n && "$2" == -u && "$3" == lnmp-panel && "$4" == -- && "$5" == /usr/bin/sudo ]]; then
+  shift 5
+  exec /usr/bin/sudo "$@"
+fi
+[[ "$1" == -n ]] || exit 64
+shift
+if [[ "$1" == -l && "$2" == -- ]]; then
+  shift 2
+  if [[ -f /run/deny-helper-command && "$*" == "$(cat /run/deny-helper-command)" ]]; then
+    printf 'sudo: command not allowed\\n' >&2
+    exit 1
+  fi
+  [[ "$1" == /usr/local/libexec/lnmp-gopanel-control ]] || exit 64
+  exit 0
+fi
+[[ "$1" == -- ]] || exit 64
+shift
+exec "$@"
+"""
+HELPER = """#!/bin/bash
+printf '%s\\n' "$*" >> /run/helper.log
+[[ "$1 $2" == 'docker snapshot' && $# == 2 ]] || exit 64
+if [[ -f /run/fail-helper ]]; then
+  printf '{"state":"unknown","message":"helper self-check failed"}\\n'
+  printf 'helper execution failed\\n' >&2
+  exit 1
+fi
+printf '{"status":"unavailable","message":"Docker not installed"}\\n'
 """
 PANEL = """#!/bin/bash
 [[ "$1" == init ]] || exit 64
@@ -114,8 +147,10 @@ class InstallerTests(unittest.TestCase):
         write(cls.template, "/etc/gshadow", "root:!::\n", 0o600)
         write(cls.template, "/etc/nsswitch.conf", "passwd: files\ngroup: files\nshadow: files\n")
         write(cls.template, "/etc/sudoers", "root ALL=(ALL:ALL) ALL\n@includedir /etc/sudoers.d\n", 0o440)
-        write(cls.template, "/usr/bin/sudo", "#!/bin/bash\nexit 0\n", 0o755)
+        write(cls.template, "/usr/bin/sudo", SUDO, 0o755)
         write(cls.template, "/usr/bin/systemctl", SYSTEMCTL, 0o755)
+        write(cls.template, "/run/panel.pid", "4242\n")
+        write(cls.template, "/proc/4242/status", "Uid:\t999\t999\t999\t999\nNoNewPrivs:\t0\nSeccomp:\t2\n")
         shutil.copy2(PROJECT / "install.sh", cls.template / "install.sh")
 
     @classmethod
@@ -134,7 +169,7 @@ class InstallerTests(unittest.TestCase):
     def package(self, extra=None, omit=None):
         files = {
             "bin/lnmp-gopanel": PANEL,
-            "bin/lnmp-gopanel-control": "#!/bin/bash\nexit 0\n",
+            "bin/lnmp-gopanel-control": HELPER,
             "deploy/lnmp-gopanel.service": (PROJECT / "deploy/lnmp-gopanel.service").read_text(),
             "deploy/lnmp-gopanel.sudoers": (PROJECT / "deploy/lnmp-gopanel.sudoers").read_text(),
             "VERSION": "v0.1.0\n",
@@ -181,6 +216,7 @@ class InstallerTests(unittest.TestCase):
     def test_fresh_install(self):
         result = self.run_installer("--password-stdin", "--username", "operator")
         self.assertNotIn("Failed to get unit file state", result.stderr)
+        self.assertNotIn("Docker not installed", result.stdout)
         config = self.root / "etc/lnmp-gopanel/config.yaml"
         self.assertIn("username: operator", config.read_text())
         self.assertEqual(config.stat().st_mode & 0o777, 0o640)
@@ -188,6 +224,12 @@ class InstallerTests(unittest.TestCase):
         self.assertTrue((self.root / "run/panel.active").exists())
         self.assertTrue((self.root / "run/panel.enabled").exists())
         self.assertTrue((self.root / "usr/local/bin/lnmp-gopanel").read_text().startswith("#!/bin/bash"))
+        sudo_log = (self.root / "run/sudo.log").read_text()
+        for command in ("nginx status", "docker snapshot", "storage scan"):
+            self.assertIn(f"-n -u lnmp-panel -- /usr/bin/sudo -n -l -- /usr/local/libexec/lnmp-gopanel-control {command}\n", sudo_log)
+        self.assertIn("-n -u lnmp-panel -- /usr/bin/sudo -n -- /usr/local/libexec/lnmp-gopanel-control docker snapshot\n", sudo_log)
+        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\n")
+        self.assertIn("show lnmp-gopanel --property=MainPID --value\n", (self.root / "run/systemctl.log").read_text())
 
     def test_upgrade_preserves_credentials_and_no_start(self):
         previous = self.old_installation()
@@ -197,7 +239,62 @@ class InstallerTests(unittest.TestCase):
         log = (self.root / "run/systemctl.log").read_text()
         self.assertNotIn("restart lnmp-gopanel", log)
         self.assertNotIn("enable lnmp-gopanel", log)
+        self.assertNotIn("show lnmp-gopanel", log)
+        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\n")
         self.assertTrue(list((self.root / "var/backups/lnmp-gopanel").glob("*/manifest")))
+
+    def test_missing_helper_permissions_rolls_back(self):
+        previous = self.old_installation()
+        for command in ("nginx status", "docker snapshot", "storage scan"):
+            with self.subTest(command=command):
+                write(self.root, "/run/deny-helper-command", f"/usr/local/libexec/lnmp-gopanel-control {command}\n")
+                result = self.run_installer(success=False)
+                self.assertIn(f"Panel account cannot use helper: {command}", result.stderr)
+                self.assertIn("sudo: command not allowed", result.stderr)
+                for target in TARGETS:
+                    self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
+                self.assertFalse((self.root / "run/helper.log").exists())
+
+    def test_helper_execution_failure_rolls_back(self):
+        previous = self.old_installation()
+        write(self.root, "/run/fail-helper", "")
+        result = self.run_installer(success=False)
+        self.assertIn("helper execution failed", result.stderr)
+        self.assertIn("helper self-check failed", result.stderr)
+        self.assertIn("Panel account cannot execute the helper", result.stderr)
+        for target in TARGETS:
+            self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
+
+    def test_no_new_privileges_rolls_back_despite_successful_shell_helper(self):
+        previous = self.old_installation()
+        write(self.root, "/proc/4242/status", "NoNewPrivs:\t1\n")
+        result = self.run_installer(success=False)
+        self.assertIn("Panel process has NoNewPrivs=1", result.stderr)
+        self.assertIn("implicit NoNewPrivileges", result.stderr)
+        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\n")
+        for target in TARGETS:
+            self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
+        self.assertTrue((self.root / "run/panel.active").exists())
+
+    def test_unreadable_process_status_rolls_back(self):
+        (self.root / "proc/4242/status").unlink()
+        result = self.run_installer("--password-stdin", success=False)
+        self.assertIn("Cannot read panel process status", result.stderr)
+        self.assertFalse((self.root / "usr/local/bin/lnmp-gopanel").exists())
+        self.assertFalse((self.root / "run/panel.active").exists())
+
+    def test_invalid_main_pid_rolls_back(self):
+        write(self.root, "/run/panel.pid", "0\n")
+        result = self.run_installer("--password-stdin", success=False)
+        self.assertIn("Cannot determine panel MainPID", result.stderr)
+        self.assertFalse((self.root / "usr/local/bin/lnmp-gopanel").exists())
+
+    def test_no_start_skips_running_process_check(self):
+        write(self.root, "/proc/4242/status", "NoNewPrivs:\t1\n")
+        result = self.run_installer("--password-stdin", "--no-start")
+        self.assertIn("Helper permissions checked", result.stdout)
+        self.assertNotIn("show lnmp-gopanel", (self.root / "run/systemctl.log").read_text())
+        self.assertFalse((self.root / "run/panel.active").exists())
 
     def test_failed_restart_restores_previous_files(self):
         previous = self.old_installation()
@@ -211,6 +308,7 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse((self.root / "usr/local/bin/lnmp-gopanel").exists())
         self.assertFalse((self.root / "etc/lnmp-gopanel").exists())
         self.assertFalse((self.root / "run/systemctl.log").exists())
+        self.assertFalse((self.root / "run/sudo.log").exists())
 
     def test_checksum_failure_leaves_installation_untouched(self):
         previous = self.old_installation()

@@ -22,6 +22,8 @@ sudo bash install.sh
 
 脚本下载最新 Release 中对应架构的预编译安装包，验证 SHA-256，创建普通服务账号并安装面板、特权辅助程序、精确的 sudoers 规则及 systemd 服务。首次安装交互设置管理员密码（12–72 字节），检测本机 LNMP / Redis 服务，并启动面板。默认仅监听 `127.0.0.1:8090`，可使用下文的 SSH 隧道访问，运行时无需 Go 或 Node.js。
 
+安装时会以 `lnmp-panel` 账号检查服务状态、Docker 查询和文件扫描的精确 sudo 授权，并实际免密调用一次只读 `docker snapshot` 辅助程序（无需安装或启动 Docker，不触发全盘扫描或服务启停）。启动面板后读取实际进程的 `/proc/<MainPID>/status`，确认 `NoNewPrivs: 0`，避免 systemd 隐式限制使所有辅助功能不可用；检查失败会报错并回滚。`--no-start` 只执行辅助程序检查，进程限制需在自行启动后验证。
+
 重复执行同一命令即可升级，现有 `config.yaml`、管理员密码和 `services.yaml` 内容会保留。升级只重启面板服务，不重启 Nginx、PHP、数据库、Redis 或 Docker；已有面板会话需重新登录。替换前的文件保存在 `/var/backups/lnmp-gopanel/`，替换或启动失败时自动恢复旧文件。
 
 指定版本、自定义首次安装用户名、只验证包及离线安装：
@@ -111,7 +113,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now lnmp-gopanel
 ```
 
-Web 进程没有任意命令接口。它只能通过 `/usr/bin/sudo -n` 调用固定辅助程序；辅助程序只读取固定位置的 root 配置，验证配置与可执行文件及其父目录为 root 所有、不可由组或其他用户写入，再执行白名单服务操作。不使用 setuid 文件权限。systemd 配置特意没有 `NoNewPrivileges`，因为此设置会阻止 sudo；内核和控制组等限制仍启用。辅助程序会继承 systemd 的文件系统视图，因此不启用 `ProtectHome` 或将 `/usr/local` 设为只读，避免阻止 LNMP 脚本读写 PID、日志及配置检查所需路径。普通 Web 用户仍受 Unix 文件权限限制。
+Web 进程没有任意命令接口。它只能通过 `/usr/bin/sudo -n` 调用固定辅助程序；辅助程序只读取固定位置的 root 配置，验证配置与可执行文件及其父目录为 root 所有、不可由组或其他用户写入，再执行白名单服务操作。不使用 setuid 文件权限。systemd 配置显式关闭 `NoNewPrivileges`，同时关闭在 systemd 252 等版本中会对普通服务账号隐式启用它的 `ProtectKernelTunables`、`ProtectKernelModules`、`RestrictRealtime` 和 `LockPersonality`；仅设置 `NoNewPrivileges=false` 不足以解除这些隐式限制。保留 `ProtectControlGroups=true`，不启用 `RestrictSUIDSGID`。辅助程序会继承 systemd 的文件系统视图，因此不启用 `ProtectHome` 或将 `/usr/local` 设为只读，避免阻止 LNMP 脚本读写 PID、日志及配置检查所需路径。普通 Web 用户仍受 Unix 文件权限限制。
 
 默认仅监听回环地址，可以从个人电脑建立 SSH 隧道：
 
