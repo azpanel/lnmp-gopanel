@@ -12,6 +12,14 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -229,28 +237,36 @@ export function Logs() {
             <label className="sr-only" htmlFor="log-file">
               选择日志
             </label>
-            <select
-              id="log-file"
-              className="logs-select log-file-select"
-              value={path}
-              onChange={(e) => setSelected(e.target.value)}
+            <Select
+              value={files.length ? path : ""}
+              onValueChange={setSelected}
               disabled={!files.length}
             >
-              {!files.length && (
-                <option value="">
-                  {catalog.isPending ? "正在读取文件列表…" : "没有可读取的日志"}
-                </option>
-              )}
-              {path && !file && files.length > 0 && (
-                <option value={path}>{path}（文件已不在列表中）</option>
-              )}
-              {files.map((file) => (
-                <option key={file.path} value={file.path}>
-                  {file.path}
-                  {!file.available ? "（不可读取）" : ""}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                id="log-file"
+                className="log-file-select"
+                title={path || undefined}
+              >
+                <SelectValue
+                  placeholder={
+                    catalog.isPending ? "正在读取文件列表…" : "没有可读取的日志"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {path && !file && files.length > 0 && (
+                  <SelectItem value={path}>
+                    {path}（文件已不在列表中）
+                  </SelectItem>
+                )}
+                {files.map((file) => (
+                  <SelectItem key={file.path} value={file.path}>
+                    {file.path}
+                    {!file.available ? "（不可读取）" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="log-actions">
             <DialogTrigger asChild>
@@ -313,10 +329,11 @@ export function Logs() {
               {last?.has_after ? " · 正在分批追赶新增内容" : ""}
             </span>
             <label className="log-check">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={reader.follow}
-                onChange={(e) => reader.setFollow(e.target.checked)}
+                onCheckedChange={(checked) =>
+                  reader.setFollow(checked === true)
+                }
               />
               自动滚动
             </label>
@@ -395,22 +412,20 @@ export function Logs() {
             {rules.map((rule, index) => (
               <div className="log-rule" key={index}>
                 <label className="log-check log-rule-enabled">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={rule.enabled}
-                    onChange={(e) =>
-                      patchRule(index, { enabled: e.target.checked })
+                    onCheckedChange={(checked) =>
+                      patchRule(index, { enabled: checked === true })
                     }
                     aria-label={`启用规则 ${index + 1}`}
                   />
                   启用
                 </label>
                 <label className="log-check log-rule-case">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={rule.ignore_case}
-                    onChange={(e) =>
-                      patchRule(index, { ignore_case: e.target.checked })
+                    onCheckedChange={(checked) =>
+                      patchRule(index, { ignore_case: checked === true })
                     }
                   />
                   忽略大小写
@@ -441,32 +456,44 @@ export function Logs() {
                     patchRule(index, { pattern: e.target.value })
                   }
                 />
-                <select
-                  className="logs-select log-rule-kind"
-                  aria-label={`规则 ${index + 1} 类型`}
+                <Select
                   value={rule.kind}
-                  onChange={(e) =>
+                  onValueChange={(value) =>
                     patchRule(index, {
-                      kind: e.target.value as LogRule["kind"],
+                      kind: value as LogRule["kind"],
                     })
                   }
                 >
-                  <option value="keyword">关键词</option>
-                  <option value="regex">正则</option>
-                </select>
-                <select
-                  className="logs-select log-rule-action"
-                  aria-label={`规则 ${index + 1} 操作`}
+                  <SelectTrigger
+                    className="log-rule-kind"
+                    aria-label={`规则 ${index + 1} 类型`}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="keyword">关键词</SelectItem>
+                    <SelectItem value="regex">正则</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
                   value={rule.action}
-                  onChange={(e) =>
+                  onValueChange={(value) =>
                     patchRule(index, {
-                      action: e.target.value as LogRule["action"],
+                      action: value as LogRule["action"],
                     })
                   }
                 >
-                  <option value="show">显示匹配</option>
-                  <option value="hide">隐藏匹配</option>
-                </select>
+                  <SelectTrigger
+                    className="log-rule-action"
+                    aria-label={`规则 ${index + 1} 操作`}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="show">显示匹配</SelectItem>
+                    <SelectItem value="hide">隐藏匹配</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             ))}
           </div>

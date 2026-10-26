@@ -2668,16 +2668,6 @@ a {
   flex-wrap: wrap;
   gap: 8px;
 }
-.logs-select {
-  min-width: 0;
-  height: 36px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0 10px;
-  color: var(--foreground);
-  background: var(--card);
-  font-size: 15px;
-}
 .log-heading {
   display: flex;
   flex: 1 1 320px;
@@ -2741,12 +2731,10 @@ a {
 .log-check {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  cursor: pointer;
   white-space: nowrap;
   font-size: 14px;
-}
-.log-check input {
-  accent-color: var(--primary);
 }
 .log-status {
   margin-bottom: 12px;

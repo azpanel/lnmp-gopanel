@@ -1,4 +1,88 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+
+async function chooseOption(page: Page, label: string, option: string) {
+  await page.getByRole("combobox", { name: label, exact: true }).click();
+  await page.getByRole("option", { name: option, exact: true }).click();
+}
+
+for (const theme of ["light", "dark"] as const) {
+  test(`custom log controls handle long paths, keyboard selection and empty lists in ${theme} theme`, async ({
+    page,
+  }, testInfo) => {
+    await page.addInitScript(
+      (theme) => localStorage.setItem("theme", theme),
+      theme,
+    );
+    const longPath = `/home/wwwlogs/${"long-directory-name/".repeat(10)}site.log`;
+    let paths = [
+      longPath,
+      ...Array.from(
+        { length: 20 },
+        (_, i) => `/home/wwwlogs/site-${String(i).padStart(2, "0")}.log`,
+      ),
+    ];
+    await page.route("**/api/v1/logs", (route) =>
+      route.fulfill({
+        json: {
+          files: paths.map((path) => ({ path, available: false, size: 0 })),
+          warnings: [],
+        },
+      }),
+    );
+    await page.goto("/logs");
+    await page
+      .getByLabel("密码", { exact: true })
+      .fill("Test-Only-Panel-Password-2026");
+    await page.getByRole("button", { name: "登录面板" }).click();
+    const select = page.getByRole("combobox", { name: "选择日志" });
+    await expect(select).toContainText(longPath);
+    await select.focus();
+    await page.keyboard.press("Enter");
+    const menu = page.getByRole("listbox");
+    await expect(menu).toBeVisible();
+    const bounds = (await menu.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width);
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
+    await page.screenshot({
+      path: testInfo.outputPath(`log-select-${theme}.png`),
+    });
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await expect(select).toContainText("site-19.log");
+    await expect(select).toBeFocused();
+    // A selected file disappearing must remain identifiable and selectable.
+    paths = [longPath];
+    await page.getByRole("button", { name: "刷新文件" }).click();
+    await expect(select).toContainText("文件已不在列表中");
+    await chooseOption(page, "选择日志", `${longPath}（不可读取）`);
+    await page.getByRole("button", { name: /^筛选规则/ }).click();
+    await page.getByRole("button", { name: "添加规则" }).click();
+    await page.getByRole("combobox", { name: "规则 1 类型" }).click();
+    await expect(
+      page.getByRole("option", { name: "正则", exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath(`log-controls-${theme}.png`),
+    });
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("dialog", { name: "显示与隐藏规则" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "关闭筛选规则" }).click();
+    paths = [];
+    await page.getByRole("button", { name: "刷新文件" }).click();
+    await expect(select).toBeDisabled();
+    await expect(select).toHaveText("没有可读取的日志");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBeTruthy();
+  });
+}
 
 test("log filters, bounded viewport, history, rotation and per-file preferences", async ({
   page,
@@ -98,6 +182,13 @@ test("log filters, bounded viewport, history, rotation and per-file preferences"
       .filter({ hasText: "日志内容" }),
   });
   await expect(logCard.getByLabel("选择日志")).toBeVisible();
+  const follow = page.getByRole("checkbox", { name: "自动滚动" });
+  await expect(follow).toBeChecked();
+  await page.getByText("自动滚动", { exact: true }).click();
+  await expect(follow).not.toBeChecked();
+  await follow.focus();
+  await page.keyboard.press("Space");
+  await expect(follow).toBeChecked();
   await expect(drawer).not.toBeVisible();
   await filters.click();
   await expect(drawer).toBeVisible();
@@ -110,6 +201,23 @@ test("log filters, bounded viewport, history, rotation and per-file preferences"
     })
     .toBeLessThan(2);
   await page.getByRole("button", { name: "添加规则" }).click();
+  const kind = page.getByRole("combobox", { name: "规则 1 类型" });
+  await kind.click();
+  await expect(page.getByRole("listbox")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+  await expect(drawer).toBeVisible();
+  await expect(kind).toBeFocused();
+  const enabled = page.getByRole("checkbox", { name: "启用规则 1" });
+  await drawer.getByText("启用", { exact: true }).click();
+  await expect(enabled).not.toBeChecked();
+  await enabled.focus();
+  await page.keyboard.press("Space");
+  await expect(enabled).toBeChecked();
+  await drawer.getByText("忽略大小写", { exact: true }).click();
+  await expect(
+    page.getByRole("checkbox", { name: "忽略大小写" }),
+  ).toBeChecked();
   await page.getByLabel("规则 1 内容").fill("ERROR");
   await page.keyboard.press("Escape");
   await expect(drawer).not.toBeVisible();
@@ -119,7 +227,7 @@ test("log filters, bounded viewport, history, rotation and per-file preferences"
   await expect(page.getByLabel("规则 1 内容")).toHaveValue("ERROR");
   await page.getByRole("button", { name: "添加规则" }).click();
   await page.getByLabel("规则 2 内容").fill("secret");
-  await page.getByLabel("规则 2 操作").selectOption("hide");
+  await chooseOption(page, "规则 2 操作", "隐藏匹配");
   await page.screenshot({
     path: testInfo.outputPath("log-rules-drawer.png"),
   });
@@ -139,7 +247,7 @@ test("log filters, bounded viewport, history, rotation and per-file preferences"
   ).toBeTruthy();
   // Invalid regex leaves the previous result and preferences intact.
   await filters.click();
-  await page.getByLabel("规则 1 类型").selectOption("regex");
+  await chooseOption(page, "规则 1 类型", "正则");
   await page.getByLabel("规则 1 内容").fill("[");
   await page.getByRole("button", { name: "应用规则" }).click();
   await expect(page.getByRole("alert")).toContainText("正则无效");
@@ -150,13 +258,16 @@ test("log filters, bounded viewport, history, rotation and per-file preferences"
   await page.reload();
   await filters.click();
   await expect(page.getByLabel("规则 1 内容")).toHaveValue("ERROR");
-  await expect(page.getByLabel("规则 1 类型")).toHaveValue("keyword");
+  await expect(page.getByLabel("规则 1 类型")).toHaveText("关键词");
+  await expect(
+    page.getByRole("checkbox", { name: "忽略大小写" }).first(),
+  ).toBeChecked();
   await page.getByRole("button", { name: "关闭筛选规则" }).click();
-  await page.getByLabel("选择日志").selectOption(php);
+  await chooseOption(page, "选择日志", php);
   await filters.click();
   await expect(page.getByLabel("规则 1 内容")).toHaveCount(0);
   await page.getByRole("button", { name: "关闭筛选规则" }).click();
-  await page.getByLabel("选择日志").selectOption(path);
+  await chooseOption(page, "选择日志", path);
   await filters.click();
   await expect(page.getByLabel("规则 1 内容")).toHaveValue("ERROR");
   await page.getByRole("button", { name: "关闭筛选规则" }).click();
@@ -284,7 +395,7 @@ test("log polling retries, stops in background and cancels stale file reads", as
     }),
   );
   await expect.poll(() => Boolean(release)).toBe(true);
-  await page.getByLabel("选择日志").selectOption(php);
+  await chooseOption(page, "选择日志", php);
   await expect(page.locator(".log-line")).toContainText("php content");
   release!();
   await page.waitForTimeout(200);
