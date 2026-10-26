@@ -1,4 +1,14 @@
-import { Cpu, HardDrive, Server, ShieldCheck } from "lucide-react";
+import {
+  CircuitBoard,
+  Clock3,
+  Cpu,
+  HardDrive,
+  Layers3,
+  Monitor,
+  Server,
+  Settings2,
+  ShieldCheck,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DiskTable, Meter } from "./dashboard";
 import type { Host, Snapshot } from "@/lib/types";
@@ -14,13 +24,21 @@ export function System({
   error?: string;
 }) {
   const fields = [
-    ["主机名称", host?.hostname],
-    ["操作系统", host ? `${host.platform} ${host.version}` : undefined],
-    ["内核版本", host?.kernel],
-    ["系统架构", host?.arch],
-    ["CPU 型号", host?.cpu_model],
-    ["逻辑核心", host?.cores ? `${host.cores} 核心` : undefined],
-    ["运行时间", uptime(snapshot?.uptime)],
+    { label: "主机名称", value: host?.hostname, icon: Server },
+    {
+      label: "操作系统",
+      value: host ? `${host.platform} ${host.version}` : undefined,
+      icon: Monitor,
+    },
+    { label: "内核版本", value: host?.kernel, icon: Settings2 },
+    { label: "系统架构", value: host?.arch, icon: CircuitBoard },
+    { label: "CPU 型号", value: host?.cpu_model, icon: Cpu },
+    {
+      label: "逻辑核心",
+      value: host?.cores ? `${host.cores} 核心` : undefined,
+      icon: Layers3,
+    },
+    { label: "运行时间", value: uptime(snapshot?.uptime), icon: Clock3 },
   ];
   return (
     <>
@@ -42,9 +60,12 @@ export function System({
           </CardHeader>
           <CardContent>
             <dl className="host-fields">
-              {fields.map(([label, value]) => (
+              {fields.map(({ label, value, icon: Icon }) => (
                 <div key={label}>
-                  <dt>{label}</dt>
+                  <dt>
+                    <Icon size={15} aria-hidden="true" />
+                    {label}
+                  </dt>
                   <dd>{value || "—"}</dd>
                 </div>
               ))}

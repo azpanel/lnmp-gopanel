@@ -22,6 +22,7 @@ import (
 	"github.com/azpanel/lnmp-gopanel/internal/docker"
 	"github.com/azpanel/lnmp-gopanel/internal/metrics"
 	"github.com/azpanel/lnmp-gopanel/internal/releases"
+	"github.com/azpanel/lnmp-gopanel/internal/screenshots"
 	"github.com/azpanel/lnmp-gopanel/internal/server"
 	"github.com/azpanel/lnmp-gopanel/internal/storage"
 	"github.com/azpanel/lnmp-gopanel/internal/vhosts"
@@ -40,6 +41,9 @@ func main() {
 func run() error {
 	if len(os.Args) > 1 && os.Args[1] == "init" {
 		return initialize(os.Args[2:])
+	}
+	if len(os.Args) > 1 && os.Args[1] == "check-screenshots" {
+		return checkScreenshots(os.Args[2:])
 	}
 	flags := flag.NewFlagSet("lnmp-gopanel", flag.ContinueOnError)
 	path := flags.String("config", "/etc/lnmp-gopanel/config.yaml", "panel configuration")
@@ -70,6 +74,10 @@ func run() error {
 	app.Vhosts = vhosts.NewManager(ctx, control.Helper{Path: c.Helper})
 	app.Releases = releases.NewManager(ctx, releases.NewFetcher())
 	app.Docker = docker.NewManager(ctx, control.Helper{Path: c.Helper})
+	app.Screenshots, err = screenshots.NewManager(ctx, c.Screenshots.StateDir, &screenshots.Chromium{Browser: c.Screenshots.Browser, StateDir: c.Screenshots.StateDir})
+	if err != nil {
+		slog.Warn("截图状态存储初始化失败，其他功能继续运行", "error", err)
+	}
 	httpServer := &http.Server{Addr: c.Listen, Handler: app.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 * 1024}
 	httpServer.BaseContext = func(net.Listener) context.Context { return ctx }
 	slog.Info("LNMP GoPanel listening", "address", c.Listen, "services", len(services))
@@ -90,6 +98,38 @@ func run() error {
 		}
 		return nil
 	}
+}
+func checkScreenshots(args []string) error {
+	flags := flag.NewFlagSet("check-screenshots", flag.ContinueOnError)
+	configPath := flags.String("config", "/etc/lnmp-gopanel/config.yaml", "panel configuration")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	c, err := config.Load(*configPath)
+	if err != nil {
+		return err
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, "<!doctype html><html><body>截图组件检查</body></html>")
+	}), ReadHeaderTimeout: time.Second}
+	go func() { _ = srv.Serve(listener) }()
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), screenshots.Timeout)
+	defer cancel()
+	renderer := &screenshots.Chromium{Browser: c.Screenshots.Browser, StateDir: c.Screenshots.StateDir}
+	if _, err := screenshots.NewManager(ctx, c.Screenshots.StateDir, renderer); err != nil {
+		return err
+	}
+	if _, err := renderer.Capture(ctx, screenshots.Target{URL: "http://" + listener.Addr().String()}); err != nil {
+		return err
+	}
+	fmt.Println("截图组件检查通过")
+	return nil
 }
 func initialize(args []string) error {
 	flags := flag.NewFlagSet("init", flag.ContinueOnError)

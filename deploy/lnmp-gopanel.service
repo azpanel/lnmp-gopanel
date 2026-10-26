@@ -11,6 +11,8 @@ Restart=on-failure
 RestartSec=3
 TimeoutStopSec=15
 UMask=0077
+StateDirectory=lnmp-gopanel
+StateDirectoryMode=0700
 # sudo must be able to elevate only the fixed helper. On systemd versions such
 # as 252, the four settings below implicitly enable NoNewPrivileges for User=.
 # Setting NoNewPrivileges=false alone does not override those implications.

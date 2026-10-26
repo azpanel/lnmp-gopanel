@@ -51,6 +51,15 @@ jobs:
           bash -n install.sh scripts/package.sh
           shellcheck install.sh scripts/package.sh
           sudo python3 scripts/test-install.py
+      - name: Test real Chromium screenshots
+        run: |
+          cd web
+          npx playwright install --with-deps chromium
+          screenshot_browser="$(node -e 'process.stdout.write(require("@playwright/test").chromium.executablePath())')"
+          cd ..
+          # Only this isolated local-server fixture disables Chromium's sandbox
+          # when root; production screenshot code always requires a normal user.
+          sudo SCREENSHOT_TEST_BROWSER="$screenshot_browser" "$(command -v go)" test -race ./internal/screenshots -run TestChromiumIntegration -count=1
       - name: Build amd64 and arm64 archives
         run: |
           build_version="dev-${GITHUB_SHA:0:12}"

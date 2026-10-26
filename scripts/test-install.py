@@ -72,9 +72,9 @@ esac
 SUDO = """#!/bin/bash
 # Model sudo argument handling and failures; no host privilege changes occur.
 printf '%s\\n' "$*" >> /run/sudo.log
-if [[ "$1" == -n && "$2" == -u && "$3" == lnmp-panel && "$4" == -- && "$5" == /usr/bin/sudo ]]; then
-  shift 5
-  exec /usr/bin/sudo "$@"
+if [[ "$1" == -n && "$2" == -u && "$3" == lnmp-panel && "$4" == -- ]]; then
+  shift 4
+  exec "$@"
 fi
 [[ "$1" == -n ]] || exit 64
 shift
@@ -102,6 +102,11 @@ fi
 printf '{"status":"unavailable","message":"Docker not installed"}\\n'
 """
 PANEL = """#!/bin/bash
+if [[ "$1" == check-screenshots ]]; then
+  printf '%s\\n' "$*" >> /run/screenshot-check.log
+  [[ -x /usr/bin/chromium && ! -f /run/fail-screenshot-check ]] || exit 1
+  exit 0
+fi
 [[ "$1" == init ]] || exit 64
 shift
 while (($#)); do
@@ -149,6 +154,15 @@ class InstallerTests(unittest.TestCase):
         write(cls.template, "/etc/sudoers", "root ALL=(ALL:ALL) ALL\n@includedir /etc/sudoers.d\n", 0o440)
         write(cls.template, "/usr/bin/sudo", SUDO, 0o755)
         write(cls.template, "/usr/bin/systemctl", SYSTEMCTL, 0o755)
+        write(cls.template, "/etc/os-release", 'ID=debian\nVERSION_ID="12"\n')
+        write(cls.template, "/usr/bin/apt-get", """#!/bin/bash
+printf '%s\\n' "$*" >> /run/apt.log
+[[ ! -f /run/fail-apt ]] || exit 1
+if [[ "$1" == install ]]; then
+  printf '#!/bin/bash\\nexit 0\\n' > /usr/bin/chromium
+  chmod 0755 /usr/bin/chromium
+fi
+""", 0o755)
         write(cls.template, "/run/panel.pid", "4242\n")
         write(cls.template, "/proc/4242/status", "Uid:\t999\t999\t999\t999\nNoNewPrivs:\t0\nSeccomp:\t2\n")
         shutil.copy2(PROJECT / "install.sh", cls.template / "install.sh")
@@ -309,6 +323,46 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse((self.root / "etc/lnmp-gopanel").exists())
         self.assertFalse((self.root / "run/systemctl.log").exists())
         self.assertFalse((self.root / "run/sudo.log").exists())
+
+    def test_screenshot_dependencies_and_smoke_check(self):
+        self.run_installer("--password-stdin", "--with-screenshots")
+        self.assertEqual((self.root / "run/apt.log").read_text(), "update\ninstall -y --no-install-recommends chromium chromium-sandbox fonts-noto-cjk ca-certificates\n")
+        self.assertEqual((self.root / "run/screenshot-check.log").read_text(), "check-screenshots\n")
+        self.assertEqual((self.root / "var/lib/lnmp-gopanel").stat().st_mode & 0o777, 0o700)
+
+    def test_existing_screenshot_browser_is_reused(self):
+        write(self.root, "/usr/bin/chromium", "#!/bin/bash\nexit 0\n", 0o755)
+        self.run_installer("--password-stdin", "--with-screenshots")
+        self.assertFalse((self.root / "run/apt.log").exists())
+        self.assertTrue((self.root / "run/screenshot-check.log").exists())
+
+    def test_screenshot_check_only_never_installs_dependencies(self):
+        self.run_installer("--with-screenshots", "--check")
+        self.assertFalse((self.root / "run/apt.log").exists())
+        self.assertFalse((self.root / "var/lib/lnmp-gopanel").exists())
+
+    def test_screenshot_unsupported_distribution_and_package_failure(self):
+        write(self.root, "/etc/os-release", 'ID=ubuntu\nVERSION_ID="24.04"\n')
+        result = self.run_installer("--password-stdin", "--with-screenshots", success=False)
+        self.assertIn("supports Debian 12/13", result.stderr)
+        self.assertFalse((self.root / "run/apt.log").exists())
+        write(self.root, "/etc/os-release", 'ID=debian\nVERSION_ID="12"\n')
+        write(self.root, "/run/fail-apt", "")
+        self.run_installer("--password-stdin", "--with-screenshots", success=False)
+        self.assertFalse((self.root / "usr/local/bin/lnmp-gopanel").exists())
+
+    def test_screenshot_smoke_failure_rolls_back_and_preserves_state(self):
+        previous = self.old_installation()
+        write(self.root, "/usr/bin/chromium", "#!/bin/bash\nexit 0\n", 0o755)
+        write(self.root, "/run/fail-screenshot-check", "")
+        for name in ("screenshots.key", "screenshot-settings.json", "saved.jpg"):
+            write(self.root, f"/var/lib/lnmp-gopanel/{name}", "existing screenshot state", 0o600)
+        result = self.run_installer("--with-screenshots", success=False)
+        self.assertIn("Screenshot component check failed", result.stderr)
+        for target in TARGETS:
+            self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
+        for name in ("screenshots.key", "screenshot-settings.json", "saved.jpg"):
+            self.assertEqual((self.root / f"var/lib/lnmp-gopanel/{name}").read_text(), "existing screenshot state")
 
     def test_checksum_failure_leaves_installation_untouched(self):
         previous = self.old_installation()

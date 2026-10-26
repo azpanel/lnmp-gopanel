@@ -37,6 +37,27 @@ test("storage mounts, asynchronous file ranking, treemap and retry", async ({
       free: 1024 ** 3 - 1024,
       percent: 0.01,
     },
+    {
+      path: "/unreadable",
+      device: "/dev/missing",
+      fs_type: "ext4",
+      options: ["rw"],
+      total: null,
+      used: null,
+      free: null,
+      percent: null,
+      error: "容量暂不可读取",
+    },
+    {
+      path: "/empty",
+      device: "/dev/vdb1",
+      fs_type: "ext4",
+      options: ["rw"],
+      total: 1024 ** 3,
+      used: 0,
+      free: 1024 ** 3,
+      percent: 0,
+    },
   ];
   const files = [
     { path: "/var/lib/mysql/database with spaces.ibd", size: 4 * 1024 ** 3 },
@@ -106,10 +127,30 @@ test("storage mounts, asynchronous file ranking, treemap and retry", async ({
   await expect(page.getByText("正在扫描文件，完成后自动更新")).toBeVisible();
   await expect(page.getByText("/proc", { exact: true })).toBeVisible();
   await expect(page.getByText("不提供容量", { exact: true })).toBeVisible();
+  await expect(page.getByText("容量暂不可读取", { exact: true })).toBeVisible();
+  const capacitySwitch = page.getByRole("switch", { name: "隐藏无容量挂载" });
+  await expect(capacitySwitch).not.toBeChecked();
+  await capacitySwitch.click();
+  await expect(capacitySwitch).toBeChecked();
+  await expect(page.locator(".mounts-table tbody tr")).toHaveCount(3);
+  await expect(page.getByText("/proc", { exact: true })).not.toBeVisible();
+  await expect(
+    page.getByText("/unreadable", { exact: true }),
+  ).not.toBeVisible();
+  await expect(page.getByText("/empty", { exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "筛选挂载" }).fill("proc");
+  await expect(page.getByText("没有匹配的挂载", { exact: true })).toBeVisible();
+  await capacitySwitch.focus();
+  await page.keyboard.press("Space");
+  await expect(capacitySwitch).not.toBeChecked();
+  await expect(page.getByText("/proc", { exact: true })).toBeVisible();
+  await capacitySwitch.click();
   await page.getByRole("textbox", { name: "筛选挂载" }).fill("tmpfs");
   await expect(page.locator(".mounts-table tbody tr")).toHaveCount(1);
   await page.getByRole("textbox", { name: "筛选挂载" }).fill("");
   await expect(page.locator(".mounts-table tbody tr")).toHaveCount(3);
+  await capacitySwitch.click();
+  await expect(page.locator(".mounts-table tbody tr")).toHaveCount(5);
   await expect(page.getByText("扫描完成", { exact: true })).toBeVisible({
     timeout: 12000,
   });

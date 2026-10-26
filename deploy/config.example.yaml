@@ -6,3 +6,7 @@ secure_cookie: false
 # Set both public_origin and secure_cookie when using an HTTPS reverse proxy.
 public_origin: ""
 helper: /usr/local/libexec/lnmp-gopanel-control
+# Optional Chromium executable; empty detects Chromium/Chrome on PATH.
+screenshots:
+  browser: ""
+  state_dir: /var/lib/lnmp-gopanel

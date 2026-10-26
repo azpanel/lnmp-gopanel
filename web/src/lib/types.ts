@@ -131,6 +131,24 @@ export type VhostSnapshot = {
 };
 export type VhostConfig = { filename: string; content: string };
 
+export type WebsiteScreenshot = {
+  name: string;
+  url: string;
+  auth_enabled: boolean;
+  username: string;
+  password_saved: boolean;
+  status: "queued" | "running" | "ready" | "failed";
+  error?: string;
+  captured_at: string | null;
+  captured_url?: string;
+  image_version?: string;
+};
+export type ScreenshotSnapshot = {
+  items: Record<string, WebsiteScreenshot>;
+  browser_available: boolean;
+  browser_error?: string;
+};
+
 export type DockerContainer = {
   id: string;
   name: string;

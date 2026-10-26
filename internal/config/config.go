@@ -14,12 +14,17 @@ import (
 )
 
 type Config struct {
-	Listen       string `yaml:"listen"`
-	Username     string `yaml:"username"`
-	PasswordHash string `yaml:"password_hash"`
-	SecureCookie bool   `yaml:"secure_cookie"`
-	PublicOrigin string `yaml:"public_origin"`
-	Helper       string `yaml:"helper"`
+	Listen       string           `yaml:"listen"`
+	Username     string           `yaml:"username"`
+	PasswordHash string           `yaml:"password_hash"`
+	SecureCookie bool             `yaml:"secure_cookie"`
+	PublicOrigin string           `yaml:"public_origin"`
+	Helper       string           `yaml:"helper"`
+	Screenshots  ScreenshotConfig `yaml:"screenshots"`
+}
+type ScreenshotConfig struct {
+	Browser  string `yaml:"browser"`
+	StateDir string `yaml:"state_dir"`
 }
 
 type Service struct {
@@ -67,6 +72,23 @@ func Load(path string) (Config, error) {
 	}
 	if !filepath.IsAbs(c.Helper) {
 		return c, errors.New("helper must be an absolute path")
+	}
+	if c.Screenshots.Browser != "" && !filepath.IsAbs(c.Screenshots.Browser) {
+		return c, errors.New("screenshots.browser must be an absolute path")
+	}
+	if c.Screenshots.StateDir == "" {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return c, err
+		}
+		if filepath.Dir(absolute) == "/etc/lnmp-gopanel" {
+			c.Screenshots.StateDir = "/var/lib/lnmp-gopanel"
+		} else {
+			c.Screenshots.StateDir = filepath.Join(filepath.Dir(absolute), "screenshots-state")
+		}
+	}
+	if !filepath.IsAbs(c.Screenshots.StateDir) {
+		return c, errors.New("screenshots.state_dir must be an absolute path")
 	}
 	if c.PublicOrigin != "" {
 		parsed, err := url.Parse(c.PublicOrigin)

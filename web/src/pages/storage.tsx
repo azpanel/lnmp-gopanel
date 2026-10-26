@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -31,6 +33,7 @@ import type { MountList, StorageScan } from "@/lib/types";
 export function Storage() {
   const client = useQueryClient();
   const [filter, setFilter] = useState("");
+  const [hideUnavailable, setHideUnavailable] = useState(false);
   const autoStarted = useRef(false);
   const mounts = useQuery({
     queryKey: ["storage-mounts"],
@@ -57,10 +60,12 @@ export function Storage() {
   const running = job?.status === "running" || start.isPending;
   const allMounts = mounts.data?.mounts ?? [];
   const root = allMounts.find((m) => m.path === "/");
-  const shown = allMounts.filter((m) =>
-    `${m.path} ${m.device} ${m.fs_type}`
-      .toLowerCase()
-      .includes(filter.toLowerCase()),
+  const shown = allMounts.filter(
+    (m) =>
+      (!hideUnavailable || (!m.error && m.total != null && m.total > 0)) &&
+      `${m.path} ${m.device} ${m.fs_type}`
+        .toLowerCase()
+        .includes(filter.toLowerCase()),
   );
   const files = job?.files ?? [];
   const sum = files.reduce((total, file) => total + file.size, 0);
@@ -135,20 +140,35 @@ export function Storage() {
           <div className="card-title-icon">
             <HardDrive size={16} />
             <CardTitle>所有挂载</CardTitle>
-            <span className="count-label">{allMounts.length}</span>
+            <span className="count-label">
+              {filter || hideUnavailable
+                ? `${shown.length} / ${allMounts.length}`
+                : allMounts.length}
+            </span>
           </div>
-          <div className="mount-search">
-            <Search size={13} />
-            <Input
-              aria-label="筛选挂载"
-              placeholder="筛选挂载点、设备或类型…"
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-            />
+          <div className="mount-controls">
+            <div className="mount-capacity-toggle">
+              <Switch
+                id="hide-unavailable-mounts"
+                checked={hideUnavailable}
+                onCheckedChange={setHideUnavailable}
+                aria-controls="storage-mounts-table"
+              />
+              <Label htmlFor="hide-unavailable-mounts">隐藏无容量挂载</Label>
+            </div>
+            <div className="mount-search">
+              <Search size={13} />
+              <Input
+                aria-label="筛选挂载"
+                placeholder="筛选挂载点、设备或类型…"
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+              />
+            </div>
           </div>
         </CardHeader>
         <CardContent className="table-content mounts-table">
-          <Table>
+          <Table id="storage-mounts-table" aria-label="所有挂载">
             <TableHeader>
               <TableRow>
                 <TableHead>挂载点 / 设备</TableHead>
@@ -218,7 +238,9 @@ export function Storage() {
                         ? "正在读取所有挂载…"
                         : filter
                           ? "没有匹配的挂载"
-                          : "暂无挂载数据"}
+                          : hideUnavailable && allMounts.length > 0
+                            ? "没有容量可读取的挂载"
+                            : "暂无挂载数据"}
                   </TableCell>
                 </TableRow>
               )}
@@ -226,7 +248,11 @@ export function Storage() {
           </Table>
         </CardContent>
         <div className="chart-foot">
-          <span>包含磁盘、内存、虚拟及绑定挂载</span>
+          <span>
+            {hideUnavailable
+              ? "已隐藏不提供容量及容量不可读取的挂载"
+              : "包含磁盘、内存、虚拟及绑定挂载"}
+          </span>
           <span>
             {mounts.data
               ? `${clock(mounts.data.timestamp)} 更新 · 每 30 秒刷新`

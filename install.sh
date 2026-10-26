@@ -11,6 +11,7 @@ admin_username="admin"
 password_stdin=false
 start_service=true
 check_only=false
+with_screenshots=false
 work_dir=""
 backup_dir=""
 mutation_started=false
@@ -37,6 +38,7 @@ Usage: sudo bash install.sh [options]
   --password-stdin       Read a new administrator password from stdin
   --no-start             Install without enabling or restarting the panel service
   --check                Download and validate the package without installing
+  --with-screenshots     Ensure Chromium is installed (automatic install: Debian 12/13)
   -h, --help             Show this help
 
 Requires Linux amd64/arm64, systemd and root. New installations prompt for a
@@ -54,6 +56,7 @@ while (($#)); do
     --password-stdin) password_stdin=true; shift ;;
     --no-start) start_service=false; shift ;;
     --check) check_only=true; shift ;;
+    --with-screenshots) with_screenshots=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
@@ -117,6 +120,26 @@ check_panel_privileges() {
   [[ -r "/proc/$panel_pid/status" ]] || die "Cannot read panel process status: /proc/$panel_pid/status"
   no_new_privs="$(awk '$1 == "NoNewPrivs:" { print $2 }' "/proc/$panel_pid/status")"
   [[ "$no_new_privs" == 0 ]] || die "Panel process has NoNewPrivs=$no_new_privs; sudo cannot elevate. Check systemctl cat lnmp-gopanel and overrides for implicit NoNewPrivileges restrictions"
+}
+install_screenshot_dependencies() {
+  local browser distro_id distro_version
+  for browser in chromium chromium-browser google-chrome google-chrome-stable; do
+    if command -v "$browser" >/dev/null; then
+      printf 'Using installed screenshot browser: %s\n' "$browser"
+      return
+    fi
+  done
+  [[ -r /etc/os-release ]] || die "Cannot identify distribution; install Chromium manually and configure screenshots.browser"
+  # The target distribution provides this file at runtime.
+  # shellcheck disable=SC1091
+  distro_id="$(. /etc/os-release && printf '%s' "${ID:-}")"
+  # shellcheck disable=SC1091
+  distro_version="$(. /etc/os-release && printf '%s' "${VERSION_ID:-}")"
+  [[ "$distro_id" == debian && ( "$distro_version" == 12 || "$distro_version" == 13 ) ]] || die "--with-screenshots automatic browser installation supports Debian 12/13. Install Chromium manually and configure screenshots.browser on other systems"
+  command -v apt-get >/dev/null || die "Missing command: apt-get"
+  printf 'Installing optional Chromium screenshot dependencies...\n'
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends chromium chromium-sandbox fonts-noto-cjk ca-certificates
 }
 cleanup() {
   local status=$?
@@ -224,6 +247,7 @@ if ! getent passwd lnmp-panel >/dev/null; then
   useradd --system --gid lnmp-panel --no-create-home --home-dir /nonexistent --shell "$nologin_shell" lnmp-panel
 fi
 [[ "$(id -u lnmp-panel)" != 0 ]] || die "The panel account must not be root"
+if "$with_screenshots"; then install_screenshot_dependencies; fi
 if systemctl is-active --quiet lnmp-gopanel >/dev/null 2>&1; then was_active=true; fi
 if systemctl is-enabled --quiet lnmp-gopanel >/dev/null 2>&1; then was_enabled=true; fi
 backup_dir="/var/backups/lnmp-gopanel/$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -236,6 +260,8 @@ done
 mutation_started=true
 install -d -o root -g root -m 0755 /usr/local/bin /usr/local/libexec /etc/systemd/system /etc/sudoers.d
 install -d -o root -g lnmp-panel -m 0750 /etc/lnmp-gopanel
+[[ ! -L /var/lib/lnmp-gopanel ]] || die "Refusing a symlink screenshot state directory"
+install -d -o lnmp-panel -g lnmp-panel -m 0700 /var/lib/lnmp-gopanel
 atomic_install "$payload/bin/lnmp-gopanel" /usr/local/bin/lnmp-gopanel 0755
 atomic_install "$payload/bin/lnmp-gopanel-control" /usr/local/libexec/lnmp-gopanel-control 0755
 atomic_install "$payload/deploy/lnmp-gopanel.service" /etc/systemd/system/lnmp-gopanel.service 0644
@@ -250,6 +276,13 @@ chown root:root /etc/lnmp-gopanel/services.yaml
 chmod 0644 /etc/lnmp-gopanel/services.yaml
 visudo -cf /etc/sudoers
 check_helper
+if "$with_screenshots"; then
+  if ! /usr/bin/sudo -n -u lnmp-panel -- /usr/local/bin/lnmp-gopanel check-screenshots; then
+    die "Screenshot component check failed; verify Chromium, sandbox and screenshots.state_dir permissions"
+  fi
+else
+  printf 'Screenshot browser is optional; use --with-screenshots on Debian 12/13 to install and check it.\n'
+fi
 systemctl daemon-reload
 if "$start_service"; then
   systemctl enable lnmp-gopanel

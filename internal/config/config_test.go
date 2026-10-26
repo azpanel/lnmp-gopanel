@@ -55,3 +55,31 @@ func TestHTTPSOriginAndMalformedOrigins(t *testing.T) {
 		}
 	}
 }
+
+func TestScreenshotConfigDefaultsAndAbsolutePaths(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("test-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "config.yaml")
+	for _, settings := range []ScreenshotConfig{{}, {Browser: "chromium"}, {StateDir: "state"}, {Browser: "/usr/bin/chromium", StateDir: "/var/lib/lnmp-gopanel"}} {
+		c := Config{Username: "admin", PasswordHash: string(hash), Screenshots: settings}
+		data, _ := yaml.Marshal(c)
+		if err := os.WriteFile(file, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		loaded, err := Load(file)
+		if settings.Browser == "chromium" || settings.StateDir == "state" {
+			if err == nil {
+				t.Fatal("relative screenshot path accepted")
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if settings.StateDir == "" && loaded.Screenshots.StateDir != filepath.Join(filepath.Dir(file), "screenshots-state") {
+			t.Fatal("local config should use local state")
+		}
+	}
+}

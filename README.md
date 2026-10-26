@@ -20,6 +20,8 @@ curl -fsSL https://github.com/azpanel/lnmp-gopanel/releases/latest/download/inst
 sudo bash install.sh
 ```
 
+如需网站截图，可在 Debian 12/13 使用 `sudo bash install.sh --with-screenshots`，额外安装 Chromium、沙箱组件和中文字体，并以面板普通账号运行截图冒烟检查。已有 Chromium/Chrome 时优先复用；其他 Linux 发行版请自行安装浏览器，通过 `screenshots.browser` 指定其绝对路径。普通安装不安装浏览器，缺少浏览器只影响截图功能。`--check` 不安装系统依赖；可选安装产生的系统软件包不会在面板文件回滚时卸载。
+
 脚本下载最新 Release 中对应架构的预编译安装包，验证 SHA-256，创建普通服务账号并安装面板、特权辅助程序、精确的 sudoers 规则及 systemd 服务。首次安装交互设置管理员密码（12–72 字节），检测本机 LNMP / Redis 服务，并启动面板。默认仅监听 `127.0.0.1:8090`，可使用下文的 SSH 隧道访问，运行时无需 Go 或 Node.js。
 
 安装时会以 `lnmp-panel` 账号检查服务状态、Docker 查询和文件扫描的精确 sudo 授权，并实际免密调用一次只读 `docker snapshot` 辅助程序（无需安装或启动 Docker，不触发全盘扫描或服务启停）。启动面板后读取实际进程的 `/proc/<MainPID>/status`，确认 `NoNewPrivs: 0`，避免 systemd 隐式限制使所有辅助功能不可用；检查失败会报错并回滚。`--no-start` 只执行辅助程序检查，进程限制需在自行启动后验证。
@@ -244,3 +246,23 @@ Redis 只显示状态和版本，不提供启停按钮，辅助程序也拒绝 R
 启停时只对普通配置文件原地重命名，保留原文件内容与权限；拒绝目录穿越、符号链接、同名文件冲突及覆盖目标。重命名后执行 `nginx -t`，通过才发出 `nginx -s reload`。检查失败恢复原文件名；重载失败恢复原文件名并尝试重新加载原配置，失败结果明确提示。所有面板触发的 Nginx 修改与站点启停共享进程间锁。
 
 新增接口：`GET /api/v1/vhosts`、`POST /api/v1/vhosts/refresh`（202，异步刷新）、`GET /api/v1/vhosts/config?name=example.conf`、`POST /api/v1/vhosts/toggle`（JSON `{"name":"example.conf","enabled":false}`）。全部需要登录，POST 需要 CSRF。特权操作仅开放固定参数 `vhosts list/config/usage/toggle`，文件名通过有界 JSON stdin 传递；辅助程序重新验证文件名与目录权限。升级时同步安装两个二进制和 sudoers 模板。
+
+### 网站截图
+
+虚拟主机支持卡片和表格视图，两种视图均展示网站预览。通过“截图设置”填写 HTTP/HTTPS 地址，可启用 Basic Auth。保存后后台截取 1440×900 桌面首屏，之后手动“重新截图”，点击图片可放大；没有定时截图、全页截图或历史图库。支持公网、本机和内网地址，浏览器访问的是服务器可达的地址，不使用管理员浏览器中的登录状态。HTTPS 证书错误、HTTP 错误和认证失败会显示原因，保留上次成功截图。
+
+截图由 Go 直接控制本机 Chromium，无需生产环境安装 Node.js，不通过 sudo 辅助程序启动浏览器。浏览器必须以普通面板账号运行，保留沙箱，每次任务使用独立临时配置，完成或取消后清理。全局一次执行一个任务、最多排队 64 项、单次最多 30 秒。Basic Auth 只发送给配置地址同源的认证挑战，跨源跳转不会携带凭据；如需在跳转后的站点认证，请直接填写最终地址。密码不回传，编辑时留空保留原密码，更换目标来源或用户名时需重新填写；关闭认证会清除凭据，“清除设置”会同时删除保存的图片。
+
+可选配置：
+
+```yaml
+screenshots:
+  browser: /usr/bin/chromium # 留空时在 PATH 中检测 Chromium/Chrome
+  state_dir: /var/lib/lnmp-gopanel
+```
+
+标准部署的状态目录为 `/var/lib/lnmp-gopanel`，由安装脚本和 systemd 为 `lnmp-panel` 创建；自定义配置文件默认在其同级 `screenshots-state/` 保存状态，也可以显式指定目录。目录必须由面板账号所有、权限 `0700`，状态文件和图片权限为 `0600`。密码使用 AES-GCM 加密保存，`screenshots.key` 与 `screenshot-settings.json` 必须一起备份、恢复，密钥丢失不会自动覆盖重建。设置与最后成功截图在升级及重启后保留；它们不会写入 Nginx 配置或打包进 Release。缺失浏览器或状态目录不可用时，其他功能继续工作。
+
+部署后可用 `sudo -u lnmp-panel /usr/local/bin/lnmp-gopanel check-screenshots` 检查截图组件，仅访问临时本地测试页面，不访问业务站点。源码集成测试使用 `SCREENSHOT_TEST_BROWSER=/path/to/chromium go test -race ./internal/screenshots -run TestChromiumIntegration`，所有目标都是本地测试服务器；仅隔离的 root 测试进程会关闭浏览器沙箱，生产代码不提供该开关。
+
+新增接口：`GET /api/v1/vhosts/screenshots`、`PUT /api/v1/vhosts/screenshot?name=…`、`POST /api/v1/vhosts/screenshot/refresh?name=…`、`DELETE /api/v1/vhosts/screenshot?name=…`、`GET /api/v1/vhosts/screenshot/image?name=…`。均需登录，写操作需 CSRF；设置与刷新返回 202，图片通过面板鉴权后读取且禁止缓存。

@@ -17,6 +17,7 @@ import (
 	"github.com/azpanel/lnmp-gopanel/internal/docker"
 	"github.com/azpanel/lnmp-gopanel/internal/metrics"
 	"github.com/azpanel/lnmp-gopanel/internal/releases"
+	"github.com/azpanel/lnmp-gopanel/internal/screenshots"
 	"github.com/azpanel/lnmp-gopanel/internal/storage"
 	"github.com/azpanel/lnmp-gopanel/internal/vhosts"
 	"github.com/gin-gonic/gin"
@@ -24,18 +25,19 @@ import (
 )
 
 type Server struct {
-	Config   config.Config
-	Sessions *auth.Store
-	Metrics  *metrics.Collector
-	Services *control.Manager
-	Docker   *docker.Manager
-	Releases *releases.Manager
-	Storage  *storage.Manager
-	Vhosts   *vhosts.Manager
-	Host     metrics.Host
-	Assets   fs.FS
-	limiter  auth.Limiter
-	streams  chan struct{}
+	Config      config.Config
+	Sessions    *auth.Store
+	Metrics     *metrics.Collector
+	Services    *control.Manager
+	Docker      *docker.Manager
+	Releases    *releases.Manager
+	Storage     *storage.Manager
+	Vhosts      *vhosts.Manager
+	Screenshots *screenshots.Manager
+	Host        metrics.Host
+	Assets      fs.FS
+	limiter     auth.Limiter
+	streams     chan struct{}
 }
 
 func New(c config.Config, m *metrics.Collector, svc *control.Manager, assets fs.FS) *Server {
@@ -162,6 +164,11 @@ func (s *Server) Handler() http.Handler {
 		slog.Info("vhost operation", "name", input.Name, "enabled", *input.Enabled)
 		c.JSON(200, result)
 	})
+	private.GET("/vhosts/screenshots", s.screenshotList)
+	private.PUT("/vhosts/screenshot", s.csrf, s.screenshotSave)
+	private.POST("/vhosts/screenshot/refresh", s.csrf, s.screenshotRefresh)
+	private.DELETE("/vhosts/screenshot", s.csrf, s.screenshotDelete)
+	private.GET("/vhosts/screenshot/image", s.screenshotImage)
 	r.NoRoute(func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
 			fail(c, 404, "接口不存在")

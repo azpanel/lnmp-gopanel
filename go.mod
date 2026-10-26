@@ -3,6 +3,8 @@ module github.com/azpanel/lnmp-gopanel
 go 1.26.0
 
 require (
+	github.com/chromedp/cdproto v0.157.8
+	github.com/chromedp/chromedp v0.21.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/shirou/gopsutil/v4 v4.26.9
 	github.com/tufanbarisyildirim/gonginx v0.0.0-20260220081509-8e17ce617db3
@@ -21,6 +23,7 @@ require (
 	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260213210345-44df1a37e875 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
