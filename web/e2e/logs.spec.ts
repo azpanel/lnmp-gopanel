@@ -90,13 +90,42 @@ test("log filters, bounded viewport, history, rotation and per-file preferences"
   ).toBeVisible();
   await expect(page.locator(".log-line").first()).toBeVisible();
   expect(await page.locator(".log-line").count()).toBeLessThan(80);
+  const drawer = page.getByRole("dialog", { name: "显示与隐藏规则" });
+  const filters = page.getByRole("button", { name: /^筛选规则/ });
+  const logCard = page.locator('[data-slot="card"]').filter({
+    has: page
+      .locator('[data-slot="card-title"]')
+      .filter({ hasText: "日志内容" }),
+  });
+  await expect(logCard.getByLabel("选择日志")).toBeVisible();
+  await expect(drawer).not.toBeVisible();
+  await filters.click();
+  await expect(drawer).toBeVisible();
+  const bounds = await drawer.boundingBox();
+  expect(bounds!.y).toBe(0);
+  await expect
+    .poll(async () => {
+      const rect = await drawer.boundingBox();
+      return Math.abs(rect!.x + rect!.width - page.viewportSize()!.width);
+    })
+    .toBeLessThan(2);
   await page.getByRole("button", { name: "添加规则" }).click();
   await page.getByLabel("规则 1 内容").fill("ERROR");
+  await page.keyboard.press("Escape");
+  await expect(drawer).not.toBeVisible();
+  await expect(filters).toBeFocused();
+  await expect(filters).toContainText("未应用");
+  await filters.click();
+  await expect(page.getByLabel("规则 1 内容")).toHaveValue("ERROR");
   await page.getByRole("button", { name: "添加规则" }).click();
   await page.getByLabel("规则 2 内容").fill("secret");
   await page.getByLabel("规则 2 操作").selectOption("hide");
+  await page.screenshot({
+    path: testInfo.outputPath("log-rules-drawer.png"),
+  });
   await page.getByRole("button", { name: "应用规则" }).click();
-  await expect(page.getByRole("button", { name: "应用规则" })).toBeDisabled();
+  await expect(drawer).not.toBeVisible();
+  await expect(filters).not.toContainText("未应用");
   await expect(page.locator(".log-line").first()).toContainText(
     "ERROR visible",
   );
@@ -109,20 +138,28 @@ test("log filters, bounded viewport, history, rotation and per-file preferences"
     ),
   ).toBeTruthy();
   // Invalid regex leaves the previous result and preferences intact.
+  await filters.click();
   await page.getByLabel("规则 1 类型").selectOption("regex");
   await page.getByLabel("规则 1 内容").fill("[");
   await page.getByRole("button", { name: "应用规则" }).click();
   await expect(page.getByRole("alert")).toContainText("正则无效");
+  await expect(drawer).toBeVisible();
   await expect(page.locator(".log-line").first()).toContainText(
     "ERROR visible",
   );
   await page.reload();
+  await filters.click();
   await expect(page.getByLabel("规则 1 内容")).toHaveValue("ERROR");
   await expect(page.getByLabel("规则 1 类型")).toHaveValue("keyword");
+  await page.getByRole("button", { name: "关闭筛选规则" }).click();
   await page.getByLabel("选择日志").selectOption(php);
+  await filters.click();
   await expect(page.getByLabel("规则 1 内容")).toHaveCount(0);
+  await page.getByRole("button", { name: "关闭筛选规则" }).click();
   await page.getByLabel("选择日志").selectOption(path);
+  await filters.click();
   await expect(page.getByLabel("规则 1 内容")).toHaveValue("ERROR");
+  await page.getByRole("button", { name: "关闭筛选规则" }).click();
   await page.getByRole("button", { name: "加载更早日志" }).click();
   await expect(
     page.getByRole("status").filter({ hasText: "已暂停追踪" }),
