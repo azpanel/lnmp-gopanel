@@ -18,17 +18,28 @@
 在 Linux amd64 / arm64 机器上，以 root 或具备 sudo 权限的账号执行。需要运行中的 systemd、`curl`、`tar`、`gzip`、`sudo`（含 `visudo`）和常见系统工具；Debian / Ubuntu 可先执行 `sudo apt-get install -y curl ca-certificates tar gzip sudo`。
 
 ```bash
-curl -fsSL https://github.com/azpanel/lnmp-gopanel/releases/latest/download/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/azpanel/lnmp-gopanel/main/install.sh -o install.sh
 sudo bash install.sh
 ```
 
 直接运行会显示中文管理菜单，可选择安装、从 GitHub Release 更新、完全卸载或退出。也可以显式使用 `--install`、`--update`、`--uninstall`；已有带安装参数的调用方式继续有效。
+
+管理脚本从主分支下载，面板安装包仍从 GitHub Release 下载并校验 SHA-256。
+
+管理脚本与安装包需要兼容。旧版 Release（如 `v0.1.1`）尚不支持 HTTPS 初始化，仅替换脚本后安装会在选择证书后出现 `run as a dedicated unprivileged user`。当前脚本会在询问证书和密码前检查兼容性（`--check` 也会检查），并明确拒绝旧包。遇到该错误需使用包含 HTTPS 功能的新 Release，或按下文从当前源码打包后使用 `--archive` 安装。
 
 ```bash
 sudo bash install.sh --update                    # 从 GitHub Release 更新到最新版本
 sudo bash install.sh --update --version v0.1.0   # 更新到指定 Release
 sudo bash install.sh --uninstall                 # 列出清理范围，输入 yes 确认
 sudo bash install.sh --uninstall --yes           # 非交互完全卸载
+```
+
+如果出现 `Error: Unknown argument: --uninstall`，说明当前执行的 `install.sh` 是尚未支持卸载的旧版。主分支更新不会自动替换已发布的 Release 附件；可单独下载主分支的管理脚本后卸载，无需先升级面板：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/azpanel/lnmp-gopanel/main/install.sh -o install-latest.sh &&
+  sudo bash install-latest.sh --uninstall
 ```
 
 更新要求已有完整安装，下载对应架构的 Release 安装包并验证 SHA-256，沿用备份和失败回滚流程。完全卸载无需联网，会停止并禁用面板，删除面板程序、辅助程序、systemd 单元及专属覆盖配置、sudoers 规则、`/etc/lnmp-gopanel`（含面板证书副本）、`/var/lib/lnmp-gopanel`、`/var/backups/lnmp-gopanel` 和 `lnmp-panel` 专用账号及组。LNMP、网站、数据库、Docker、借用的原始证书和 Chromium 等系统依赖会保留；自定义到其他目录的面板数据请自行清理。卸载会永久删除面板配置及备份，请先保存需要保留的内容。

@@ -123,6 +123,10 @@ fi
 printf '{"status":"unavailable","message":"Docker not installed"}\\n'
 """
 PANEL = """#!/bin/bash
+if [[ "$1" == init && "$2" == --help ]]; then
+  printf 'Usage of init:\\n  -tls-dir string\\n  -certificate-dir string\\n' >&2
+  exit 1
+fi
 if [[ "$1" == https ]]; then
   shift
   config=/etc/lnmp-gopanel/config.yaml
@@ -253,9 +257,9 @@ fi
         self.archive = self.root / "tmp" / ASSET
         self.package()
 
-    def package(self, extra=None, omit=None):
+    def package(self, extra=None, omit=None, panel=PANEL):
         files = {
-            "bin/lnmp-gopanel": PANEL,
+            "bin/lnmp-gopanel": panel,
             "bin/lnmp-gopanel-control": HELPER,
             "deploy/lnmp-gopanel.service": (PROJECT / "deploy/lnmp-gopanel.service").read_text(),
             "deploy/lnmp-gopanel.sudoers": (PROJECT / "deploy/lnmp-gopanel.sudoers").read_text(),
@@ -659,6 +663,30 @@ fi
         self.assertFalse((self.root / "etc/lnmp-gopanel").exists())
         self.assertFalse((self.root / "run/systemctl.log").exists())
         self.assertFalse((self.root / "run/sudo.log").exists())
+
+    def test_legacy_package_is_rejected_before_prompts_or_changes(self):
+        previous = self.old_installation(https=True)
+        self.package(panel='''#!/bin/bash
+if [[ "$1" == init && "$2" == --help ]]; then
+  printf 'Usage of init:\\n  -dir string\\n  -listen string\\n' >&2
+  exit 1
+fi
+printf 'run as a dedicated unprivileged user' >&2
+exit 1
+''')
+        for options in ((), ("--check",)):
+            with self.subTest(options=options):
+                result = self.run_installer(*options, success=False, automatic_tls=False)
+                self.assertIn("does not support HTTPS initialization", result.stderr)
+                self.assertIn("--archive", result.stderr)
+                self.assertNotIn("dedicated unprivileged user", result.stderr)
+                self.assertNotIn("Certificate selection", result.stderr)
+                self.assertNotIn("管理员密码", result.stderr)
+                self.assertNotIn("Validated package", result.stdout)
+                for target, content in previous.items():
+                    self.assertEqual((self.root / target.lstrip("/")).read_bytes(), content)
+                self.assertFalse((self.root / "run/systemctl.log").exists())
+                self.assertFalse((self.root / "var/backups/lnmp-gopanel").exists())
 
     def test_screenshot_dependencies_and_smoke_check(self):
         self.run_installer("--password-stdin", "--with-screenshots")

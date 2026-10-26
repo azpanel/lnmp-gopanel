@@ -387,6 +387,13 @@ payload="$work_dir/lnmp-gopanel"
 for required in bin/lnmp-gopanel bin/lnmp-gopanel-control deploy/lnmp-gopanel.service deploy/lnmp-gopanel.sudoers VERSION; do
   [[ -f "$payload/$required" ]] || die "Package is missing $required"
 done
+# Older releases support init but silently treat an unknown https subcommand as
+# server arguments. Probe init help before asking for certificates or passwords.
+# Go's flag package prints help and returns a nonzero status; inspect the flags.
+chmod 0755 "$payload/bin/lnmp-gopanel"
+init_help="$("$payload/bin/lnmp-gopanel" init --help 2>&1 || true)"
+[[ "$init_help" == *'-tls-dir '* && "$init_help" == *'-certificate-dir '* ]] || \
+  die "Package $(cat "$payload/VERSION") does not support HTTPS initialization and is incompatible with this installer. Use a newer Release, or build a package from the same source and install with --archive (see README). Updating install.sh alone does not update the panel binary."
 printf 'Validated package: %s (%s)\n' "$(cat "$payload/VERSION")" "$target_arch"
 if "$check_only"; then installation_complete=true; exit 0; fi
 
@@ -406,7 +413,6 @@ else
   die "Incomplete configuration: expected both config.yaml and services.yaml"
 fi
 visudo -cf "$payload/deploy/lnmp-gopanel.sudoers"
-chmod 0755 "$payload/bin/lnmp-gopanel"
 tls_args=(--tls-dir /etc/lnmp-gopanel/tls)
 if "$fresh_install" || [[ -n "$tls_mode" ]] || ! "$payload/bin/lnmp-gopanel" https --check >/dev/null 2>&1; then
   tls_changed=true
