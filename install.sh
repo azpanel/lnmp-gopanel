@@ -145,14 +145,16 @@ check_helper() {
   # Query exact permissions as the panel account; never run a scan or change a
   # managed service during installation. Syntax validation alone is insufficient
   # when the system sudoers does not include /etc/sudoers.d.
-  # Only check authorization for cron list: crontab is optional, and task
-  # contents must not be copied to installer output or diagnostic logs.
-  for name in nginx docker storage cron; do
+  # Only check authorization for cron and logs: these sources are optional,
+  # and their contents must not be copied to installer output or diagnostics.
+  for name in nginx docker storage cron logs-list logs-read; do
     case "$name" in
       nginx) action=status ;;
       docker) action=snapshot ;;
       storage) action=scan ;;
       cron) action=list ;;
+      logs-list) name=logs; action=list ;;
+      logs-read) name=logs; action="read" ;;
     esac
     # The installer is root; redirections intentionally stay outside sudo.
     # shellcheck disable=SC2024

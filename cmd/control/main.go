@@ -27,6 +27,9 @@ func run() error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("辅助程序需要 root 权限")
 	}
+	if len(os.Args) == 3 && os.Args[1] == "logs" {
+		return handleLogs(os.Args[2])
+	}
 	if len(os.Args) == 3 && os.Args[1] == "cron" && os.Args[2] == "list" {
 		ctx, cancel := context.WithTimeout(context.Background(), cron.Timeout)
 		defer cancel()

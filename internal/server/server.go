@@ -16,6 +16,7 @@ import (
 	"github.com/azpanel/lnmp-gopanel/internal/control"
 	"github.com/azpanel/lnmp-gopanel/internal/cron"
 	"github.com/azpanel/lnmp-gopanel/internal/docker"
+	"github.com/azpanel/lnmp-gopanel/internal/logs"
 	"github.com/azpanel/lnmp-gopanel/internal/metrics"
 	"github.com/azpanel/lnmp-gopanel/internal/releases"
 	"github.com/azpanel/lnmp-gopanel/internal/screenshots"
@@ -31,6 +32,7 @@ type Server struct {
 	Metrics     *metrics.Collector
 	Services    *control.Manager
 	Docker      *docker.Manager
+	Logs        logs.Reader
 	Cron        cron.Reader
 	Releases    *releases.Manager
 	Storage     *storage.Manager
@@ -40,10 +42,11 @@ type Server struct {
 	Assets      fs.FS
 	limiter     auth.Limiter
 	streams     chan struct{}
+	logReads    chan struct{}
 }
 
 func New(c config.Config, m *metrics.Collector, svc *control.Manager, assets fs.FS) *Server {
-	return &Server{Config: c, Sessions: auth.New(), Metrics: m, Services: svc, Cron: control.Helper{Path: c.Helper}, Docker: docker.NewManager(context.Background(), control.Helper{Path: c.Helper}), Releases: releases.NewManager(context.Background(), releases.NewFetcher()), Host: metrics.HostInfo(context.Background()), Storage: storage.NewManager(context.Background(), control.Helper{Path: c.Helper}), Vhosts: vhosts.NewManager(context.Background(), control.Helper{Path: c.Helper}), Assets: assets, streams: make(chan struct{}, 32)}
+	return &Server{Config: c, Sessions: auth.New(), Metrics: m, Services: svc, Logs: control.Helper{Path: c.Helper}, logReads: make(chan struct{}, 4), Cron: control.Helper{Path: c.Helper}, Docker: docker.NewManager(context.Background(), control.Helper{Path: c.Helper}), Releases: releases.NewManager(context.Background(), releases.NewFetcher()), Host: metrics.HostInfo(context.Background()), Storage: storage.NewManager(context.Background(), control.Helper{Path: c.Helper}), Vhosts: vhosts.NewManager(context.Background(), control.Helper{Path: c.Helper}), Assets: assets, streams: make(chan struct{}, 32)}
 }
 func fail(c *gin.Context, status int, msg string) { c.AbortWithStatusJSON(status, gin.H{"error": msg}) }
 func (s *Server) Handler() http.Handler {
@@ -107,6 +110,8 @@ func (s *Server) Handler() http.Handler {
 		c.JSON(200, result)
 	})
 	private.GET("/cron/preview", s.cronPreview)
+	private.GET("/logs", s.logList)
+	private.POST("/logs/read", s.csrf, s.logRead)
 	private.POST("/docker/refresh", s.csrf, func(c *gin.Context) { s.dockerSnapshot(c, true) })
 	private.GET("/storage/mounts", func(c *gin.Context) {
 		result, err := storage.Mounts(c.Request.Context())
