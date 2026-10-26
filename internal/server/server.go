@@ -122,6 +122,18 @@ func (s *Server) Handler() http.Handler {
 		}
 		c.JSON(200, s.Vhosts.Latest())
 	})
+	private.GET("/vhosts/count", func(c *gin.Context) {
+		if s.Vhosts == nil {
+			fail(c, 503, "站点管理未配置")
+			return
+		}
+		count, err := s.Vhosts.Count(c.Request.Context())
+		if err != nil {
+			fail(c, 503, err.Error())
+			return
+		}
+		c.JSON(200, gin.H{"count": count})
+	})
 	private.POST("/vhosts/refresh", s.csrf, func(c *gin.Context) {
 		if s.Vhosts == nil {
 			fail(c, 503, "站点管理未配置")

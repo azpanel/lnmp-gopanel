@@ -99,6 +99,12 @@ function Workspace({ session }: { session: Session }) {
     refetchInterval: 5000,
     retry: 1,
   });
+  const vhostCount = useQuery({
+    queryKey: ["vhost-count"],
+    queryFn: () => api<{ count: number }>("/vhosts/count"),
+    refetchInterval: 30000,
+    retry: 1,
+  });
   const stateLabels = {
     connecting: "连接中",
     live: "实时连接",
@@ -172,6 +178,7 @@ function Workspace({ session }: { session: Session }) {
               key={item.to}
               to={item.to}
               end
+              aria-label={item.label}
               onClick={() => setMobileOpen(false)}
               className={({ isActive }) => cn("nav-item", isActive && "active")}
             >
@@ -180,6 +187,11 @@ function Workspace({ session }: { session: Session }) {
               {item.to === "/services" && (
                 <span className="nav-count">
                   {services.data?.length ?? "—"}
+                </span>
+              )}
+              {item.to === "/vhosts" && (
+                <span className="nav-count" title={vhostCount.error?.message}>
+                  {vhostCount.data?.count ?? "—"}
                 </span>
               )}
             </NavLink>

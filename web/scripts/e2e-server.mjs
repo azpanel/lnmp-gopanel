@@ -15,10 +15,9 @@ if (init.status !== 0) {
 }
 writeFileSync(
   path.join(directory, "config.yaml"),
-  readFileSync(path.join(directory, "config.yaml"), "utf8").replace(
-    "127.0.0.1:8090",
-    "127.0.0.1:18091",
-  ),
+  readFileSync(path.join(directory, "config.yaml"), "utf8")
+    .replace("127.0.0.1:8090", "127.0.0.1:18091")
+    .replace(/^helper:.*$/m, "helper: /nonexistent/lnmp-gopanel-control"),
 );
 // Browser tests must never execute operations against installed host services.
 writeFileSync(path.join(directory, "services.yaml"), "services: []\n");

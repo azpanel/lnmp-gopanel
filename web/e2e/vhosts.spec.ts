@@ -51,6 +51,9 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
     updated_at: now,
   };
   let calls = 0;
+  await page.route("**/api/v1/vhosts/count", (route) =>
+    route.fulfill({ json: { count: state.sites.length } }),
+  );
   let screenshot: WebsiteScreenshot | null = null;
   let screenshotPolls = 0;
   let screenshotCaptures = 0;
@@ -157,6 +160,11 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   ).toBeVisible();
   if (testInfo.project.name === "mobile")
     await page.getByRole("button", { name: "打开导航" }).click();
+  await expect(
+    page
+      .getByRole("link", { name: "虚拟主机", exact: true })
+      .locator(".nav-count"),
+  ).toHaveText("1");
   await page.getByRole("link", { name: "虚拟主机", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "虚拟主机", exact: true }),
@@ -211,6 +219,11 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   await page
     .getByRole("textbox", { name: "筛选虚拟主机" })
     .fill("missing.example");
+  await expect(
+    page
+      .getByRole("link", { name: "虚拟主机", exact: true })
+      .locator(".nav-count"),
+  ).toHaveText("1");
   await expect(
     page.getByRole("heading", { name: "没有匹配的站点" }),
   ).toBeVisible();

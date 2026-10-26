@@ -271,6 +271,12 @@ export function Vhosts() {
   }, [snapshot.data?.status, refresh.mutate]);
   const data = snapshot.data;
   const all = data?.sites ?? [];
+  const knownCount =
+    data?.status === "ready" || data?.status === "scanning" ? all.length : null;
+  useEffect(() => {
+    if (knownCount != null)
+      client.setQueryData(["vhost-count"], { count: knownCount });
+  }, [client, knownCount]);
   const screenshots = useWebsiteScreenshots(all.length > 0);
   const sites = all.filter((site) =>
     `${site.name} ${site.domains.join(" ")} ${site.roots.map((root) => root.path).join(" ")}`

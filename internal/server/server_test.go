@@ -448,13 +448,16 @@ func TestVhostAPIsValidateAuthNamesAndCSRF(t *testing.T) {
 	backend := &fakeVhostBackend{}
 	s.Vhosts = vhosts.NewManager(context.Background(), backend)
 	h := s.Handler()
-	for _, path := range []string{"/vhosts", "/vhosts/config?name=example.conf"} {
+	for _, path := range []string{"/vhosts", "/vhosts/count", "/vhosts/config?name=example.conf"} {
 		if w := request(h, "GET", "/api/v1"+path, "", nil, "", ""); w.Code != 401 {
 			t.Fatal("vhost API exposed")
 		}
 	}
 	id, session := s.Sessions.Create()
 	cookie := &http.Cookie{Name: auth.CookieName, Value: id}
+	if w := request(h, "GET", "/api/v1/vhosts/count", "", cookie, "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"count":1`) {
+		t.Fatal("invalid vhost counter", w.Code, w.Body.String())
+	}
 	for _, path := range []string{"/vhosts/refresh", "/vhosts/toggle"} {
 		if w := request(h, "POST", "/api/v1"+path, `{"name":"example.conf","enabled":false}`, cookie, "", ""); w.Code != 403 {
 			t.Fatal("missing CSRF")

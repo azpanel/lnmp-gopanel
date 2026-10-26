@@ -151,6 +151,68 @@ test("storage mounts, asynchronous file ranking, treemap and retry", async ({
   await expect(page.locator(".mounts-table tbody tr")).toHaveCount(3);
   await capacitySwitch.click();
   await expect(page.locator(".mounts-table tbody tr")).toHaveCount(5);
+  const paths = page.locator(".mounts-table .mount-path");
+  await page.getByRole("button", { name: "按已用排序", exact: true }).click();
+  await expect(paths).toHaveText([
+    "/",
+    "/tmp",
+    "/empty",
+    "/proc",
+    "/unreadable",
+  ]);
+  await expect(
+    page
+      .getByRole("table", { name: "所有挂载" })
+      .getByRole("columnheader")
+      .nth(2),
+  ).toHaveAttribute("aria-sort", "descending");
+  await page.getByRole("button", { name: "按已用排序", exact: true }).click();
+  await expect(paths).toHaveText([
+    "/empty",
+    "/tmp",
+    "/",
+    "/proc",
+    "/unreadable",
+  ]);
+  await page.getByRole("button", { name: "按总容量排序", exact: true }).click();
+  await expect(paths).toHaveText([
+    "/",
+    "/empty",
+    "/tmp",
+    "/proc",
+    "/unreadable",
+  ]);
+  await page.getByRole("button", { name: "按使用率排序", exact: true }).click();
+  await expect(paths).toHaveText([
+    "/",
+    "/tmp",
+    "/empty",
+    "/proc",
+    "/unreadable",
+  ]);
+  await capacitySwitch.click();
+  await expect(paths).toHaveText(["/", "/tmp", "/empty"]);
+  await page.getByRole("textbox", { name: "筛选挂载" }).fill("ext4");
+  await expect(paths).toHaveText(["/", "/empty"]);
+  await page.getByRole("textbox", { name: "筛选挂载" }).fill("");
+  await capacitySwitch.click();
+  await page.getByRole("button", { name: "按挂载点排序", exact: true }).click();
+  await expect(paths).toHaveText([
+    "/",
+    "/empty",
+    "/proc",
+    "/tmp",
+    "/unreadable",
+  ]);
+  await page.getByRole("button", { name: "按挂载点排序", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(paths).toHaveText([
+    "/unreadable",
+    "/tmp",
+    "/proc",
+    "/empty",
+    "/",
+  ]);
   await expect(page.getByText("扫描完成", { exact: true })).toBeVisible({
     timeout: 12000,
   });

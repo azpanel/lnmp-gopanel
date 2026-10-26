@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Clock3,
   Database,
   FileSearch,
@@ -29,11 +32,17 @@ import { Meter } from "@/pages/dashboard";
 import { api } from "@/lib/api";
 import { bytes, clock } from "@/lib/format";
 import type { MountList, StorageScan } from "@/lib/types";
+import {
+  sortMounts,
+  type MountSort,
+  type MountSortKey,
+} from "@/lib/storage-sort";
 
 export function Storage() {
   const client = useQueryClient();
   const [filter, setFilter] = useState("");
   const [hideUnavailable, setHideUnavailable] = useState(false);
+  const [sort, setSort] = useState<MountSort | null>(null);
   const autoStarted = useRef(false);
   const mounts = useQuery({
     queryKey: ["storage-mounts"],
@@ -60,13 +69,50 @@ export function Storage() {
   const running = job?.status === "running" || start.isPending;
   const allMounts = mounts.data?.mounts ?? [];
   const root = allMounts.find((m) => m.path === "/");
-  const shown = allMounts.filter(
-    (m) =>
-      (!hideUnavailable || (!m.error && m.total != null && m.total > 0)) &&
-      `${m.path} ${m.device} ${m.fs_type}`
-        .toLowerCase()
-        .includes(filter.toLowerCase()),
+  const shown = sortMounts(
+    allMounts.filter(
+      (m) =>
+        (!hideUnavailable || (!m.error && m.total != null && m.total > 0)) &&
+        `${m.path} ${m.device} ${m.fs_type}`
+          .toLowerCase()
+          .includes(filter.toLowerCase()),
+    ),
+    sort,
   );
+  const sortButton = (key: MountSortKey, label: string) => {
+    const active = sort?.key === key;
+    const Icon = !active
+      ? ArrowUpDown
+      : sort.direction === "ascending"
+        ? ArrowUp
+        : ArrowDown;
+    return (
+      <button
+        type="button"
+        className="table-sort-button"
+        data-active={active}
+        aria-label={`按${label}排序`}
+        onClick={() =>
+          setSort((previous) => ({
+            key,
+            direction:
+              previous?.key === key
+                ? previous.direction === "ascending"
+                  ? "descending"
+                  : "ascending"
+                : key === "path" || key === "device" || key === "fs_type"
+                  ? "ascending"
+                  : "descending",
+          }))
+        }
+      >
+        {label}
+        <Icon size={12} aria-hidden="true" />
+      </button>
+    );
+  };
+  const sortDirection = (...keys: MountSortKey[]) =>
+    sort && keys.includes(sort.key) ? sort.direction : "none";
   const files = job?.files ?? [];
   const sum = files.reduce((total, file) => total + file.size, 0);
   const status = running
@@ -171,11 +217,29 @@ export function Storage() {
           <Table id="storage-mounts-table" aria-label="所有挂载">
             <TableHeader>
               <TableRow>
-                <TableHead>挂载点 / 设备</TableHead>
-                <TableHead>文件系统</TableHead>
-                <TableHead>已用 / 总容量</TableHead>
-                <TableHead>可用空间</TableHead>
-                <TableHead>使用率</TableHead>
+                <TableHead aria-sort={sortDirection("path", "device")}>
+                  <div className="mount-sort-group">
+                    {sortButton("path", "挂载点")}
+                    <span>/</span>
+                    {sortButton("device", "设备")}
+                  </div>
+                </TableHead>
+                <TableHead aria-sort={sortDirection("fs_type")}>
+                  {sortButton("fs_type", "文件系统")}
+                </TableHead>
+                <TableHead aria-sort={sortDirection("used", "total")}>
+                  <div className="mount-sort-group">
+                    {sortButton("used", "已用")}
+                    <span>/</span>
+                    {sortButton("total", "总容量")}
+                  </div>
+                </TableHead>
+                <TableHead aria-sort={sortDirection("free")}>
+                  {sortButton("free", "可用空间")}
+                </TableHead>
+                <TableHead aria-sort={sortDirection("percent")}>
+                  {sortButton("percent", "使用率")}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

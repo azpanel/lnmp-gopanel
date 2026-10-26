@@ -25,13 +25,18 @@ type change struct {
 	enabled  bool
 }
 type Manager struct {
-	mu       sync.RWMutex
-	actions  sync.Mutex
-	ctx      context.Context
-	backend  Backend
-	snapshot Snapshot
-	revision uint64
-	changes  map[string]change
+	mu         sync.RWMutex
+	actions    sync.Mutex
+	ctx        context.Context
+	backend    Backend
+	snapshot   Snapshot
+	revision   uint64
+	changes    map[string]change
+	metadataAt time.Time
+	countMu    sync.Mutex
+	countAt    time.Time
+	countValue int
+	countErr   error
 }
 
 func NewManager(ctx context.Context, b Backend) *Manager {
@@ -72,6 +77,7 @@ func (m *Manager) refresh(revision uint64) {
 		}
 	}
 	m.snapshot.Sites = sites
+	m.metadataAt = time.Now()
 	m.snapshot.Usage = map[string]Usage{}
 	m.snapshot.Status = "scanning"
 	m.mu.Unlock()
@@ -93,6 +99,33 @@ func (m *Manager) refresh(revision uint64) {
 	if e != nil {
 		m.snapshot.Error = e.Error()
 	}
+}
+
+// Count only reads metadata; sidebar counters must not start directory usage scans.
+// Cache errors too, so multiple browsers cannot repeatedly launch failing helpers.
+func (m *Manager) Count(parent context.Context) (int, error) {
+	m.countMu.Lock()
+	defer m.countMu.Unlock()
+	if err := parent.Err(); err != nil {
+		return 0, err
+	}
+	m.mu.RLock()
+	count, fresh := len(m.snapshot.Sites), !m.metadataAt.IsZero() && time.Since(m.metadataAt) < 30*time.Second
+	m.mu.RUnlock()
+	if fresh {
+		return count, nil
+	}
+	if !m.countAt.IsZero() && time.Since(m.countAt) < 30*time.Second {
+		return m.countValue, m.countErr
+	}
+	ctx, cancel := context.WithTimeout(parent, 12*time.Second)
+	defer cancel()
+	sites, err := m.backend.ListVhosts(ctx)
+	if parent.Err() != nil {
+		return 0, parent.Err()
+	}
+	m.countValue, m.countErr, m.countAt = len(sites), err, time.Now()
+	return m.countValue, m.countErr
 }
 func (m *Manager) Read(ctx context.Context, name string) (ConfigView, error) {
 	if !ValidName(name) {
