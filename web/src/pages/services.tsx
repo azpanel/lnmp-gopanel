@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Check,
   CircuitBoard,
+  Code2,
   ExternalLink,
   Loader2,
   Play,
@@ -26,7 +27,7 @@ import {
 import { ServiceIcon, serviceInfo, ServiceStatus } from "@/components/status";
 import { api } from "@/lib/api";
 import { clock } from "@/lib/format";
-import type { Service, ServiceRelease } from "@/lib/types";
+import type { Service, ServiceRelease, ComponentSnapshot } from "@/lib/types";
 const actions = {
   start: { label: "启动", icon: Play },
   stop: { label: "停止", icon: Square },
@@ -48,6 +49,20 @@ export function Services({
     action: Action;
   } | null>(null);
   const client = useQueryClient();
+  const components = useQuery({
+    queryKey: ["components"],
+    queryFn: () => api<ComponentSnapshot>("/components"),
+    refetchInterval: (query) =>
+      query.state.data?.status === "loading" ? 1000 : 60000,
+  });
+  const refreshComponents = useMutation({
+    mutationFn: () =>
+      api<ComponentSnapshot>("/components/refresh", { method: "POST" }),
+    onSuccess: (data) => client.setQueryData(["components"], data),
+    onError: (e) => toast.error(e.message),
+  });
+  const refreshingComponents =
+    refreshComponents.isPending || components.data?.status === "loading";
   const releases = useQuery({
     queryKey: ["service-releases"],
     queryFn: () => api<Record<string, ServiceRelease>>("/services/releases"),
@@ -95,9 +110,7 @@ export function Services({
           <Button
             variant="outline"
             size="sm"
-            disabled={
-              checkingReleases || releases.isPending || !services?.length
-            }
+            disabled={checkingReleases || releases.isPending}
             onClick={() => refreshReleases.mutate()}
           >
             <RefreshCw
@@ -109,12 +122,16 @@ export function Services({
           <Button
             variant="outline"
             size="sm"
-            disabled={loading}
-            onClick={() =>
-              void client.invalidateQueries({ queryKey: ["services"] })
-            }
+            disabled={loading || refreshingComponents}
+            onClick={() => {
+              void client.invalidateQueries({ queryKey: ["services"] });
+              refreshComponents.mutate();
+            }}
           >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            <RefreshCw
+              size={14}
+              className={loading || refreshingComponents ? "animate-spin" : ""}
+            />
             刷新状态
           </Button>
         </div>
@@ -244,6 +261,81 @@ export function Services({
           </CardContent>
         </Card>
       )}
+      <section
+        className="programming-components"
+        aria-labelledby="components-title"
+      >
+        <div className="component-heading">
+          <h2 id="components-title">编程组件</h2>
+          <p className="small-note">查看本机开发工具版本与官方最新发布。</p>
+        </div>
+        {(components.error || components.data?.error) && (
+          <div className="notice" role="alert">
+            组件版本查询失败：
+            {components.error?.message || components.data?.error}
+            。已有版本信息可能已过期。
+          </div>
+        )}
+        <div className="service-cards">
+          {componentDefinitions.map(({ name, title, subtitle }) => {
+            const item = components.data?.items.find(
+              (item) => item.name === name,
+            );
+            const failed = Boolean(
+              components.error ||
+              components.data?.error ||
+              item?.status === "failed",
+            );
+            return (
+              <Card key={name} data-component={name}>
+                <CardContent>
+                  <div className="service-card-head">
+                    <Code2 size={24} className="text-primary" />
+                    <div className="grow">
+                      <h3>{title}</h3>
+                      <p className="small-note">{subtitle}</p>
+                    </div>
+                  </div>
+                  <div className="service-meta">
+                    <span>
+                      已安装版本
+                      <strong className="font-mono">
+                        {item?.version ||
+                          (failed
+                            ? "读取失败"
+                            : item?.status === "missing"
+                              ? "未安装"
+                              : "读取中…")}
+                      </strong>
+                    </span>
+                    <span>
+                      最近检查
+                      <strong className="font-mono">
+                        {item?.checked_at ? clock(item.checked_at) : "等待检查"}
+                      </strong>
+                    </span>
+                  </div>
+                  {item?.path && (
+                    <p className="component-path font-mono" title={item.path}>
+                      {item.path}
+                    </p>
+                  )}
+                  {item?.error && (
+                    <p className="service-version-error">
+                      {item.error}
+                      {item.version ? " · 显示上次成功结果" : ""}
+                    </p>
+                  )}
+                  <ReleaseInfo
+                    release={releases.data?.[name]}
+                    failed={Boolean(releases.error)}
+                  />
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </section>
       <div className="info-note">
         <AlertTriangle size={17} />
         <div>
@@ -251,7 +343,8 @@ export function Services({
           <p>
             重载 Nginx 前会先检查配置。服务状态每 5
             秒刷新一次，操作完成后立即重新检查。最新稳定版从官方发布源异步查询，缓存
-            6 小时；手动检查间隔至少 1 分钟。
+            6 小时；手动检查间隔至少 1 分钟。本机编程组件版本缓存 1
+            分钟，手动刷新间隔至少 5 秒。
           </p>
         </div>
       </div>
@@ -315,6 +408,13 @@ export function Services({
     </>
   );
 }
+
+const componentDefinitions = [
+  { name: "python3", title: "Python 3", subtitle: "Python 解释器" },
+  { name: "go", title: "Go", subtitle: "Go 工具链" },
+  { name: "node", title: "Node.js", subtitle: "JavaScript 运行时" },
+  { name: "codex", title: "Codex CLI", subtitle: "OpenAI 编程工具" },
+];
 
 function ReleaseInfo({
   release,

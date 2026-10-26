@@ -259,12 +259,12 @@ check_helper() {
   # Query exact permissions as the panel account; never run a scan or change a
   # managed service during installation. Syntax validation alone is insufficient
   # when the system sudoers does not include /etc/sudoers.d.
-  # Only check authorization for cron and logs: these sources are optional,
+  # Only check authorization for components, cron and logs: these sources are optional,
   # and their contents must not be copied to installer output or diagnostics.
-  for name in nginx docker storage cron logs-list logs-read; do
+  for name in nginx docker components storage cron logs-list logs-read; do
     case "$name" in
       nginx) action=status ;;
-      docker) action=snapshot ;;
+      docker|components) action=snapshot ;;
       storage) action=scan ;;
       cron) action=list ;;
       logs-list) name=logs; action=list ;;

@@ -199,7 +199,9 @@ public_origin: https://panel.example.com
 | GET | `/api/v1/metrics` | 最新指标快照，首次采集前返回 503 |
 | GET | `/api/v1/metrics/stream` | SSE：`connected`、`metrics`、`heartbeat`、`auth_expired` |
 | GET | `/api/v1/services` | 服务状态、可用动作、检查时间与忙碌状态 |
-| GET | `/api/v1/services/releases` | 立即返回版本查询缓存，首次或过期时后台联网查询 |
+| GET | `/api/v1/services/releases` | 立即返回服务及编程组件的版本查询缓存，首次或过期时后台联网查询 |
+| GET | `/api/v1/components` | 异步读取本机 Python 3、Go、Node.js、Codex CLI 版本 |
+| POST | `/api/v1/components/refresh` | 手动刷新本机编程组件版本（需要 CSRF，返回 202） |
 | POST | `/api/v1/services/releases/refresh` | 手动异步检查最新稳定版本（需要 CSRF，返回 202） |
 | GET | `/api/v1/docker` | Docker 只读快照，首次及过期时后台刷新 |
 | POST | `/api/v1/docker/refresh` | 手动刷新 Docker 快照（需要 CSRF，返回 202） |
@@ -229,6 +231,16 @@ Go 测试覆盖指标差分、采集与推送、认证、CSRF、SSE、服务白�
 数据在打开页面后后台采集，多个客户端共享 30 秒缓存和正在执行的查询，手动刷新至少间隔 5 秒；每条 Docker 命令最多 12 秒。容器列表或空间统计单独失败时保留对应的旧数据并显示错误。Docker 未安装、服务未启动或权限未配置时会显示状态说明。
 
 辅助程序仅接受固定的 `docker snapshot`，内部只执行上述两条只读命令，并固定连接本机 `/var/run/docker.sock`；面板账号不加入 docker 组，不接受任意 Docker 参数，也不提供容器启停、exec 或清理功能。升级需同步安装面板、辅助程序和 `deploy/lnmp-gopanel.sudoers`（新增精确的 `docker snapshot` 权限，先通过 `visudo -cf` 验证），然后重启面板，无需重启 Docker。
+
+## 编程组件
+
+“LNMP 服务”页面的“编程组件”分组固定展示 Python 3、Go、Node.js、Codex CLI 的本机版本、可执行路径、检查时间、最新正式版本及对应 Changelog。即使未配置任何 LNMP 服务，也可查看组件信息。仅查询版本，不提供安装、升级或启停操作。
+
+本机版本通过固定的 `components snapshot` 辅助命令读取，检查程序及其父目录的 root 所有权和写权限，不加载 shell 配置。Python、Go 检查标准系统安装目录；Node.js、Codex 优先选择 `/root/.nvm/alias/default` 指定的已安装版本，再检查系统安装。支持数字版本前缀、`node`、`stable`、`lts/*` 和 LTS 名称别名；不跟踪临时终端的 `nvm use`，不扫描其他用户目录。Codex 的 npm 启动脚本使用安装目录中的 Node。未安装和读取失败分别展示，读取失败保留上次成功版本。
+
+采集异步执行，每个程序最多 8 秒，结果缓存 1 分钟，手动刷新间隔至少 5 秒。最新版本排除预发布，Node.js 按最高正式版本查询，可能高于 LTS 分支；Python 使用 python.org 发布列表与 CPython 对应标签的 NEWS，Go 使用 go.dev 下载接口及发布历史，Node.js 使用官方版本索引与对应标签 Changelog，Codex CLI 使用 OpenAI 官方仓库的正式 GitHub Release。联网查询与服务共用缓存、限流和失败处理。
+
+已有安装需要同步更新面板、辅助程序和 sudoers，新增精确授权 `lnmp-gopanel-control components snapshot`；安装脚本会验证该权限。无需修改 `services.yaml` 或放宽 `/root` 目录权限。
 
 ## 服务版本与 Redis 监控
 

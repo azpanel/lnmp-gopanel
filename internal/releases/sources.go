@@ -27,7 +27,7 @@ func allowedURL(raw string) bool {
 		return false
 	}
 	switch req.URL.Hostname() {
-	case "nginx.org", "www.php.net", "downloads.mariadb.org", "mariadb.com", "api.github.com", "raw.githubusercontent.com", "dev.mysql.com":
+	case "www.python.org", "docs.python.org", "go.dev", "nodejs.org", "nginx.org", "www.php.net", "downloads.mariadb.org", "mariadb.com", "api.github.com", "raw.githubusercontent.com", "dev.mysql.com":
 		return true
 	}
 	return false
@@ -123,13 +123,21 @@ func (f *Fetcher) Fetch(ctx context.Context, name string) (Release, error) {
 		release, err = f.mysql(ctx)
 	case "redis":
 		release, err = f.redis(ctx)
+	case "python3":
+		release, err = f.python(ctx)
+	case "go":
+		release, err = f.golang(ctx)
+	case "node":
+		release, err = f.node(ctx)
+	case "codex":
+		release, err = f.codex(ctx)
 	default:
 		return Release{}, fmt.Errorf("不支持的服务")
 	}
 	if err != nil {
 		return Release{}, err
 	}
-	if !stableVersion.MatchString(release.Version) {
+	if !stableVersion.MatchString(release.Version) && !(name == "go" && seriesVersion.MatchString(release.Version)) {
 		return Release{}, fmt.Errorf("未找到可识别的稳定版本")
 	}
 	release.Changelog = excerpt(release.Changelog)

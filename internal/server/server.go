@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/auth"
+	"github.com/azpanel/lnmp-gopanel/internal/components"
 	"github.com/azpanel/lnmp-gopanel/internal/config"
 	"github.com/azpanel/lnmp-gopanel/internal/control"
 	"github.com/azpanel/lnmp-gopanel/internal/cron"
@@ -31,6 +32,7 @@ type Server struct {
 	Sessions    *auth.Store
 	Metrics     *metrics.Collector
 	Services    *control.Manager
+	Components  *components.Manager
 	Docker      *docker.Manager
 	Logs        logs.Reader
 	Cron        cron.Reader
@@ -46,7 +48,7 @@ type Server struct {
 }
 
 func New(c config.Config, m *metrics.Collector, svc *control.Manager, assets fs.FS) *Server {
-	return &Server{Config: c, Sessions: auth.New(), Metrics: m, Services: svc, Logs: control.Helper{Path: c.Helper}, logReads: make(chan struct{}, 4), Cron: control.Helper{Path: c.Helper}, Docker: docker.NewManager(context.Background(), control.Helper{Path: c.Helper}), Releases: releases.NewManager(context.Background(), releases.NewFetcher()), Host: metrics.HostInfo(context.Background()), Storage: storage.NewManager(context.Background(), control.Helper{Path: c.Helper}), Vhosts: vhosts.NewManager(context.Background(), control.Helper{Path: c.Helper}), Assets: assets, streams: make(chan struct{}, 32)}
+	return &Server{Components: components.NewManager(context.Background(), control.Helper{Path: c.Helper}), Config: c, Sessions: auth.New(), Metrics: m, Services: svc, Logs: control.Helper{Path: c.Helper}, logReads: make(chan struct{}, 4), Cron: control.Helper{Path: c.Helper}, Docker: docker.NewManager(context.Background(), control.Helper{Path: c.Helper}), Releases: releases.NewManager(context.Background(), releases.NewFetcher()), Host: metrics.HostInfo(context.Background()), Storage: storage.NewManager(context.Background(), control.Helper{Path: c.Helper}), Vhosts: vhosts.NewManager(context.Background(), control.Helper{Path: c.Helper}), Assets: assets, streams: make(chan struct{}, 32)}
 }
 func fail(c *gin.Context, status int, msg string) { c.AbortWithStatusJSON(status, gin.H{"error": msg}) }
 func (s *Server) Handler() http.Handler {
@@ -92,6 +94,8 @@ func (s *Server) Handler() http.Handler {
 		c.JSON(200, v)
 	})
 	private.GET("/metrics/stream", s.stream)
+	private.GET("/components", func(c *gin.Context) { s.componentSnapshot(c, false) })
+	private.POST("/components/refresh", s.csrf, func(c *gin.Context) { s.componentSnapshot(c, true) })
 	private.GET("/services", func(c *gin.Context) { c.JSON(200, s.Services.List()) })
 	private.GET("/services/releases", func(c *gin.Context) { s.serviceReleases(c, false) })
 	private.POST("/services/releases/refresh", s.csrf, func(c *gin.Context) { s.serviceReleases(c, true) })
@@ -245,12 +249,23 @@ func (s *Server) dockerSnapshot(c *gin.Context, force bool) {
 	}
 	c.JSON(status, s.Docker.Latest(force))
 }
+func (s *Server) componentSnapshot(c *gin.Context, force bool) {
+	if s.Components == nil {
+		fail(c, 503, "组件查询未配置")
+		return
+	}
+	status := http.StatusOK
+	if force {
+		status = http.StatusAccepted
+	}
+	c.JSON(status, s.Components.Latest(force))
+}
 func (s *Server) serviceReleases(c *gin.Context, force bool) {
 	if s.Releases == nil {
 		fail(c, 503, "版本查询未配置")
 		return
 	}
-	names := []string{}
+	names := components.Names()
 	for _, service := range s.Services.List() {
 		names = append(names, service.Name)
 	}

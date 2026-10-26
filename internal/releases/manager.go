@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/azpanel/lnmp-gopanel/internal/components"
 	"github.com/azpanel/lnmp-gopanel/internal/config"
 )
 
@@ -42,7 +43,7 @@ func (m *Manager) Latest(names []string, force bool) map[string]Release {
 	defer m.mu.Unlock()
 	out := make(map[string]Release, len(names))
 	for _, name := range names {
-		if !config.ValidName(name) {
+		if !config.ValidName(name) && !components.ValidName(name) {
 			continue
 		}
 		entry := m.entries[name]

@@ -2893,3 +2893,25 @@ a {
     animation: none !important;
   }
 }
+
+.programming-components {
+  margin-top: 2rem;
+}
+.component-heading {
+  margin-bottom: 1rem;
+}
+.component-heading h2 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+.service-card-head h3 {
+  font-size: inherit;
+  font-weight: 600;
+}
+.component-path {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+  margin-top: 0.75rem;
+}

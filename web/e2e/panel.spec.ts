@@ -55,7 +55,14 @@ test("login, real metrics, routes, pause, theme and logout", async ({
     );
   expect(clippedTicks).toBe(0);
   const mobile = testInfo.project.name === "mobile";
-  if (mobile) await page.getByRole("button", { name: "打开导航" }).click();
+  if (mobile) {
+    await page.getByRole("button", { name: "打开导航" }).click();
+    // Read all bounds after the drawer transition, not across animation frames.
+    await expect(page.locator(".sidebar")).toHaveCSS(
+      "transform",
+      "matrix(1, 0, 0, 1, 0, 0)",
+    );
+  }
   const sidebar = await page.locator(".sidebar").boundingBox();
   const badge = await page
     .locator(mobile ? ".brand > span:not(.brand-tag)" : ".brand-tag")

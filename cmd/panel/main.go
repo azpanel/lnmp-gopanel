@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/azpanel/lnmp-gopanel/internal/components"
 	"github.com/azpanel/lnmp-gopanel/internal/config"
 	"github.com/azpanel/lnmp-gopanel/internal/control"
 	"github.com/azpanel/lnmp-gopanel/internal/docker"
@@ -81,6 +82,7 @@ func run() error {
 	app := server.New(c, collector, manager, web.Assets())
 	app.Storage = storage.NewManager(ctx, control.Helper{Path: c.Helper})
 	app.Vhosts = vhosts.NewManager(ctx, control.Helper{Path: c.Helper})
+	app.Components = components.NewManager(ctx, control.Helper{Path: c.Helper})
 	app.Releases = releases.NewManager(ctx, releases.NewFetcher())
 	app.Docker = docker.NewManager(ctx, control.Helper{Path: c.Helper})
 	app.Screenshots, err = screenshots.NewManager(ctx, c.Screenshots.StateDir, &screenshots.Chromium{Browser: c.Screenshots.Browser, StateDir: c.Screenshots.StateDir})

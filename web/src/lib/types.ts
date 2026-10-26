@@ -196,3 +196,17 @@ export interface CronPreview {
   times: string[];
   message?: string;
 }
+
+export type ProgrammingComponent = {
+  name: string;
+  status: "loading" | "ready" | "missing" | "failed";
+  version: string;
+  path: string;
+  error?: string;
+  checked_at: string | null;
+};
+export type ComponentSnapshot = {
+  status: "idle" | "loading" | "ready" | "partial" | "failed";
+  items: ProgrammingComponent[];
+  error?: string;
+};

@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/azpanel/lnmp-gopanel/internal/components"
 	"github.com/azpanel/lnmp-gopanel/internal/config"
 	"github.com/azpanel/lnmp-gopanel/internal/control"
 	"github.com/azpanel/lnmp-gopanel/internal/cron"
@@ -26,6 +27,11 @@ func main() {
 func run() error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("辅助程序需要 root 权限")
+	}
+	if len(os.Args) == 3 && os.Args[1] == "components" && os.Args[2] == "snapshot" {
+		ctx, cancel := context.WithTimeout(context.Background(), components.Timeout)
+		defer cancel()
+		return json.NewEncoder(os.Stdout).Encode(control.ComponentSnapshot(ctx))
 	}
 	if len(os.Args) == 3 && os.Args[1] == "logs" {
 		return handleLogs(os.Args[2])

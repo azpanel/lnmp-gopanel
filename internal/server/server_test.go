@@ -258,8 +258,8 @@ func TestReleaseAPIsAuthCSRFAndAsyncResponses(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		w := request(h, "GET", "/api/v1/services/releases", "", cookie, "", "")
-		if strings.Contains(w.Body.String(), `"status":"ready"`) {
-			if source.calls.Load() != 1 || !strings.Contains(w.Body.String(), "1.30.2") {
+		if strings.Count(w.Body.String(), `"status":"ready"`) == 5 {
+			if source.calls.Load() != 5 || !strings.Contains(w.Body.String(), "1.30.2") {
 				t.Fatal(w.Body.String())
 			}
 			return

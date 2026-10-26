@@ -1,0 +1,163 @@
+import { test, expect } from "@playwright/test";
+
+test("programming component versions, changelogs and refresh without services", async ({
+  page,
+}) => {
+  const now = new Date().toISOString();
+  let componentRefreshes = 0;
+  let releaseRefreshes = 0;
+  let failed = false;
+  const snapshot = () => ({
+    status: failed ? "partial" : "ready",
+    items: [
+      {
+        name: "python3",
+        status: "ready",
+        version: "3.13.5",
+        path: "/usr/bin/python3",
+        checked_at: now,
+      },
+      { name: "go", status: "missing", version: "", path: "", checked_at: now },
+      {
+        name: "node",
+        status: failed ? "failed" : "ready",
+        version: "22.23.4",
+        path: "/root/.nvm/versions/node/v22.23.4/bin/node",
+        error: failed ? "组件版本读取失败或超时" : "",
+        checked_at: now,
+      },
+      {
+        name: "codex",
+        status: "ready",
+        version: "0.164.0",
+        path: "/root/.nvm/versions/node/v22.23.4/bin/codex",
+        checked_at: now,
+      },
+    ],
+  });
+  const releases = Object.fromEntries(
+    [
+      ["python3", "3.15.2"],
+      ["go", "1.27.3"],
+      ["node", "26.12.1"],
+      ["codex", "0.164.0"],
+    ].map(([name, version]) => [
+      name,
+      {
+        status: "ready",
+        version,
+        source_url: "https://example.com/releases",
+        changelog_url: `https://example.com/releases/${version}`,
+        changelog: `Changes for ${version}\n<script>window.componentInjected = true</script>`,
+        checked_at: now,
+      },
+    ]),
+  );
+  await page.route("**/api/v1/services", (route) =>
+    route.fulfill({ json: [] }),
+  );
+  await page.route("**/api/v1/components", (route) =>
+    route.fulfill({ json: snapshot() }),
+  );
+  await page.route("**/api/v1/components/refresh", (route) => {
+    componentRefreshes++;
+    failed = true;
+    return route.fulfill({ status: 202, json: snapshot() });
+  });
+  await page.route("**/api/v1/services/releases", (route) =>
+    route.fulfill({ json: releases }),
+  );
+  await page.route("**/api/v1/services/releases/refresh", (route) => {
+    releaseRefreshes++;
+    return route.fulfill({
+      status: 202,
+      json: {
+        ...releases,
+        go: {
+          ...releases.go,
+          changelog: "",
+          changelog_error: "官方发布源返回 HTTP 503",
+        },
+      },
+    });
+  });
+  await page.goto("/");
+  await page
+    .getByLabel("密码", { exact: true })
+    .fill("Test-Only-Panel-Password-2026");
+  await page.getByRole("button", { name: "登录面板" }).click();
+  await expect(
+    page.getByRole("heading", { name: "系统概览", exact: true }),
+  ).toBeVisible();
+  await page.goto("/services");
+  await expect(
+    page.getByRole("heading", { name: "编程组件", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator("[data-component]")).toHaveCount(4);
+  const python = page.locator('[data-component="python3"]');
+  const go = page.locator('[data-component="go"]');
+  const node = page.locator('[data-component="node"]');
+  const codex = page.locator('[data-component="codex"]');
+  await expect(python).toContainText("3.13.5");
+  await expect(python).toContainText("3.15.2");
+  await expect(go).toContainText("未安装");
+  await expect(node).toContainText("22.23.4");
+  await expect(codex).toContainText("0.164.0");
+  await expect(page.locator(".programming-components button")).toHaveCount(0);
+  await python.getByText("查看 3.15.2 更新日志").click();
+  await expect(python.locator("pre")).toContainText("Changes for 3.15.2");
+  await expect(
+    python.getByRole("link", { name: "Changelog 原文" }),
+  ).toHaveAttribute("href", "https://example.com/releases/3.15.2");
+  expect(await page.evaluate(() => "componentInjected" in window)).toBe(false);
+  await page.getByRole("button", { name: "刷新状态", exact: true }).click();
+  await expect(node).toContainText("显示上次成功结果");
+  await expect(node).toContainText("22.23.4");
+  expect(componentRefreshes).toBe(1);
+  await page.getByRole("button", { name: "检查最新版本", exact: true }).click();
+  await expect(go).toContainText("Changelog 读取失败");
+  await expect(go).toContainText("1.27.3");
+  expect(releaseRefreshes).toBe(1);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+});
+
+test("component helper and upstream failures display errors", async ({
+  page,
+}) => {
+  await page.route("**/api/v1/components", (route) =>
+    route.fulfill({
+      json: { status: "failed", items: [], error: "组件查询辅助程序不可用" },
+    }),
+  );
+  await page.route("**/api/v1/services/releases", (route) =>
+    route.fulfill({
+      json: Object.fromEntries(
+        ["python3", "go", "node", "codex"].map((name) => [
+          name,
+          { status: "failed", error: "连接官方发布源失败或超时" },
+        ]),
+      ),
+    }),
+  );
+  await page.goto("/");
+  await page
+    .getByLabel("密码", { exact: true })
+    .fill("Test-Only-Panel-Password-2026");
+  await page.getByRole("button", { name: "登录面板" }).click();
+  await expect(
+    page.getByRole("heading", { name: "系统概览", exact: true }),
+  ).toBeVisible();
+  await page.goto("/services");
+  await expect(page.getByRole("alert")).toContainText("组件查询辅助程序不可用");
+  await expect(page.locator("[data-component]")).toHaveCount(4);
+  await expect(page.locator('[data-component="python3"]')).toContainText(
+    "读取失败",
+  );
+  await expect(page.locator('[data-component="python3"]')).toContainText(
+    "暂不可用",
+  );
+});
