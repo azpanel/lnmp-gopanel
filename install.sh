@@ -4,6 +4,11 @@ export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 umask 077
 
 repository="azpanel/lnmp-gopanel"
+action=""
+auto_confirm=false
+install_options=false
+show_menu=false
+if (($# == 0)); then show_menu=true; fi
 release_version="latest"
 archive_path=""
 checksum_path=""
@@ -36,6 +41,10 @@ usage() {
   cat <<'EOF'
 Usage: sudo bash install.sh [options]
 
+  --install              Install the panel (existing installations are upgraded)
+  --update               Update an installed panel from GitHub Release
+  --uninstall            Completely remove the panel, configuration, data and backups
+  --yes                  Confirm --uninstall without prompting
   --version TAG          Install a release tag such as v0.1.0 (default: latest)
   --archive FILE         Install a local lnmp-gopanel_linux_ARCH.tar.gz
   --checksum-file FILE   Local checksum file (default: FILE.sha256)
@@ -48,6 +57,8 @@ Usage: sudo bash install.sh [options]
   --certificate-dir DIR  Use a certificate directory under /usr/local/nginx/conf/ssl
   -h, --help             Show this help
 
+Run without options in a terminal for the Chinese management menu.
+Uninstall keeps LNMP, websites, databases, source certificates and system packages.
 Requires Linux amd64/arm64, systemd and root. New installations prompt for a
 12-72 byte password and a certificate choice. Only HTTPS is supported.
 Upgrades preserve credentials, services.yaml and an existing HTTPS listener.
@@ -55,8 +66,16 @@ EOF
 }
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 need_value() { [[ $# -ge 2 && -n "$2" ]] || die "$1 requires a value"; }
+set_action() {
+  [[ -z "$action" || "$action" == "$1" ]] || die "Choose only one of --install, --update and --uninstall"
+  action="$1"
+}
 while (($#)); do
   case "$1" in
+    --install) set_action install; shift; continue ;;
+    --update) set_action update; shift; continue ;;
+    --uninstall) set_action uninstall; shift; continue ;;
+    --yes) auto_confirm=true; shift; continue ;;
     --version) need_value "$@"; release_version="$2"; shift 2 ;;
     --archive) need_value "$@"; archive_path="$2"; shift 2 ;;
     --checksum-file) need_value "$@"; checksum_path="$2"; shift 2 ;;
@@ -70,7 +89,29 @@ while (($#)); do
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
+  install_options=true
 done
+if "$show_menu"; then
+  [[ -t 0 ]] || die "Use --install, --update or --uninstall --yes without a terminal"
+  printf 'LNMP GoPanel 管理\n  1) 安装面板\n  2) 从 GitHub Release 更新\n  3) 完全卸载\n  0) 退出\n'
+  while true; do
+    read -r -p '请选择 [0/1/2/3]：' choice || die "Menu cancelled"
+    case "$choice" in
+      1) action=install; break ;;
+      2) action=update; break ;;
+      3) action=uninstall; break ;;
+      0) exit 0 ;;
+      *) printf '请输入 0、1、2 或 3。\n' ;;
+    esac
+  done
+fi
+action="${action:-install}"
+if [[ "$action" == uninstall ]]; then
+  ! "$install_options" || die "--uninstall cannot be combined with installation options"
+else
+  ! "$auto_confirm" || die "--yes is only valid with --uninstall"
+fi
+[[ "$action" != update || -z "$archive_path" ]] || die "--update downloads from GitHub Release; use --install --archive for a local package"
 
 [[ "$(uname -s)" == Linux ]] || die "Only Linux is supported"
 case "$(uname -m)" in
@@ -88,6 +129,79 @@ fi
 if ! "$check_only"; then
   [[ $EUID -eq 0 ]] || die "Run this installer as root"
   [[ -d /run/systemd/system ]] || die "A running systemd installation is required"
+fi
+# Keep the lock file in place: unlinking it would let another process lock a
+# different inode while this invocation is still running.
+if ! "$check_only"; then
+  for program in systemctl flock; do
+    command -v "$program" >/dev/null || die "Missing command: $program"
+  done
+  [[ ! -L /run/lnmp-gopanel-install.lock ]] || die "Refusing a symlink lock file"
+  exec 9>/run/lnmp-gopanel-install.lock
+  flock -n 9 || die "Another panel installation, update or uninstall is running"
+fi
+uninstall_panel() {
+  local destination parent load_state confirmation
+  local -a removals=(
+    /usr/local/bin/lnmp-gopanel
+    /usr/local/libexec/lnmp-gopanel-control
+    /etc/systemd/system/lnmp-gopanel.service
+    /etc/systemd/system/lnmp-gopanel.service.d
+    /etc/sudoers.d/lnmp-gopanel
+    /etc/lnmp-gopanel
+    /var/lib/lnmp-gopanel
+    /var/backups/lnmp-gopanel
+  )
+  for program in rm getent id userdel groupdel; do
+    command -v "$program" >/dev/null || die "Missing command: $program"
+  done
+  # A leaf symlink is removed as a link; never traverse a symlink parent.
+  for destination in "${removals[@]}"; do
+    parent="${destination%/*}"
+    while [[ "$parent" != / ]]; do
+      [[ ! -L "$parent" ]] || die "Refusing a symlink parent: $parent"
+      parent="${parent%/*}"
+      parent="${parent:-/}"
+    done
+  done
+  if getent passwd lnmp-panel >/dev/null; then
+    [[ "$(id -u lnmp-panel)" != 0 ]] || die "Refusing to remove a root account"
+  fi
+  if getent group lnmp-panel >/dev/null; then
+    [[ "$(getent group lnmp-panel)" != lnmp-panel:*:0:* ]] || die "Refusing to remove a root group"
+  fi
+  printf '完全卸载将删除面板程序、服务、权限规则、以下配置和数据，以及 lnmp-panel 专用账号和组：\n'
+  printf '  %s\n' "${removals[@]}"
+  printf '保留 LNMP、网站、数据库、源证书及 Chromium 等系统依赖。自定义到其他目录的数据请自行清理。\n'
+  if ! "$auto_confirm"; then
+    [[ -t 0 ]] || die "Uninstall needs a terminal confirmation; use --uninstall --yes"
+    read -r -p '确认完全卸载？输入 yes 继续：' confirmation || die "Uninstall cancelled"
+    if [[ "$confirmation" != yes ]]; then printf '已取消卸载。\n'; return; fi
+  fi
+  load_state="$(systemctl show lnmp-gopanel --property=LoadState --value)" || die "Cannot determine panel service state"
+  if [[ "$load_state" != not-found ]]; then
+    systemctl stop lnmp-gopanel || die "Cannot stop panel; no panel files were removed"
+    systemctl disable lnmp-gopanel || die "Cannot disable panel; no panel files were removed"
+    systemctl reset-failed lnmp-gopanel || die "Cannot reset panel service state; no panel files were removed"
+  fi
+  for destination in "${removals[@]}"; do
+    rm -rf -- "$destination" || die "Cannot remove $destination; uninstall is incomplete"
+  done
+  systemctl daemon-reload || die "Cannot reload systemd; uninstall is incomplete"
+  if getent passwd lnmp-panel >/dev/null; then
+    userdel lnmp-panel || die "Cannot remove lnmp-panel account; uninstall is incomplete"
+  fi
+  if getent group lnmp-panel >/dev/null; then
+    groupdel lnmp-panel || die "Cannot remove lnmp-panel group; uninstall is incomplete"
+  fi
+  printf '面板已完全卸载。\n'
+}
+if [[ "$action" == uninstall ]]; then
+  uninstall_panel
+  exit 0
+fi
+if [[ "$action" == update ]]; then
+  [[ -f /etc/lnmp-gopanel/config.yaml && -f /etc/lnmp-gopanel/services.yaml && -f /usr/local/bin/lnmp-gopanel ]] || die "No complete panel installation found; use --install to install or repair it"
 fi
 for program in tar gzip sha256sum awk install stat cp mv mkdir rm mktemp; do
   command -v "$program" >/dev/null || die "Missing command: $program"
@@ -278,8 +392,6 @@ for program in systemctl visudo getent groupadd useradd flock; do
   command -v "$program" >/dev/null || die "Missing command: $program"
 done
 [[ -x /usr/bin/sudo ]] || die "Install sudo first (the panel requires /usr/bin/sudo)"
-exec 9>/run/lnmp-gopanel-install.lock
-flock -n 9 || die "Another installation is running"
 for destination in "${targets[@]}" /etc/lnmp-gopanel /etc/lnmp-gopanel/tls; do
   [[ ! -L "$destination" ]] || die "Refusing a symlink destination: $destination"
 done

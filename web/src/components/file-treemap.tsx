@@ -28,7 +28,7 @@ export function FileTreemap({ files }: { files: LargeFile[] }) {
     const selected = active?.path === path;
     const width = Math.max(0, node.width - 3),
       height = Math.max(0, node.height - 3);
-    const maxCharacters = Math.max(0, Math.floor((width - 22) / 8));
+    const maxCharacters = Math.max(0, Math.floor((width - 24) / 9));
     const label =
       name.length > maxCharacters
         ? `${name.slice(0, Math.max(0, maxCharacters - 1))}…`
@@ -64,36 +64,36 @@ export function FileTreemap({ files }: { files: LargeFile[] }) {
           stroke={selected ? "#e3fff6" : "transparent"}
           strokeWidth={selected ? 2 : 0}
         />
-        {width > 60 && height > 38 && (
+        {width > 70 && height > 42 && (
           <text
             x={node.x + 12}
             y={node.y + 23}
             fill="#fff"
-            fontSize={13}
+            fontSize={15}
             fontWeight={500}
             pointerEvents="none"
           >
             {label}
           </text>
         )}
-        {width > 90 && height > 62 && (
+        {width > 105 && height > 68 && (
           <text
             x={node.x + 12}
             y={node.y + 44}
             fill="#ffffffc9"
-            fontSize={12}
+            fontSize={14}
             fontFamily="monospace"
             pointerEvents="none"
           >
             {bytes(node.value)}
           </text>
         )}
-        {width > 100 && height > 95 && (
+        {width > 115 && height > 100 && (
           <text
             x={node.x + 12}
             y={node.y + height - 13}
             fill="#ffffffb0"
-            fontSize={12}
+            fontSize={14}
             pointerEvents="none"
           >
             {((node.value / total) * 100).toFixed(1)}%

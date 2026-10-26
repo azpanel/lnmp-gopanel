@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the installer in disposable chroots; never change the host install."""
 
+import fcntl
 import hashlib
 import io
 import os
@@ -66,9 +67,18 @@ case "$1" in
   enable) touch /run/panel.enabled ;;
   disable) rm -f /run/panel.enabled ;;
   restart) [[ ! -f /run/fail-restart ]] || exit 1; touch /run/panel.active ;;
-  stop) rm -f /run/panel.active ;;
-  daemon-reload) exit 0 ;;
-  show) cat /run/panel.pid ;;
+  stop) [[ ! -f /run/fail-stop ]] || exit 1; rm -f /run/panel.active ;;
+  daemon-reload|reset-failed) exit 0 ;;
+  show)
+    if [[ "$*" == *--property=LoadState* ]]; then
+      if [[ -e /etc/systemd/system/lnmp-gopanel.service || -f /run/panel.active ]]; then
+        printf 'loaded\\n'
+      else
+        printf 'not-found\\n'
+      fi
+    else
+      cat /run/panel.pid
+    fi ;;
   *) exit 1 ;;
 esac
 """
@@ -178,7 +188,7 @@ class InstallerTests(unittest.TestCase):
         for command in (
             "bash", "uname", "tar", "gzip", "sha256sum", "awk", "install", "stat",
             "cp", "mv", "mkdir", "rm", "mktemp", "cat", "chmod", "chown", "id",
-            "date", "sleep", "getent", "groupadd", "useradd", "flock", "nologin",
+            "date", "sleep", "getent", "groupadd", "useradd", "userdel", "groupdel", "flock", "nologin",
             "touch", "visudo",
         ):
             copy_executable(cls.template, command)
@@ -197,6 +207,18 @@ class InstallerTests(unittest.TestCase):
         write(cls.template, "/etc/sudoers", "root ALL=(ALL:ALL) ALL\n@includedir /etc/sudoers.d\n", 0o440)
         write(cls.template, "/usr/bin/sudo", SUDO, 0o755)
         write(cls.template, "/usr/bin/systemctl", SYSTEMCTL, 0o755)
+        write(cls.template, "/usr/bin/curl", """#!/bin/bash
+while (($#)); do
+  case "$1" in
+    https://*) url="$1"; shift ;;
+    -o) output="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+printf '%s\\n' "$url" >> /run/downloads.log
+[[ ! -f /run/fail-download ]] || exit 22
+cp "/tmp/${url##*/}" "$output"
+""", 0o755)
         write(cls.template, "/etc/os-release", 'ID=debian\nVERSION_ID="12"\n')
         write(cls.template, "/usr/bin/apt-get", """#!/bin/bash
 printf '%s\\n' "$*" >> /run/apt.log
@@ -257,6 +279,159 @@ fi
         else:
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         return result
+
+    def run_script(self, *options, input_text="", success=True, terminal=False):
+        command = ["chroot", str(self.root), "/bin/bash", "/install.sh", *options]
+        if terminal:
+            master, slave = pty.openpty()
+            try:
+                process = subprocess.Popen(command, stdin=slave, stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE, text=True)
+                os.close(slave)
+                slave = None
+                os.write(master, input_text.encode())
+                stdout, stderr = process.communicate(timeout=20)
+                result = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+            finally:
+                os.close(master)
+                if slave is not None:
+                    os.close(slave)
+        else:
+            result = subprocess.run(command, input=input_text, text=True,
+                                    capture_output=True, timeout=20)
+        if success:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        else:
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    def test_management_menu_install_update_and_exit(self):
+        result = self.run_script(input_text="9\n0\n", terminal=True)
+        self.assertIn("从 GitHub Release 更新", result.stdout)
+        self.assertFalse((self.root / "run/downloads.log").exists())
+        self.run_script(input_text="1\n1\ninstaller-test-password\n", terminal=True)
+        self.assertTrue((self.root / "etc/lnmp-gopanel/config.yaml").exists())
+        self.run_script(input_text="2\n", terminal=True)
+        self.assertIn("latest/download/", (self.root / "run/downloads.log").read_text())
+
+    def test_update_downloads_release_and_preserves_data(self):
+        previous = self.old_installation(https=True)
+        state = write(self.root, "/var/lib/lnmp-gopanel/screenshot-settings.json", "saved state", 0o600)
+        for options, suffix in (((), "latest/download"), (("--version", "v1.2.3"), "download/v1.2.3")):
+            with self.subTest(options=options):
+                self.run_script("--update", *options)
+                for target in TARGETS[4:]:
+                    self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
+                self.assertEqual(state.read_text(), "saved state")
+                downloads = (self.root / "run/downloads.log").read_text().splitlines()
+                base = f"https://github.com/azpanel/lnmp-gopanel/releases/{suffix}/{ASSET}"
+                self.assertEqual(downloads[-2:], [base, base + ".sha256"])
+
+    def test_update_requires_complete_installation(self):
+        result = self.run_script("--update", success=False)
+        self.assertIn("No complete panel installation", result.stderr)
+        self.assertFalse((self.root / "run/downloads.log").exists())
+        write(self.root, "/etc/lnmp-gopanel/config.yaml", "incomplete")
+        self.run_script("--update", success=False)
+        self.assertFalse((self.root / "run/downloads.log").exists())
+
+    def test_update_failures_preserve_installation(self):
+        previous = self.old_installation(https=True)
+        for failure in ("download", "checksum", "restart"):
+            with self.subTest(failure=failure):
+                if failure == "checksum":
+                    self.archive.with_suffix(self.archive.suffix + ".sha256").write_text(f"{'0' * 64}  {ASSET}\n")
+                else:
+                    write(self.root, f"/run/fail-{failure}", "")
+                self.run_script("--update", success=False)
+                for target, content in previous.items():
+                    self.assertEqual((self.root / target.lstrip("/")).read_bytes(), content)
+                if failure == "checksum":
+                    self.package()
+                else:
+                    (self.root / f"run/fail-{failure}").unlink()
+
+    def test_uninstall_cleans_panel_only_and_is_repeatable(self):
+        self.old_installation(https=True)
+        for path in ("/etc/systemd/system/lnmp-gopanel.service.d/override.conf",
+                     "/var/lib/lnmp-gopanel/screenshots.key", "/var/backups/lnmp-gopanel/old/manifest"):
+            write(self.root, path, "panel data")
+        preserved = [write(self.root, path, "keep") for path in (
+            "/home/wwwroot/site/index.html", "/var/lib/mysql/database", "/usr/local/nginx/conf/ssl/site/privkey.pem",
+            "/etc/systemd/system/nginx.service", "/usr/bin/chromium", "/custom/screenshots/state")]
+        # Neither sudo nor tar/curl is required for uninstall.
+        for path in ("usr/bin/sudo", "usr/bin/curl"):
+            (self.root / path).unlink()
+        self.run_script("--uninstall", "--yes")
+        for path in TARGETS + ("/etc/lnmp-gopanel", "/var/lib/lnmp-gopanel",
+                               "/var/backups/lnmp-gopanel", "/etc/systemd/system/lnmp-gopanel.service.d"):
+            self.assertFalse((self.root / path.lstrip("/")).exists(), path)
+        for path in preserved:
+            self.assertEqual(path.read_text(), "keep")
+        self.assertNotIn("lnmp-panel:", (self.root / "etc/passwd").read_text())
+        self.assertNotIn("lnmp-panel:", (self.root / "etc/group").read_text())
+        self.assertFalse((self.root / "run/panel.active").exists())
+        self.assertFalse((self.root / "run/panel.enabled").exists())
+        self.run_script("--uninstall", "--yes")
+
+    def test_uninstall_confirmation_and_cancel(self):
+        previous = self.old_installation(https=True)
+        self.run_script("--uninstall", success=False)
+        result = self.run_script(input_text="3\nno\n", terminal=True)
+        self.assertIn("已取消卸载", result.stdout)
+        for path, content in previous.items():
+            self.assertEqual((self.root / path.lstrip("/")).read_bytes(), content)
+        self.run_script(input_text="3\nyes\n", terminal=True)
+        self.assertFalse((self.root / "etc/lnmp-gopanel").exists())
+
+    def test_uninstall_removes_leaf_symlinks_without_following_them(self):
+        self.old_installation(https=True)
+        preserved = write(self.root, "/external/state/keep", "keep")
+        (self.root / "var/lib").mkdir(parents=True, exist_ok=True)
+        (self.root / "var/lib/lnmp-gopanel").symlink_to("/external/state")
+        (self.root / "etc/lnmp-gopanel/external").symlink_to("/external/state")
+        self.run_script("--uninstall", "--yes")
+        self.assertEqual(preserved.read_text(), "keep")
+        self.assertFalse((self.root / "var/lib/lnmp-gopanel").is_symlink())
+
+    def test_uninstall_rejects_symlink_parents_and_stop_failures(self):
+        previous = self.old_installation(https=True)
+        (self.root / "var").mkdir(exist_ok=True)
+        (self.root / "var/lib").symlink_to("/external")
+        result = self.run_script("--uninstall", "--yes", success=False)
+        self.assertIn("Refusing a symlink parent", result.stderr)
+        (self.root / "var/lib").unlink()
+        write(self.root, "/run/fail-stop", "")
+        result = self.run_script("--uninstall", "--yes", success=False)
+        self.assertIn("Cannot stop panel", result.stderr)
+        for path, content in previous.items():
+            self.assertEqual((self.root / path.lstrip("/")).read_bytes(), content)
+
+    def test_management_operations_share_a_lock(self):
+        lock = self.root / "run/lnmp-gopanel-install.lock"
+        with lock.open("w") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            for options in (("--install",), ("--update",), ("--uninstall", "--yes")):
+                with self.subTest(options=options):
+                    result = self.run_script(*options, success=False)
+                    self.assertIn("Another panel installation, update or uninstall", result.stderr)
+        self.assertFalse((self.root / "run/downloads.log").exists())
+        self.assertFalse((self.root / "run/systemctl.log").exists())
+
+    def test_uninstall_reports_account_cleanup_failure(self):
+        self.old_installation(https=True)
+        write(self.root, "/usr/sbin/userdel", "#!/bin/bash\nexit 1\n", 0o755)
+        result = self.run_script("--uninstall", "--yes", success=False)
+        self.assertIn("Cannot remove lnmp-panel account; uninstall is incomplete", result.stderr)
+        self.assertNotIn("面板已完全卸载", result.stdout)
+
+    def test_management_options_reject_conflicts(self):
+        for options in (("--update", "--uninstall"), ("--uninstall", "--check"),
+                        ("--uninstall", "--archive", "/tmp/test"), ("--yes",),
+                        ("--update", "--archive", "/tmp/test")):
+            with self.subTest(options=options):
+                self.run_script(*options, success=False)
+        self.assertFalse((self.root / "run/systemctl.log").exists())
 
     def old_installation(self, https=False):
         # Let real shadow utilities create the dedicated account inside chroot.

@@ -14,6 +14,16 @@ test("login, real metrics, routes, pause, theme and logout", async ({
   await expect(
     page.getByRole("heading", { name: "登录管理面板" }),
   ).toBeVisible();
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
+    "content",
+    "#f6f7f8",
+  );
+  expect(
+    await page
+      .locator("body")
+      .evaluate((node) => getComputedStyle(node).fontSize),
+  ).toBe("18px");
   await page.getByLabel("密码", { exact: true }).fill("wrong-password");
   await page.getByRole("button", { name: "登录面板" }).click();
   await expect(page.getByRole("alert")).toContainText("用户名或密码错误");
@@ -33,6 +43,34 @@ test("login, real metrics, routes, pause, theme and logout", async ({
   });
   await expect(page.locator(".chart-wait")).toHaveCount(0, { timeout: 10000 });
   await expect(page.locator(".recharts-area-area").first()).toBeVisible();
+  const clippedTicks = await page
+    .locator(".recharts-cartesian-axis-tick text")
+    .evaluateAll(
+      (ticks) =>
+        ticks.filter((tick) => {
+          const bounds = tick.getBoundingClientRect();
+          const chart = tick.closest("svg")!.getBoundingClientRect();
+          return bounds.left < chart.left - 1 || bounds.right > chart.right + 1;
+        }).length,
+    );
+  expect(clippedTicks).toBe(0);
+  const mobile = testInfo.project.name === "mobile";
+  if (mobile) await page.getByRole("button", { name: "打开导航" }).click();
+  const sidebar = await page.locator(".sidebar").boundingBox();
+  const badge = await page
+    .locator(mobile ? ".brand > span:not(.brand-tag)" : ".brand-tag")
+    .boundingBox();
+  expect(badge!.x + badge!.width).toBeLessThanOrEqual(
+    sidebar!.x + sidebar!.width - 12,
+  );
+  if (mobile) {
+    const close = await page
+      .getByRole("button", { name: "关闭导航" })
+      .boundingBox();
+    expect(badge!.x + badge!.width).toBeLessThanOrEqual(close!.x);
+    await page.screenshot({ path: testInfo.outputPath("navigation.png") });
+    await page.getByRole("button", { name: "关闭导航" }).click();
+  }
   await page.screenshot({
     path: testInfo.outputPath("dashboard.png"),
     fullPage: true,
@@ -46,10 +84,12 @@ test("login, real metrics, routes, pause, theme and logout", async ({
   await expect(page.getByText("已暂停", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "继续实时更新" }).click();
   await expect(page.getByText("实时连接", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "切换浅色主题" }).click();
-  await expect(page.locator("html")).not.toHaveClass(/dark/);
   await page.getByRole("button", { name: "切换深色主题" }).click();
-  const mobile = testInfo.project.name === "mobile";
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
+    "content",
+    "#101114",
+  );
   if (mobile) await page.getByRole("button", { name: "打开导航" }).click();
   await page.getByRole("link", { name: "LNMP 服务" }).click();
   await expect(
@@ -65,6 +105,13 @@ test("login, real metrics, routes, pause, theme and logout", async ({
   await page.reload();
   await expect(
     page.getByRole("heading", { name: "系统信息", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await page.getByRole("button", { name: "切换浅色主题" }).click();
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "切换深色主题" }),
   ).toBeVisible();
   if (mobile) await page.getByRole("button", { name: "打开导航" }).click();
   await page.getByRole("button", { name: "退出登录" }).click();
@@ -123,4 +170,38 @@ test("service confirmation and failed operation are visible without touching hos
   });
   await page.getByRole("button", { name: "取消", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
+});
+
+test("saved dark theme applies to login even when the operating system uses light", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "登录管理面板" }),
+  ).toBeVisible();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
+    "content",
+    "#101114",
+  );
+});
+
+test("default light theme ignores operating system dark mode and unavailable storage", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "localStorage", {
+      get() {
+        throw new DOMException("Storage unavailable", "SecurityError");
+      },
+    });
+  });
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "登录管理面板" }),
+  ).toBeVisible();
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
 });

@@ -11,9 +11,9 @@
 - 定时任务只读查看 root crontab，展示执行周期、命令和原文，支持刷新。
 - 日志读取支持网站、MariaDB 慢查询及 PHP 错误日志，按需加载大文件、实时追踪和多条关键词／正则筛选。
 - 单管理员、bcrypt 密码、内存 Session、CSRF 校验；独立特权辅助程序和精确 sudoers 规则。
-- 中文、深浅主题、移动端导航。主题偏好及每个日志文件的筛选规则写入 localStorage，日志内容不保存到浏览器持久存储。
+- 中文、默认亮色、深浅主题切换、移动端导航。登录页、工作区及通知使用一致的主题。主题偏好及每个日志文件的筛选规则写入 localStorage，日志内容不保存到浏览器持久存储。
 
-## 安装与升级
+## 安装、更新与卸载
 
 在 Linux amd64 / arm64 机器上，以 root 或具备 sudo 权限的账号执行。需要运行中的 systemd、`curl`、`tar`、`gzip`、`sudo`（含 `visudo`）和常见系统工具；Debian / Ubuntu 可先执行 `sudo apt-get install -y curl ca-certificates tar gzip sudo`。
 
@@ -21,6 +21,17 @@
 curl -fsSL https://github.com/azpanel/lnmp-gopanel/releases/latest/download/install.sh -o install.sh
 sudo bash install.sh
 ```
+
+直接运行会显示中文管理菜单，可选择安装、从 GitHub Release 更新、完全卸载或退出。也可以显式使用 `--install`、`--update`、`--uninstall`；已有带安装参数的调用方式继续有效。
+
+```bash
+sudo bash install.sh --update                    # 从 GitHub Release 更新到最新版本
+sudo bash install.sh --update --version v0.1.0   # 更新到指定 Release
+sudo bash install.sh --uninstall                 # 列出清理范围，输入 yes 确认
+sudo bash install.sh --uninstall --yes           # 非交互完全卸载
+```
+
+更新要求已有完整安装，下载对应架构的 Release 安装包并验证 SHA-256，沿用备份和失败回滚流程。完全卸载无需联网，会停止并禁用面板，删除面板程序、辅助程序、systemd 单元及专属覆盖配置、sudoers 规则、`/etc/lnmp-gopanel`（含面板证书副本）、`/var/lib/lnmp-gopanel`、`/var/backups/lnmp-gopanel` 和 `lnmp-panel` 专用账号及组。LNMP、网站、数据库、Docker、借用的原始证书和 Chromium 等系统依赖会保留；自定义到其他目录的面板数据请自行清理。卸载会永久删除面板配置及备份，请先保存需要保留的内容。
 
 如需网站截图，可在 Debian 12/13 使用 `sudo bash install.sh --with-screenshots`，额外安装 Chromium、沙箱组件和中文字体，并以面板普通账号运行截图冒烟检查。已有 Chromium/Chrome 时优先复用；其他 Linux 发行版请自行安装浏览器，通过 `screenshots.browser` 指定其绝对路径。普通安装不安装浏览器，缺少浏览器只影响截图功能。`--check` 不安装系统依赖；可选安装产生的系统软件包不会在面板文件回滚时卸载。
 
@@ -35,7 +46,7 @@ sudo bash install.sh
 
 安装时会以 `lnmp-panel` 账号检查服务状态、Docker 查询、文件扫描、定时任务与日志读取的精确 sudo 授权，并实际免密调用一次只读 `docker snapshot` 辅助程序（无需安装或启动 Docker，不触发全盘扫描或服务启停）。启动面板后读取实际进程的 `/proc/<MainPID>/status`，确认 `NoNewPrivs: 0`，避免 systemd 隐式限制使所有辅助功能不可用；检查失败会报错并回滚。`--no-start` 只执行辅助程序检查，进程限制需在自行启动后验证。
 
-重复执行同一命令即可升级，已有 HTTPS 配置、端口、证书、管理员密码和 `services.yaml` 会保留。旧版 HTTP 安装升级时会询问证书来源、迁移为随机端口的 HTTPS，并保留管理员凭据及服务配置；原 HTTP 端口不再使用，需调整安全组或反向代理。升级只重启面板服务，不重启 Nginx、PHP、数据库、Redis 或 Docker；已有面板会话需重新登录。替换前的文件保存在 `/var/backups/lnmp-gopanel/`，替换或启动失败时自动恢复旧文件，包含原配置及证书。
+在菜单选择更新或执行 `sudo bash install.sh --update` 即可从 GitHub Release 升级；带安装参数再次执行也可覆盖升级。已有 HTTPS 配置、端口、证书、管理员密码和 `services.yaml` 会保留。旧版 HTTP 安装升级时会询问证书来源、迁移为随机端口的 HTTPS，并保留管理员凭据及服务配置；原 HTTP 端口不再使用，需调整安全组或反向代理。升级只重启面板服务，不重启 Nginx、PHP、数据库、Redis 或 Docker；已有面板会话需重新登录。替换前的文件保存在 `/var/backups/lnmp-gopanel/`，替换或启动失败时自动恢复旧文件，包含原配置及证书。
 
 指定版本、自定义首次安装用户名、只验证包及离线安装：
 

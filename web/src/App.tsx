@@ -40,7 +40,23 @@ import type { Host, Service, Session } from "@/lib/types";
 import { useMonitor } from "@/lib/use-monitor";
 import { cn } from "@/lib/utils";
 
+type Theme = "light" | "dark";
+
 export default function App() {
+  const [theme, setTheme] = useState<Theme>(() =>
+    document.documentElement.classList.contains("dark") ? "dark" : "light",
+  );
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", theme === "dark" ? "#101114" : "#f6f7f8");
+    try {
+      localStorage.setItem("theme", theme);
+    } catch {
+      // The theme still works for this visit when storage is unavailable.
+    }
+  }, [theme]);
   const client = useQueryClient();
   const session = useQuery({
     queryKey: ["session"],
@@ -77,21 +93,28 @@ export default function App() {
     );
   return (
     <>
-      {session.data ? <Workspace session={session.data} /> : <Login />}
-      <Toaster richColors theme="system" position="bottom-right" />
+      {session.data ? (
+        <Workspace session={session.data} theme={theme} setTheme={setTheme} />
+      ) : (
+        <Login />
+      )}
+      <Toaster richColors theme={theme} position="bottom-right" />
     </>
   );
 }
-function Workspace({ session }: { session: Session }) {
+function Workspace({
+  session,
+  theme,
+  setTheme,
+}: {
+  session: Session;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+}) {
   const monitor = useMonitor(),
     client = useQueryClient();
   const [mobileOpen, setMobileOpen] = useState(false),
-    [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark"),
     [loggingOut, setLoggingOut] = useState(false);
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    localStorage.setItem("theme", theme);
-  }, [theme]);
   const host = useQuery({
     queryKey: ["host"],
     queryFn: () => api<Host>("/host"),

@@ -28,7 +28,7 @@ import { loadLogRules, logLines, validateLogRules } from "@/lib/logs";
 import type { LogCatalog, LogLine, LogRule } from "@/lib/logs";
 import { useLogReader } from "@/lib/use-log-reader";
 
-const rowHeight = 26;
+const rowHeight = 30;
 function LogViewport({
   lines,
   follow,
