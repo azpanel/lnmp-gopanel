@@ -105,6 +105,68 @@ func TestBrowserErrorDoesNotExposeSecrets(t *testing.T) {
 	}
 }
 
+func TestChromiumIntegrationLanguageAndDelayedCSS(t *testing.T) {
+	path := os.Getenv("SCREENSHOT_TEST_BROWSER")
+	if path == "" {
+		t.Skip("set SCREENSHOT_TEST_BROWSER to run real Chromium integration tests")
+	}
+	c := &Chromium{Browser: path, StateDir: t.TempDir(), testNoSandbox: os.Geteuid() == 0}
+	var correctLanguage atomic.Bool
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slow.css" {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(3 * time.Second):
+			}
+			w.Header().Set("Content-Type", "text/css")
+			_, _ = w.Write([]byte("body[data-language=correct] { background: #00ff00; }"))
+			return
+		}
+		if r.URL.Path == "/never.css" {
+			<-r.Context().Done()
+			return
+		}
+		if r.URL.Path == "/timeout" {
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<!doctype html><html><head><link rel="stylesheet" href="/never.css"></head><body>Loading</body></html>`))
+			return
+		}
+		correctLanguage.Store(strings.HasPrefix(r.Header.Get("Accept-Language"), "en-US"))
+		w.Header().Set("Content-Type", "text/html")
+		// The stylesheet is requested after load and finishes later than the
+		// previous fixed two-second sleep would have captured it.
+		_, _ = w.Write([]byte(`<!doctype html><html><head><style>body { background: #ff0000; }</style></head><body><script>
+		if (navigator.language === "en-US" && Intl.DateTimeFormat().resolvedOptions().locale === "en-US") {
+			document.body.dataset.language = "correct";
+		}
+		window.addEventListener("load", () => setTimeout(() => {
+			const css = document.createElement("link");
+			css.rel = "stylesheet"; css.href = "/slow.css";
+			document.head.appendChild(css);
+		}, 500));
+		</script></body></html>`))
+	}))
+	defer site.Close()
+	image, err := c.Capture(context.Background(), Target{URL: site.URL, Language: "en-US", LoadTimeoutSeconds: 15})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := jpeg.Decode(bytes.NewReader(image))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, g, b, _ := decoded.At(1430, 890).RGBA()
+	if !correctLanguage.Load() || r > 10000 || g < 50000 || b > 10000 {
+		t.Fatal("language overrides or delayed CSS were not applied")
+	}
+	started := time.Now()
+	_, err = c.Capture(context.Background(), Target{URL: site.URL + "/timeout", LoadTimeoutSeconds: 5})
+	if err == nil || !strings.Contains(err.Error(), "超时") || time.Since(started) > 8*time.Second {
+		t.Fatal("configured resource loading timeout was not enforced", err)
+	}
+}
+
 type urlError struct{ value string }
 
 func (e *urlError) Error() string { return e.value }

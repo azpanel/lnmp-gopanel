@@ -66,9 +66,21 @@ func TestScreenshotAPIsAuthenticationPersistenceAndImages(t *testing.T) {
 			t.Fatal("invalid site accepted", w.Code)
 		}
 	}
-	w := request(h, "PUT", base+"?name=example.conf", `{"url":"http://localhost/private","auth_enabled":true,"username":"site-user","password":"private-screenshot-password"}`, cookie, session.CSRF, "")
+	for _, input := range []string{
+		`{"url":"http://localhost/","language":"en_US"}`,
+		`{"url":"http://localhost/","load_timeout_seconds":301}`,
+		`{"url":"http://localhost/","load_timeout_seconds":1.5}`,
+	} {
+		if w := request(h, "PUT", base+"?name=example.conf", input, cookie, session.CSRF, ""); w.Code != 400 {
+			t.Fatal("invalid capture settings accepted", w.Code)
+		}
+	}
+	w := request(h, "PUT", base+"?name=example.conf", `{"url":"http://localhost/private","language":"en-US","load_timeout_seconds":120,"auth_enabled":true,"username":"site-user","password":"private-screenshot-password"}`, cookie, session.CSRF, "")
 	if w.Code != 202 || strings.Contains(w.Body.String(), "private-screenshot-password") || strings.Contains(w.Body.String(), "password_cipher") {
 		t.Fatal("save failed or leaked credentials", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"language":"en-US"`) || !strings.Contains(w.Body.String(), `"load_timeout_seconds":120`) {
+		t.Fatal("capture settings missing from response", w.Body.String())
 	}
 	deadline = time.Now().Add(3 * time.Second)
 	for s.Screenshots.Latest().Items["example.conf"].Status != "ready" && time.Now().Before(deadline) {

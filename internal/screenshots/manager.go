@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,33 +20,60 @@ import (
 )
 
 const Timeout = 30 * time.Second
+const DefaultLanguage = "zh-CN"
+const MinLoadTimeoutSeconds = 5
+const MaxLoadTimeoutSeconds = 300
 const QueueLimit = 64
 const MaxImageSize = 5 * 1024 * 1024
 
 var ErrBusy = errors.New("截图队列已满，请稍后重试")
 var ErrMissing = errors.New("请先保存截图设置")
+var languagePattern = regexp.MustCompile(`^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$`)
+
+func normalizeSettings(language string, seconds int) (string, int, error) {
+	language = strings.TrimSpace(language)
+	if language == "" {
+		language = DefaultLanguage
+	}
+	if len(language) > 64 || !languagePattern.MatchString(language) {
+		return "", 0, errors.New("浏览器语言格式无效，请使用 zh-CN、en-US 等语言标签")
+	}
+	if seconds == 0 {
+		seconds = int(Timeout / time.Second)
+	}
+	if seconds < MinLoadTimeoutSeconds || seconds > MaxLoadTimeoutSeconds {
+		return "", 0, errors.New("最长加载时间必须为 5–300 秒")
+	}
+	return language, seconds, nil
+}
 
 type Input struct {
-	URL         string  `json:"url"`
-	AuthEnabled bool    `json:"auth_enabled"`
-	Username    string  `json:"username"`
-	Password    *string `json:"password,omitempty"`
+	URL                string  `json:"url"`
+	Language           string  `json:"language"`
+	LoadTimeoutSeconds int     `json:"load_timeout_seconds"`
+	AuthEnabled        bool    `json:"auth_enabled"`
+	Username           string  `json:"username"`
+	Password           *string `json:"password,omitempty"`
 }
 type Target struct {
 	URL, Username, Password string
 	AuthEnabled             bool
+	Language                string
+	LoadTimeoutSeconds      int
 }
 type View struct {
-	Name          string     `json:"name"`
-	URL           string     `json:"url"`
-	AuthEnabled   bool       `json:"auth_enabled"`
-	Username      string     `json:"username"`
-	PasswordSaved bool       `json:"password_saved"`
-	Status        string     `json:"status"`
-	Error         string     `json:"error,omitempty"`
-	CapturedAt    *time.Time `json:"captured_at"`
-	CapturedURL   string     `json:"captured_url,omitempty"`
-	ImageVersion  string     `json:"image_version,omitempty"`
+	Name               string     `json:"name"`
+	URL                string     `json:"url"`
+	Language           string     `json:"language"`
+	LoadTimeoutSeconds int        `json:"load_timeout_seconds"`
+	AuthEnabled        bool       `json:"auth_enabled"`
+	Username           string     `json:"username"`
+	PasswordSaved      bool       `json:"password_saved"`
+	Status             string     `json:"status"`
+	Error              string     `json:"error,omitempty"`
+	CapturedAt         *time.Time `json:"captured_at"`
+	CapturedURL        string     `json:"captured_url,omitempty"`
+	ImageVersion       string     `json:"image_version,omitempty"`
 }
 type record struct {
 	View
@@ -175,6 +203,10 @@ func (m *Manager) Save(name string, input Input) (View, error) {
 	if e := validateURL(input.URL); e != nil {
 		return View{}, e
 	}
+	language, seconds, err := normalizeSettings(input.Language, input.LoadTimeoutSeconds)
+	if err != nil {
+		return View{}, err
+	}
 	if len(input.Username) > 256 || strings.ContainsAny(input.Username, ":\r\n\x00") || (input.Password != nil && len(*input.Password) > 1024) {
 		return View{}, errors.New("认证信息无效或过长")
 	}
@@ -186,6 +218,7 @@ func (m *Manager) Save(name string, input Input) (View, error) {
 	old := m.items[name]
 	r := old
 	r.Name, r.URL, r.AuthEnabled, r.Username = name, input.URL, input.AuthEnabled, input.Username
+	r.Language, r.LoadTimeoutSeconds = language, seconds
 	r.PasswordCipher = ""
 	r.PasswordSaved = false
 	if input.AuthEnabled {
@@ -300,12 +333,12 @@ func (m *Manager) work() {
 			m.mu.Unlock()
 			continue
 		}
-		target := Target{URL: r.URL, Username: r.Username, AuthEnabled: r.AuthEnabled}
+		target := Target{URL: r.URL, Username: r.Username, AuthEnabled: r.AuthEnabled, Language: r.Language, LoadTimeoutSeconds: r.LoadTimeoutSeconds}
 		var err error
 		if r.AuthEnabled {
 			target.Password, err = m.store.decrypt(j.name, r.PasswordCipher)
 		}
-		ctx, cancel := context.WithTimeout(m.ctx, Timeout)
+		ctx, cancel := context.WithTimeout(m.ctx, time.Duration(r.LoadTimeoutSeconds)*time.Second)
 		m.runningName, m.runningCancel = j.name, cancel
 		m.mu.Unlock()
 		var image []byte

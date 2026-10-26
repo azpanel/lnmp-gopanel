@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -109,6 +109,40 @@ function CertificateStatus({ certificate }: { certificate: SiteCertificate }) {
       {certificate.status === "valid" || certificate.status === "expiring"
         ? ` · 剩余 ${certificate.days_remaining} 天`
         : ""}
+    </Badge>
+  );
+}
+function CertificateIssuer({ issuer }: { issuer: string }) {
+  const providers = [
+    { match: /zerossl/i, label: "ZeroSSL", hue: 38 },
+    { match: /let'?s encrypt/i, label: "Let's Encrypt", hue: 210 },
+    { match: /google trust/i, label: "Google Trust Services", hue: 145 },
+    { match: /digicert/i, label: "DigiCert", hue: 270 },
+    { match: /sectigo/i, label: "Sectigo", hue: 340 },
+    { match: /globalsign/i, label: "GlobalSign", hue: 185 },
+    { match: /cloudflare/i, label: "Cloudflare", hue: 20 },
+  ];
+  const provider = providers.find(({ match }) => match.test(issuer));
+  const label =
+    provider?.label ||
+    issuer.match(/(?:^|,)\s*O=([^,]+)/)?.[1] ||
+    issuer.match(/(?:^|,)\s*CN=([^,]+)/)?.[1] ||
+    issuer ||
+    "未知签发者";
+  const hue =
+    provider?.hue ??
+    Array.from(label.toLowerCase()).reduce(
+      (hash, character) => (hash * 31 + character.charCodeAt(0)) % 360,
+      0,
+    );
+  return (
+    <Badge
+      variant="outline"
+      className="status-badge certificate-issuer"
+      style={{ "--issuer-hue": hue } as CSSProperties}
+      title={issuer || "未知签发者"}
+    >
+      {label}
     </Badge>
   );
 }
@@ -252,6 +286,46 @@ function SiteDirectory({
         按实际磁盘块统计；public 入口统计其上一级目录。
       </div>
     </div>
+  );
+}
+function TableDirectory({
+  site,
+  usage: inventory,
+  loading,
+}: {
+  site: Vhost;
+  usage?: VhostSnapshot["usage"];
+  loading: boolean;
+}) {
+  return site.roots.length ? (
+    <div className="vhost-table-roots">
+      {site.roots.map((root) => {
+        const path = root.path || root.configured;
+        const usage = inventory?.[root.path];
+        const error = root.error || usage?.error;
+        const size = error
+          ? "读取失败"
+          : usage?.bytes != null
+            ? bytes(usage.bytes)
+            : loading
+              ? "计算中…"
+              : "—";
+        return (
+          <div
+            className="vhost-table-root"
+            key={root.configured}
+            title={error ? `${path}：${error}` : `${path}（${size}）`}
+          >
+            <code>{path}</code>
+            <span className={error ? "site-detail-error" : undefined}>
+              （{size}）
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  ) : (
+    <span className="small-note">—</span>
   );
 }
 export function Vhosts() {
@@ -470,9 +544,9 @@ export function Vhosts() {
             <Table className="vhost-table" aria-label="虚拟主机列表">
               <TableHeader>
                 <TableRow>
-                  <TableHead>站点 / 配置</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead>监听</TableHead>
+                  <TableHead>站点图片</TableHead>
+                  <TableHead>域名 / 配置</TableHead>
+                  <TableHead>状态 / 监听</TableHead>
                   <TableHead>站点目录 / 占用</TableHead>
                   <TableHead>SSL 证书</TableHead>
                   <TableHead>操作</TableHead>
@@ -481,8 +555,8 @@ export function Vhosts() {
               <TableBody>
                 {sites.map((site) => (
                   <TableRow key={site.name}>
+                    <TableCell>{screenshots.preview(site, true)}</TableCell>
                     <TableCell>
-                      {screenshots.preview(site)}
                       <strong className="vhost-table-name">
                         {site.domains[0] || site.name}
                       </strong>
@@ -505,13 +579,13 @@ export function Vhosts() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <SiteStatus enabled={site.enabled} />
+                      <div className="vhost-table-status">
+                        <SiteStatus enabled={site.enabled} />
+                        <ListenEndpoints listens={site.listens} />
+                      </div>
                     </TableCell>
                     <TableCell>
-                      <ListenEndpoints listens={site.listens} />
-                    </TableCell>
-                    <TableCell>
-                      <SiteDirectory
+                      <TableDirectory
                         site={site}
                         usage={data?.usage}
                         loading={loading || scanning}
@@ -521,19 +595,16 @@ export function Vhosts() {
                       <div className="vhost-table-certificates">
                         {site.certificates.length ? (
                           site.certificates.map((certificate) => (
-                            <details key={certificate.path}>
-                              <summary>
-                                <CertificateStatus certificate={certificate} />
-                                <span>证书详情</span>
-                              </summary>
-                              <Certificate
-                                certificate={certificate}
-                                showStatus={false}
-                              />
-                            </details>
+                            <div
+                              className="vhost-table-certificate"
+                              key={certificate.path}
+                            >
+                              <CertificateStatus certificate={certificate} />
+                              <CertificateIssuer issuer={certificate.issuer} />
+                            </div>
                           ))
                         ) : (
-                          <span className="small-note">未配置 SSL 证书</span>
+                          <span className="small-note">—</span>
                         )}
                       </div>
                     </TableCell>

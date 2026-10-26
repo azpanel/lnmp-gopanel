@@ -9,11 +9,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/chromedp/cdproto/browser"
 	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/fetch"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
@@ -55,7 +57,7 @@ func (c *Chromium) Available() error {
 }
 func browserError(ctx context.Context, err error) error {
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return errors.New("截图超时，请检查网站是否可访问")
+		return errors.New("截图超时，请检查网站是否可访问，或增加最长加载时间")
 	}
 	if ctx.Err() != nil {
 		return errors.New("截图已取消")
@@ -83,7 +85,11 @@ func (c *Chromium) Capture(parent context.Context, target Target) ([]byte, error
 	if err := validateURL(target.URL); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(parent, Timeout)
+	language, seconds, err := normalizeSettings(target.Language, target.LoadTimeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(parent, time.Duration(seconds)*time.Second)
 	defer cancel()
 	profile, err := os.MkdirTemp(c.StateDir, ".browser-*")
 	if err != nil {
@@ -93,6 +99,7 @@ func (c *Chromium) Capture(parent context.Context, target Target) ([]byte, error
 	opts := append([]chromedp.ExecAllocatorOption{}, chromedp.DefaultExecAllocatorOptions[:]...)
 	opts = append(opts, chromedp.ExecPath(BrowserPath(c.Browser)), chromedp.UserDataDir(profile),
 		chromedp.NoInheritEnv, chromedp.Env("PATH=/usr/bin:/bin", "HOME="+profile, "LANG=C.UTF-8", "XDG_CACHE_HOME="+profile),
+		chromedp.Flag("lang", language),
 		chromedp.Flag("disable-popup-blocking", false), chromedp.Flag("no-sandbox", c.testNoSandbox))
 	allocator, closeAllocator := chromedp.NewExecAllocator(ctx, opts...)
 	defer closeAllocator()
@@ -102,6 +109,17 @@ func (c *Chromium) Capture(parent context.Context, target Target) ([]byte, error
 		return nil, browserError(ctx, err)
 	}
 	session := chromedp.FromContext(ctx).Target
+	version, err := cdp.Call(ctx, chromedp.FromContext(ctx).Browser, browser.GetVersion, cdp.Empty{})
+	if err != nil {
+		return nil, browserError(ctx, err)
+	}
+	if _, err := cdp.Call(ctx, session, emulation.SetUserAgentOverride, emulation.SetUserAgentOverrideParams{UserAgent: version.UserAgent, AcceptLanguage: language}); err != nil {
+		return nil, browserError(ctx, err)
+	}
+	if _, err := cdp.Call(ctx, session, emulation.SetLocaleOverride, emulation.SetLocaleOverrideParams{Locale: strings.ReplaceAll(language, "-", "_")}); err != nil {
+		return nil, browserError(ctx, err)
+	}
+	resources := watchResources(ctx)
 	tree, err := cdp.Call(ctx, session, page.GetFrameTree, cdp.Empty{})
 	if err != nil {
 		return nil, browserError(ctx, err)
@@ -164,7 +182,17 @@ func (c *Chromium) Capture(parent context.Context, target Target) ([]byte, error
 	if response.Status >= 400 {
 		return nil, fmt.Errorf("网站返回 HTTP %d，未更新截图", response.Status)
 	}
-	if err := chromedp.Do(ctx, chromedp.WaitReady(chromedp.CSS("body")), chromedp.Sleep(2*time.Second)); err != nil {
+	if err := chromedp.Do(ctx, chromedp.WaitReady(chromedp.CSS("body"))); err != nil {
+		return nil, browserError(ctx, err)
+	}
+	if err := resources.wait(ctx); err != nil {
+		return nil, browserError(ctx, err)
+	}
+	if _, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`(async () => {
+		await document.fonts.ready;
+		await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+		return true;
+	})()`, chromedp.EvalAwaitPromise)); err != nil {
 		return nil, browserError(ctx, err)
 	}
 	image, err := cdp.Call(ctx, session, page.CaptureScreenshot, page.CaptureScreenshotParams{Format: page.CaptureScreenshotFormatJpeg, Quality: ptr(int64(80)), CaptureBeyondViewport: ptr(false)})
@@ -173,4 +201,84 @@ func (c *Chromium) Capture(parent context.Context, target Target) ([]byte, error
 	}
 	return image.Data, nil
 }
+
+// Track completion separately because the typed CDP subscriptions may be read
+// in a different order. Redirects reuse a request ID and complete only once.
+type resourceWaiter struct {
+	mu           sync.Mutex
+	pending      map[network.RequestID]bool
+	finished     map[network.RequestID]bool
+	lastActivity time.Time
+}
+
+func watchResources(ctx context.Context) *resourceWaiter {
+	w := &resourceWaiter{pending: map[network.RequestID]bool{}, finished: map[network.RequestID]bool{}, lastActivity: time.Now()}
+	requests := chromedp.Events(ctx, network.RequestWillBeSent)
+	finished := chromedp.Events(ctx, network.LoadingFinished)
+	failed := chromedp.Events(ctx, network.LoadingFailed)
+	go func() {
+		for event, err := range requests {
+			if err != nil {
+				return
+			}
+			// Persistent connections do not indicate unfinished page rendering.
+			if event.Type == network.ResourceTypeWebSocket || event.Type == network.ResourceTypeEventSource {
+				continue
+			}
+			w.update(event.RequestID, false)
+		}
+	}()
+	go func() {
+		for event, err := range finished {
+			if err != nil {
+				return
+			}
+			w.update(event.RequestID, true)
+		}
+	}()
+	go func() {
+		for event, err := range failed {
+			if err != nil {
+				return
+			}
+			w.update(event.RequestID, true)
+		}
+	}()
+	return w
+}
+
+func (w *resourceWaiter) update(id network.RequestID, finished bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.lastActivity = time.Now()
+	if finished {
+		w.finished[id] = true
+		delete(w.pending, id)
+	} else if !w.finished[id] {
+		w.pending[id] = true
+	}
+}
+
+func (w *resourceWaiter) wait(ctx context.Context) error {
+	// Give scripts at least two seconds after load to request delayed resources.
+	w.mu.Lock()
+	w.lastActivity = time.Now()
+	w.mu.Unlock()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			w.mu.Lock()
+			ready := len(w.pending) == 0 && time.Since(w.lastActivity) >= 2*time.Second
+			w.mu.Unlock()
+			if ready {
+				return nil
+			}
+		}
+	}
+}
+
 func ptr[T any](v T) *T { return &v }

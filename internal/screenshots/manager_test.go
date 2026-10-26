@@ -88,13 +88,13 @@ func TestPersistentEncryptedCredentialsAndImage(t *testing.T) {
 		return testImage(), nil
 	}}
 	m := newTestManager(t, dir, f)
-	if _, err := m.Save("example.conf", Input{URL: "http://localhost:8080/", AuthEnabled: true, Username: "admin", Password: &password}); err != nil {
+	if _, err := m.Save("example.conf", Input{URL: "http://localhost:8080/", Language: "en-US", LoadTimeoutSeconds: 120, AuthEnabled: true, Username: "admin", Password: &password}); err != nil {
 		t.Fatal(err)
 	}
 	v := waitStatus(t, m, "example.conf", "ready")
 	mu.Lock()
-	if received.Password != password {
-		t.Error("missing credentials")
+	if received.Password != password || received.Language != "en-US" || received.LoadTimeoutSeconds != 120 {
+		t.Error("missing credentials or capture settings")
 	}
 	mu.Unlock()
 	jsonView, _ := json.Marshal(m.Latest())
@@ -115,8 +115,8 @@ func TestPersistentEncryptedCredentialsAndImage(t *testing.T) {
 		}
 	}
 	m2 := newTestManager(t, dir, f)
-	if m2.Latest().Items["example.conf"].ImageVersion != v.ImageVersion {
-		t.Fatal("image lost after restart")
+	if restored := m2.Latest().Items["example.conf"]; restored.ImageVersion != v.ImageVersion || restored.Language != "en-US" || restored.LoadTimeoutSeconds != 120 {
+		t.Fatal("image or capture settings lost after restart")
 	}
 	if data, err := m2.Image("example.conf"); err != nil || len(data) == 0 {
 		t.Fatal("missing restored image", err)
@@ -280,11 +280,58 @@ func TestInterruptedTaskAndPrivateFiles(t *testing.T) {
 	if err != nil || items["example.conf"].Status != "failed" {
 		t.Fatal("interrupted task not recovered", err)
 	}
+	if item := items["example.conf"]; item.Language != DefaultLanguage || item.LoadTimeoutSeconds != 30 {
+		t.Fatal("legacy settings did not receive defaults", item)
+	}
 	if err := os.Chmod(filepath.Join(dir, "screenshot-settings.json"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := openStore(dir); err == nil {
 		t.Fatal("accepted public settings")
+	}
+}
+
+func TestCaptureSettingsValidationAndDeadline(t *testing.T) {
+	deadlines := make(chan time.Duration, 1)
+	f := &fakeRenderer{capture: func(ctx context.Context, target Target) ([]byte, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			return nil, errors.New("missing deadline")
+		}
+		deadlines <- time.Until(deadline)
+		return testImage(), nil
+	}}
+	m := newTestManager(t, t.TempDir(), f)
+	for _, input := range []Input{
+		{Language: "en-US\r\nHeader: injected"},
+		{Language: "en_US"},
+		{Language: strings.Repeat("a", 65)},
+		{LoadTimeoutSeconds: -1},
+		{LoadTimeoutSeconds: 4},
+		{LoadTimeoutSeconds: 301},
+	} {
+		input.URL = "http://localhost/"
+		if _, err := m.Save("example.conf", input); err == nil {
+			t.Fatalf("accepted invalid settings: %+v", input)
+		}
+	}
+	if len(m.Latest().Items) != 0 {
+		t.Fatal("invalid settings were persisted")
+	}
+	if _, err := m.Save("example.conf", Input{URL: "http://localhost/", Language: " en-US ", LoadTimeoutSeconds: 120}); err != nil {
+		t.Fatal(err)
+	}
+	v := waitStatus(t, m, "example.conf", "ready")
+	if remaining := <-deadlines; remaining < 119*time.Second || remaining > 120*time.Second {
+		t.Fatal("custom timeout was capped or ignored", remaining)
+	}
+	if v.Language != "en-US" || v.LoadTimeoutSeconds != 120 {
+		t.Fatal("settings were not normalized", v)
+	}
+	for _, seconds := range []int{0, 5, 300} {
+		if _, _, err := normalizeSettings("zh-Hant-TW", seconds); err != nil {
+			t.Fatal("valid setting rejected", err)
+		}
 	}
 }
 

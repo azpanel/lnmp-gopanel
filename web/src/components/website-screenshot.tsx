@@ -33,6 +33,7 @@ function Preview({
   onEnlarge,
   onRefresh,
   pending,
+  compact = false,
 }: {
   site: Vhost;
   item?: WebsiteScreenshot;
@@ -40,6 +41,7 @@ function Preview({
   onEnlarge: () => void;
   onRefresh: () => void;
   pending: boolean;
+  compact?: boolean;
 }) {
   const [failedImage, setFailedImage] = useState("");
   const busy = item?.status === "queued" || item?.status === "running";
@@ -47,10 +49,13 @@ function Preview({
     item?.image_version && failedImage !== item.image_version,
   );
   return (
-    <div className="website-preview">
+    <div
+      className={`website-preview${compact ? " website-preview-compact" : ""}`}
+    >
       <button
         type="button"
         className="website-preview-image"
+        title={item?.captured_at ? timestamp(item.captured_at) : undefined}
         onClick={hasImage ? onEnlarge : onSettings}
         aria-label={
           hasImage
@@ -74,15 +79,17 @@ function Preview({
             ) : (
               <ImageIcon size={23} />
             )}
-            <span>
-              {busy
-                ? item?.status === "queued"
-                  ? "等待截图…"
-                  : "正在截图…"
-                : item
-                  ? "暂无可用截图"
-                  : "配置网站截图"}
-            </span>
+            {!compact && (
+              <span>
+                {busy
+                  ? item?.status === "queued"
+                    ? "等待截图…"
+                    : "正在截图…"
+                  : item
+                    ? "暂无可用截图"
+                    : "配置网站截图"}
+              </span>
+            )}
           </span>
         )}
         {hasImage && busy && (
@@ -93,26 +100,32 @@ function Preview({
         )}
       </button>
       <div className="website-preview-footer">
-        <span>
-          {item?.captured_at
-            ? timestamp(item.captured_at)
-            : "桌面首屏 · 1440 × 900"}
-        </span>
+        {!compact && (
+          <span>
+            {item?.captured_at
+              ? timestamp(item.captured_at)
+              : "桌面首屏 · 1440 × 900"}
+          </span>
+        )}
         {item && (
           <Button
             variant="ghost"
             size="xs"
             aria-label={`重新截图 ${site.domains[0] || site.name}`}
+            title="重新截图"
             disabled={busy || pending}
             onClick={onRefresh}
           >
             <RefreshCw size={12} />
-            重新截图
+            {!compact && "重新截图"}
           </Button>
         )}
       </div>
       {item?.error && (
-        <p className="site-detail-error website-preview-error">
+        <p
+          className="site-detail-error website-preview-error"
+          title={item.error}
+        >
           {item.error}
           {item.image_version && "（保留上次成功截图）"}
         </p>
@@ -126,6 +139,8 @@ export function useWebsiteScreenshots(enabled: boolean) {
   const [site, setSite] = useState<Vhost | null>(null);
   const [enlarged, setEnlarged] = useState<WebsiteScreenshot | null>(null);
   const [url, setURL] = useState("");
+  const [language, setLanguage] = useState("zh-CN");
+  const [loadTimeoutSeconds, setLoadTimeoutSeconds] = useState("30");
   const [authEnabled, setAuthEnabled] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -154,6 +169,8 @@ export function useWebsiteScreenshots(enabled: boolean) {
           method: "PUT",
           body: JSON.stringify({
             url,
+            language,
+            load_timeout_seconds: Number(loadTimeoutSeconds),
             auth_enabled: authEnabled,
             username,
             ...(password ? { password } : {}),
@@ -200,6 +217,8 @@ export function useWebsiteScreenshots(enabled: boolean) {
     }
     const item = query.data?.items[target.name];
     setURL(item?.url || "");
+    setLanguage(item?.language || "zh-CN");
+    setLoadTimeoutSeconds(String(item?.load_timeout_seconds || 30));
     setAuthEnabled(item?.auth_enabled || false);
     setUsername(item?.username || "");
     setPassword("");
@@ -222,10 +241,11 @@ export function useWebsiteScreenshots(enabled: boolean) {
         截图设置
       </Button>
     ),
-    preview: (target: Vhost) => (
+    preview: (target: Vhost, compact = false) => (
       <Preview
         key={target.name}
         site={target}
+        compact={compact}
         item={query.data?.items[target.name]}
         pending={refresh.isPending && refresh.variables === target.name}
         onSettings={() => openSettings(target)}
@@ -259,7 +279,7 @@ export function useWebsiteScreenshots(enabled: boolean) {
                 截图设置 · {site?.domains[0] || site?.name}
               </DialogTitle>
               <DialogDescription>
-                保存后截取网站桌面首屏，地址与认证信息仅保存在本机。
+                保存后截取网站桌面首屏，设置与认证信息仅保存在本机。
               </DialogDescription>
             </DialogHeader>
             <form
@@ -280,6 +300,41 @@ export function useWebsiteScreenshots(enabled: boolean) {
                     value={url}
                     onChange={(e) => setURL(e.target.value)}
                   />
+                </div>
+                <div className="form-field">
+                  <Label htmlFor="screenshot-language">浏览器语言</Label>
+                  <Input
+                    id="screenshot-language"
+                    required
+                    maxLength={64}
+                    pattern="[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*"
+                    placeholder="zh-CN"
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                    aria-describedby="screenshot-language-help"
+                  />
+                  <p id="screenshot-language-help" className="small-note">
+                    例如
+                    zh-CN（简体中文）、en-US（英语），用于网站语言及日期、数字格式。
+                  </p>
+                </div>
+                <div className="form-field">
+                  <Label htmlFor="screenshot-timeout">最长加载时间（秒）</Label>
+                  <Input
+                    id="screenshot-timeout"
+                    type="number"
+                    required
+                    min={5}
+                    max={300}
+                    step={1}
+                    value={loadTimeoutSeconds}
+                    onChange={(e) => setLoadTimeoutSeconds(e.target.value)}
+                    aria-describedby="screenshot-timeout-help"
+                  />
+                  <p id="screenshot-timeout-help" className="small-note">
+                    默认 30 秒，可设为 5–300 秒。等待
+                    CSS、图片和字体等资源加载稳定后截图；加载较慢时可适当增加，超时保留上次成功截图。
+                  </p>
                 </div>
                 <div className="screenshot-auth-toggle">
                   <Switch

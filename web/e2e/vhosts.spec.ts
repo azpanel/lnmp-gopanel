@@ -24,7 +24,7 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
     certificates: [
       {
         path: "/etc/nginx/ssl/example/fullchain.pem",
-        issuer: "CN=Test Issuer,O=Certificate Authority",
+        issuer: "CN=ZeroSSL RSA Domain Secure Site CA,O=ZeroSSL,C=AT",
         subject: "CN=example.com",
         dns_names: ["example.com", "www.example.com"],
         not_before: now,
@@ -89,6 +89,8 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
     const input = route.request().postDataJSON();
     expect(input).toEqual({
       url: "http://127.0.0.1:8080/private",
+      language: "en-US",
+      load_timeout_seconds: 120,
       auth_enabled: true,
       username: "preview-user",
       password: "test-screenshot-password",
@@ -98,6 +100,8 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
     screenshot = {
       name: site.name,
       url: input.url,
+      language: input.language,
+      load_timeout_seconds: input.load_timeout_seconds,
       auth_enabled: true,
       username: input.username,
       password_saved: true,
@@ -170,7 +174,9 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
     page.getByRole("heading", { name: "虚拟主机", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("CN=Test Issuer,O=Certificate Authority", { exact: true }),
+    page.getByText("CN=ZeroSSL RSA Domain Secure Site CA,O=ZeroSSL,C=AT", {
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(page.getByText("2.0 GiB", { exact: true })).toBeVisible();
   await expect(
@@ -184,6 +190,14 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   );
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "截图设置", exact: true }).click();
+  await expect(page.getByLabel("浏览器语言", { exact: true })).toHaveValue(
+    "zh-CN",
+  );
+  await expect(
+    page.getByLabel("最长加载时间（秒）", { exact: true }),
+  ).toHaveValue("30");
+  await page.getByLabel("浏览器语言", { exact: true }).fill("en-US");
+  await page.getByLabel("最长加载时间（秒）", { exact: true }).fill("120");
   await page
     .getByLabel("截图地址", { exact: true })
     .fill("http://127.0.0.1:8080/private");
@@ -212,6 +226,12 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   await expect(page.getByLabel("Basic Auth 密码", { exact: true })).toHaveValue(
     "",
   );
+  await expect(page.getByLabel("浏览器语言", { exact: true })).toHaveValue(
+    "en-US",
+  );
+  await expect(
+    page.getByLabel("最长加载时间（秒）", { exact: true }),
+  ).toHaveValue("120");
   await expect(
     page.getByLabel("Basic Auth 密码", { exact: true }),
   ).toHaveAttribute("placeholder", "密码已保存，留空保留");
@@ -241,9 +261,9 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   const table = page.getByRole("table", { name: "虚拟主机列表" });
   await expect(table).toBeVisible();
   await expect(table.getByRole("columnheader")).toHaveText([
-    "站点 / 配置",
-    "状态",
-    "监听",
+    "站点图片",
+    "域名 / 配置",
+    "状态 / 监听",
     "站点目录 / 占用",
     "SSL 证书",
     "操作",
@@ -265,31 +285,47 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   });
   await expect(certificateStatus).toHaveCount(1);
   await expect(certificateStatus).toBeVisible();
-  const siteCell = table.locator("tbody tr").first().getByRole("cell").first();
+  const row = table.locator("tbody tr").first();
+  const cells = row.getByRole("cell");
+  const imageCell = cells.nth(0);
+  const siteCell = cells.nth(1);
   await expect(siteCell).toContainText("example.conf");
   await expect(siteCell).toContainText("www.example.com");
   await expect(
-    siteCell.getByAltText("example.com 的网站截图", { exact: true }),
+    imageCell.getByAltText("example.com 的网站截图", { exact: true }),
   ).toBeVisible();
-  const previewBounds = await siteCell
+  await expect(imageCell).not.toContainText("example.conf");
+  await expect(cells.nth(2)).toContainText("已启用");
+  await expect(
+    cells.nth(2).getByRole("list", { name: "监听端口" }),
+  ).toBeVisible();
+  await expect(cells.nth(3)).toHaveText("/home/wwwroot/example（2.0 GiB）");
+  await expect(table).not.toContainText("统计上一级项目目录");
+  await expect(table).not.toContainText("按实际磁盘块统计");
+  const previewBounds = await imageCell
     .locator(".website-preview")
     .boundingBox();
   const nameBounds = await siteCell.locator(".vhost-table-name").boundingBox();
   expect(previewBounds).not.toBeNull();
   expect(nameBounds).not.toBeNull();
-  expect(previewBounds!.y + previewBounds!.height).toBeLessThan(nameBounds!.y);
+  expect(previewBounds!.x + previewBounds!.width).toBeLessThan(nameBounds!.x);
+  expect((await row.boundingBox())!.height).toBeLessThanOrEqual(110);
+  await expect(cells.nth(4).locator('[data-slot="badge"]')).toHaveText([
+    "有效 · 剩余 60 天",
+    "ZeroSSL",
+  ]);
+  await expect(cells.nth(4).locator("details")).toHaveCount(0);
+  await expect(cells.nth(4)).not.toContainText("生效时间");
+  await expect(cells.nth(4)).not.toContainText("证书详情");
   await table.getByRole("button", { name: "查看配置", exact: true }).click();
   await expect(page.locator(".vhost-config-source")).toContainText(
     "# original configuration",
   );
   await page.keyboard.press("Escape");
-  await table.locator(".vhost-table-certificates > details > summary").click();
-  await expect(certificateStatus).toHaveCount(1);
-  await expect(certificateStatus).toBeVisible();
-  await expect(
-    table.getByText("CN=Test Issuer,O=Certificate Authority", { exact: true }),
-  ).toBeVisible();
-  const certificateDetails = table.locator(".site-certificate");
+  await page.getByRole("textbox", { name: "筛选虚拟主机" }).fill("example");
+  await page.getByRole("button", { name: "卡片视图", exact: true }).click();
+  await expect(page.locator(".vhost-card")).toHaveCount(1);
+  const certificateDetails = page.locator(".vhost-card .site-certificate");
   await expect(
     certificateDetails.getByText("生效时间", { exact: true }),
   ).toBeVisible();
@@ -305,9 +341,6 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   await expect(
     certificateDetails.getByText("42", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("textbox", { name: "筛选虚拟主机" }).fill("example");
-  await page.getByRole("button", { name: "卡片视图", exact: true }).click();
-  await expect(page.locator(".vhost-card")).toHaveCount(1);
   await expect(
     page.locator(".vhost-card").getByText("有效 · 剩余 60 天", { exact: true }),
   ).toBeVisible();

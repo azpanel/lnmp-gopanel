@@ -98,9 +98,11 @@ func openStore(dir string) (*store, map[string]record, error) {
 		}
 	}
 	for name, item := range items {
-		if !validName(name) || item.Name != name || validateURL(item.URL) != nil || !validVersion(item.ImageVersion) {
+		language, seconds, settingsErr := normalizeSettings(item.Language, item.LoadTimeoutSeconds)
+		if !validName(name) || item.Name != name || validateURL(item.URL) != nil || !validVersion(item.ImageVersion) || settingsErr != nil {
 			return nil, nil, errors.New("截图设置文件包含无效记录")
 		}
+		item.Language, item.LoadTimeoutSeconds = language, seconds
 		if item.AuthEnabled {
 			if _, err := s.decrypt(name, item.PasswordCipher); err != nil {
 				return nil, nil, errors.New("无法解密截图凭据，请恢复匹配的设置和密钥")
@@ -108,8 +110,8 @@ func openStore(dir string) (*store, map[string]record, error) {
 		}
 		if item.Status == "queued" || item.Status == "running" {
 			item.Status, item.Error = "failed", "面板重启，中断了上次截图，请重新截图"
-			items[name] = item
 		}
+		items[name] = item
 	}
 	return s, items, nil
 }

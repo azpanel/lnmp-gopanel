@@ -305,7 +305,15 @@ export function Services({
                   <div className="service-meta">
                     <span>
                       已安装版本
-                      <strong className="font-mono">
+                      <strong
+                        className={
+                          !item?.version &&
+                          !failed &&
+                          item?.status === "missing"
+                            ? "font-mono component-missing"
+                            : "font-mono"
+                        }
+                      >
                         {item?.version ||
                           (failed
                             ? "读取失败"
