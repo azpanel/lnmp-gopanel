@@ -17,6 +17,12 @@ func TestComponentVersionParsing(t *testing.T) {
 		{"go", "go version go1.28 linux/amd64", "1.28"},
 		{"node", "v22.23.4", "22.23.4"},
 		{"codex", "codex-cli 0.164.0", "0.164.0"},
+		{"composer", "Composer version 2.10.3 2026-08-27 12:00:00\nPHP version 8.3.0 (/usr/local/php/bin/php)", "2.10.3"},
+		{"composer", "Do not run Composer as root/super user!\nComposer version 1.10.27 2023-09-29 10:50:23", "1.10.27"},
+		{"composer", "Composer 2.10.3 2026-08-27 12:00:00", "2.10.3"},
+		{"composer", "Composer version 2.11.0-RC1 2026-10-22", "2.11.0-RC1"},
+		{"composer", "PHP 8.3.0", ""},
+		{"composer", "Composer version unknown", ""},
 		{"node", "npm 11.0.0", ""},
 		{"codex", "codex 0.164.0", ""},
 		{"sshd", "OpenSSH 9.0.0", ""},
@@ -160,5 +166,61 @@ func TestComponentCommandNVMInterpreter(t *testing.T) {
 	output, err := componentCommand(context.Background(), filepath.Join(dir, "codex"), "--version")
 	if err != nil || output != "codex-cli 0.164.0" {
 		t.Fatal(output, err)
+	}
+}
+
+func TestComposerProbeInterpreterAndFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name, program, php, unsafe, wantStatus, wantError string
+	}{
+		{"ready", "/usr/local/bin/composer", "/usr/local/php/bin/php", "", "ready", ""},
+		{"missing", "", "", "", "missing", ""},
+		{"missing PHP", "/usr/local/bin/composer", "", "", "failed", "未找到 PHP CLI 解释器"},
+		{"unsafe Composer", "/usr/local/bin/composer", "/usr/bin/php", "/usr/local/bin/composer", "failed", "组件可执行文件权限不安全"},
+		{"unsafe PHP", "/usr/local/bin/composer", "/usr/bin/php", "/usr/bin/php", "failed", "PHP 解释器权限不安全"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			item := probeComponentWithInterpreter(context.Background(), "composer", tc.program, tc.php, func(ctx context.Context, program string, args ...string) (string, error) {
+				calls++
+				want := []string{tc.program, "--no-plugins", "--no-scripts", "--no-interaction", "--no-ansi", "--version"}
+				if program != tc.php || !reflect.DeepEqual(args, want) {
+					t.Fatal(program, args)
+				}
+				if _, ok := ctx.Deadline(); !ok {
+					t.Fatal("missing timeout")
+				}
+				return "Composer version 2.10.3 2026-08-27", nil
+			}, func(path string) error {
+				if path == tc.unsafe {
+					return errors.New("unsafe")
+				}
+				return nil
+			})
+			if item.Status != tc.wantStatus || item.Error != tc.wantError || item.Path != tc.program || item.CheckedAt == nil {
+				t.Fatal(item)
+			}
+			if tc.wantStatus == "ready" {
+				if calls != 1 || item.Version != "2.10.3" {
+					t.Fatal(item, calls)
+				}
+			} else if calls != 0 {
+				t.Fatal("unexpected execution", calls)
+			}
+		})
+	}
+}
+
+func TestComposerCommandUsesExplicitPHP(t *testing.T) {
+	dir := t.TempDir()
+	php := filepath.Join(dir, "php")
+	// No php on PATH or executable Composer launcher is needed: PHP receives the script path.
+	script := "#!/bin/sh\n[ \"$PWD\" = / ] || exit 1\n[ \"$1\" = /fixed/composer ] || exit 2\n[ \"$6\" = --version ] || exit 3\nprintf 'Composer version 2.10.3 2026-08-27\\n'\n"
+	if err := os.WriteFile(php, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	item := probeComponentWithInterpreter(context.Background(), "composer", "/fixed/composer", php, componentCommand, func(string) error { return nil })
+	if item.Status != "ready" || item.Version != "2.10.3" {
+		t.Fatal(item)
 	}
 }

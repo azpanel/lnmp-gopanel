@@ -113,7 +113,7 @@ if [[ "$1" == components ]]; then
     printf 'components helper execution failed\\n' >&2
     exit 1
   fi
-  printf '{"status":"ready","items":[{"name":"python3","status":"missing"},{"name":"go","status":"missing"},{"name":"node","status":"missing"},{"name":"codex","status":"missing"}]}\\n'
+  printf '{"status":"ready","items":[{"name":"python3","status":"missing"},{"name":"go","status":"missing"},{"name":"node","status":"missing"},{"name":"codex","status":"missing"},{"name":"composer","status":"missing"}]}\\n'
   exit 0
 fi
 if [[ -f /run/fail-helper ]]; then

@@ -9,7 +9,7 @@ import (
 
 const Timeout = 10 * time.Second
 
-func Names() []string { return []string{"python3", "go", "node", "codex"} }
+func Names() []string { return []string{"python3", "go", "node", "codex", "composer"} }
 func ValidName(name string) bool {
 	for _, n := range Names() {
 		if name == n {
@@ -44,7 +44,7 @@ type Manager struct {
 }
 
 func NewManager(ctx context.Context, backend Backend) *Manager {
-	items := make([]Item, 0, 4)
+	items := make([]Item, 0, len(Names()))
 	for _, name := range Names() {
 		items = append(items, Item{Name: name, Status: "loading"})
 	}

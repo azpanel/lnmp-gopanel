@@ -33,6 +33,14 @@ test("programming component versions, changelogs and refresh without services", 
         path: "/root/.nvm/versions/node/v22.23.4/bin/codex",
         checked_at: now,
       },
+      {
+        name: "composer",
+        status: failed ? "failed" : "ready",
+        version: "2.10.2",
+        path: "/usr/local/bin/composer",
+        error: failed ? "组件版本读取失败或超时" : "",
+        checked_at: now,
+      },
     ],
   });
   const releases = Object.fromEntries(
@@ -41,6 +49,7 @@ test("programming component versions, changelogs and refresh without services", 
       ["go", "1.27.3"],
       ["node", "26.12.1"],
       ["codex", "0.164.0"],
+      ["composer", "2.10.3"],
     ].map(([name, version]) => [
       name,
       {
@@ -93,8 +102,8 @@ test("programming component versions, changelogs and refresh without services", 
   await expect(
     page.getByRole("heading", { name: "编程组件", exact: true }),
   ).toBeVisible();
-  await expect(page.locator("[data-component]")).toHaveCount(4);
-  for (const name of ["python3", "go", "node", "codex"]) {
+  await expect(page.locator("[data-component]")).toHaveCount(5);
+  for (const name of ["python3", "go", "node", "codex", "composer"]) {
     const logo = page.locator(`[data-component="${name}"] .component-logo img`);
     await expect(logo).toBeVisible();
     await expect
@@ -118,6 +127,12 @@ test("programming component versions, changelogs and refresh without services", 
   await expect(go).toContainText("未安装");
   await expect(node).toContainText("22.23.4");
   await expect(codex).toContainText("0.164.0");
+  const composer = page.locator('[data-component="composer"]');
+  await expect(composer).toContainText("2.10.2");
+  await expect(composer).toContainText("2.10.3");
+  await expect(composer).toContainText("/usr/local/bin/composer");
+  await composer.getByText("查看 2.10.3 更新日志").click();
+  await expect(composer.locator("pre")).toContainText("Changes for 2.10.3");
   await expect(page.locator(".programming-components button")).toHaveCount(0);
   await python.getByText("查看 3.15.2 更新日志").click();
   await expect(python.locator("pre")).toContainText("Changes for 3.15.2");
@@ -128,6 +143,8 @@ test("programming component versions, changelogs and refresh without services", 
   await page.getByRole("button", { name: "刷新状态", exact: true }).click();
   await expect(node).toContainText("显示上次成功结果");
   await expect(node).toContainText("22.23.4");
+  await expect(composer).toContainText("显示上次成功结果");
+  await expect(composer).toContainText("2.10.2");
   expect(componentRefreshes).toBe(1);
   await page.getByRole("button", { name: "检查最新版本", exact: true }).click();
   await expect(go).toContainText("Changelog 读取失败");
@@ -151,7 +168,7 @@ test("component helper and upstream failures display errors", async ({
   await page.route("**/api/v1/services/releases", (route) =>
     route.fulfill({
       json: Object.fromEntries(
-        ["python3", "go", "node", "codex"].map((name) => [
+        ["python3", "go", "node", "codex", "composer"].map((name) => [
           name,
           { status: "failed", error: "连接官方发布源失败或超时" },
         ]),
@@ -168,7 +185,7 @@ test("component helper and upstream failures display errors", async ({
   ).toBeVisible();
   await page.goto("/services");
   await expect(page.getByRole("alert")).toContainText("组件查询辅助程序不可用");
-  await expect(page.locator("[data-component]")).toHaveCount(4);
+  await expect(page.locator("[data-component]")).toHaveCount(5);
   await expect(page.locator('[data-component="python3"]')).toContainText(
     "读取失败",
   );

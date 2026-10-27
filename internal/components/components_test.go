@@ -44,7 +44,7 @@ func TestAsyncCacheAndFailurePreservation(t *testing.T) {
 	defer cancel()
 	b := &backend{results: make(chan Snapshot, 1), failures: make(chan error, 1)}
 	m := NewManager(ctx, b)
-	if result := m.Latest(false); result.Status != "loading" || len(result.Items) != 4 {
+	if result := m.Latest(false); result.Status != "loading" || len(result.Items) != len(Names()) {
 		t.Fatal(result)
 	}
 	for i := 0; i < 10; i++ {

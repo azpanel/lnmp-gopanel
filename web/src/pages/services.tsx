@@ -439,6 +439,7 @@ const componentDefinitions = [
   { name: "go", title: "Go", subtitle: "Go 工具链" },
   { name: "node", title: "Node.js", subtitle: "JavaScript 运行时" },
   { name: "codex", title: "Codex CLI", subtitle: "OpenAI 编程工具" },
+  { name: "composer", title: "Composer", subtitle: "PHP 依赖管理工具" },
 ];
 
 function ReleaseInfo({

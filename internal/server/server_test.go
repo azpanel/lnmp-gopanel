@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/auth"
+	"github.com/azpanel/lnmp-gopanel/internal/components"
 	"github.com/azpanel/lnmp-gopanel/internal/config"
 	"github.com/azpanel/lnmp-gopanel/internal/control"
 	"github.com/azpanel/lnmp-gopanel/internal/docker"
@@ -289,11 +290,12 @@ func TestReleaseAPIsAuthCSRFAndAsyncResponses(t *testing.T) {
 		}
 	}
 	close(source.done)
+	wantReleases := len(components.Names()) + len(s.Services.List())
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		w := request(h, "GET", "/api/v1/services/releases", "", cookie, "", "")
-		if strings.Count(w.Body.String(), `"status":"ready"`) == 5 {
-			if source.calls.Load() != 5 || !strings.Contains(w.Body.String(), "1.30.2") {
+		if strings.Count(w.Body.String(), `"status":"ready"`) == wantReleases {
+			if int(source.calls.Load()) != wantReleases || !strings.Contains(w.Body.String(), "1.30.2") || !strings.Contains(w.Body.String(), `"composer":`) {
 				t.Fatal(w.Body.String())
 			}
 			return

@@ -166,3 +166,23 @@ func (f *Fetcher) codex(ctx context.Context) (Release, error) {
 	}
 	return r, nil
 }
+
+func (f *Fetcher) composer(ctx context.Context) (Release, error) {
+	var release struct {
+		Tag        string `json:"tag_name"`
+		Body       string `json:"body"`
+		Prerelease bool   `json:"prerelease"`
+		Draft      bool   `json:"draft"`
+	}
+	if err := f.json(ctx, "https://api.github.com/repos/composer/composer/releases/latest", &release); err != nil {
+		return Release{}, err
+	}
+	if release.Draft || release.Prerelease || !stableVersion.MatchString(release.Tag) {
+		return Release{}, fmt.Errorf("未找到 Composer 正式版本")
+	}
+	r := Release{Version: release.Tag, SourceURL: "https://getcomposer.org/download/", ChangelogURL: "https://github.com/composer/composer/releases/tag/" + release.Tag, Changelog: release.Body}
+	if strings.TrimSpace(r.Changelog) == "" {
+		r.ChangelogError = "官方发布未提供更新日志，请查看官方原文"
+	}
+	return r, nil
+}

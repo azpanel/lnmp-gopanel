@@ -15,8 +15,9 @@ func TestComponentOfficialReleases(t *testing.T) {
 		"https://nodejs.org/dist/index.json":                                                     `[{"version":"v24.22.1","lts":"Krypton"},{"version":"v26.12.1","lts":false},{"version":"v27.0.0-rc1"}]`,
 		"https://raw.githubusercontent.com/nodejs/node/v26.12.1/doc/changelogs/CHANGELOG_V26.md": "# preamble\n<a>26.12.1</a>\n## 2026-10-21, Version 26.12.1 (Current)\nlatest fixes\n## Version 26.12.0 (Current)\nold fixes",
 		"https://api.github.com/repos/openai/codex/releases/latest":                              `{"tag_name":"rust-v0.164.0","body":"latest fixes","prerelease":false,"draft":false}`,
+		"https://api.github.com/repos/composer/composer/releases/latest":                         `{"tag_name":"2.10.3","body":"latest fixes","prerelease":false,"draft":false}`,
 	}
-	for name, want := range map[string]string{"python3": "3.15.2", "go": "1.27.3", "node": "26.12.1", "codex": "0.164.0"} {
+	for name, want := range map[string]string{"python3": "3.15.2", "go": "1.27.3", "node": "26.12.1", "codex": "0.164.0", "composer": "2.10.3"} {
 		t.Run(name, func(t *testing.T) {
 			r, err := fixtureFetcher(t, fixtures).Fetch(context.Background(), name)
 			if err != nil || r.Version != want || r.ChangelogError != "" || !strings.Contains(r.Changelog, "latest fixes") || r.ChangelogURL == "" {
@@ -26,6 +27,22 @@ func TestComponentOfficialReleases(t *testing.T) {
 				t.Fatal(r.Changelog)
 			}
 		})
+	}
+}
+
+func TestComposerReleaseFailures(t *testing.T) {
+	const source = "https://api.github.com/repos/composer/composer/releases/latest"
+	for _, body := range []string{`{"tag_name":"2.10.3","draft":true}`, `{"tag_name":"2.11.0-RC1","prerelease":true}`, `{"tag_name":"2.11.0-RC1"}`, `{"tag_name":"unknown"}`, `{}`} {
+		if _, err := fixtureFetcher(t, map[string]string{source: body}).Fetch(context.Background(), "composer"); err == nil {
+			t.Fatal("invalid release accepted", body)
+		}
+	}
+	r, err := fixtureFetcher(t, map[string]string{source: `{"tag_name":"2.10.3","body":" "}`}).Fetch(context.Background(), "composer")
+	if err != nil || r.Version != "2.10.3" || r.ChangelogError == "" || r.ChangelogURL != "https://github.com/composer/composer/releases/tag/2.10.3" {
+		t.Fatal(r, err)
+	}
+	if _, err := fixtureFetcher(t, nil).Fetch(context.Background(), "composer"); err == nil {
+		t.Fatal("upstream failure ignored")
 	}
 }
 func TestComponentReleaseFailures(t *testing.T) {

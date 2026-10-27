@@ -72,8 +72,8 @@ func TestComponentAPIAuthCSRFAndAsyncWithoutServices(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		w := request(h, "GET", "/api/v1/components", "", cookie, "", "")
-		if strings.Count(w.Body.String(), `"status":"ready"`) == 5 {
-			if b.calls.Load() != 1 || !strings.Contains(w.Body.String(), `"name":"codex"`) {
+		if strings.Count(w.Body.String(), `"status":"ready"`) == len(components.Names())+1 {
+			if b.calls.Load() != 1 || !strings.Contains(w.Body.String(), `"name":"composer"`) {
 				t.Fatal(w.Body.String(), b.calls.Load())
 			}
 			return
