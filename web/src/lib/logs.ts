@@ -18,6 +18,7 @@ export type LogLine = {
   text: string;
   truncated?: boolean;
   partial?: boolean;
+  ip_location?: string;
 };
 export type LogWindow = {
   lines: LogLine[];

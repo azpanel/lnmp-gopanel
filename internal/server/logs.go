@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/netip"
+	"path/filepath"
+	"strings"
 
+	"github.com/azpanel/lnmp-gopanel/internal/ipgeo"
 	"github.com/azpanel/lnmp-gopanel/internal/logs"
 	"github.com/gin-gonic/gin"
 )
@@ -76,5 +80,31 @@ func (s *Server) logRead(c *gin.Context) {
 		fail(c, status, err.Error())
 		return
 	}
+	enrichLogLocations(req.Path, out.Lines)
 	c.JSON(200, out)
+}
+
+func enrichLogLocations(path string, lines []logs.Line) {
+	if dir := filepath.Dir(path); dir != logs.Directory && dir != logs.ManagedDirectory {
+		return
+	}
+	locations := make(map[string]string)
+	for i := range lines {
+		text := lines[i].Text
+		end := strings.IndexAny(text, " \t")
+		if end <= 0 {
+			continue
+		}
+		client := text[:end]
+		addr, err := netip.ParseAddr(client)
+		if err != nil || addr.Zone() != "" {
+			continue
+		}
+		location, ok := locations[client]
+		if !ok {
+			location = ipgeo.Lookup(client)
+			locations[client] = location
+		}
+		lines[i].IPLocation = location
+	}
 }

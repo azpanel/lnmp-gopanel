@@ -286,6 +286,19 @@ export function Logs() {
                 />
                 格式化为表格
               </label>
+              {formatted && (
+                <p className="small-note">
+                  IP 地址位置数据由{" "}
+                  <a
+                    href="https://www.cz88.net/"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    纯真 CZ88
+                  </a>{" "}
+                  提供 · 数据版本 20261021 · IPv6 暂不支持
+                </p>
+              )}
             </div>
           )}
           {formatted && (

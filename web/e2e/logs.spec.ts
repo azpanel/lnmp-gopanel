@@ -1,7 +1,12 @@
 import { test, expect, type Page } from "@playwright/test";
 
-function accessLog(status: number, request: string, agent = "Test browser") {
-  return `2001:db8::1 - - [27/Oct/2026:14:23:45 +0800] "GET ${request} HTTP/1.1" ${status} 123 "-" "${agent}"`;
+function accessLog(
+  status: number,
+  request: string,
+  agent = "Test browser",
+  client = "114.114.114.114",
+) {
+  return `${client} - - [27/Oct/2026:14:23:45 +0800] "GET ${request} HTTP/1.1" ${status} 123 "-" "${agent}"`;
 }
 
 async function chooseOption(page: Page, label: string, option: string) {
@@ -17,8 +22,19 @@ test("access log table filters loaded rows, combines rules and resets per file",
   const php = "/usr/local/php/var/log/php_errors.log";
   const mysql = "/var/log/mysql/mariadb-slow.log";
   const rows = [
-    { offset: "0", text: accessLog(200, "/ok?query=404"), partial: true },
-    { offset: "1000", text: accessLog(302, "/redirect").split(' "-" "')[0] },
+    {
+      offset: "0",
+      text: accessLog(200, "/ok?query=404"),
+      partial: true,
+      ip_location: "中国江苏省南京市 电信",
+    },
+    {
+      offset: "1000",
+      text: accessLog(302, "/redirect", "browser", "2001:db8::1").split(
+        ' "-" "',
+      )[0],
+      ip_location: "暂不支持",
+    },
     { offset: "2000", text: accessLog(404, "/missing") },
     { offset: "3000", text: accessLog(404, "/secret") },
     {
@@ -95,18 +111,36 @@ test("access log table filters loaded rows, combines rules and resets per file",
   await page.keyboard.press("Space");
   await expect(table).toBeVisible();
   await expect(table.getByRole("columnheader")).toHaveCount(9);
+  await expect(table.getByRole("columnheader")).toHaveText([
+    "字节偏移",
+    "客户端 IP",
+    "IP 属地",
+    "时间",
+    "请求",
+    "HTTP 状态码",
+    "响应字节数",
+    "Referer",
+    "User-Agent",
+  ]);
+  await expect(
+    table.getByRole("columnheader", { name: "原文", exact: true }),
+  ).toHaveCount(0);
+  await expect(table.getByRole("button", { name: /原文/ })).toHaveCount(0);
+  await expect(
+    table.locator('[data-offset="0"]').getByRole("cell").nth(2),
+  ).toHaveText("中国江苏省南京市 电信");
+  await expect(
+    table.locator('[data-offset="1000"]').getByRole("cell").nth(2),
+  ).toHaveText("暂不支持");
+  await expect(
+    table.locator('[data-offset="2000"]').getByRole("cell").nth(2),
+  ).toHaveText("未知");
   await expect(table.getByText("[无法解析]", { exact: true })).toBeVisible();
   await expect(table.locator('[data-offset="0"]')).toContainText("尚未换行");
   await expect(table.locator('[data-offset="4000"]')).toContainText("已截断");
-  await page.getByRole("button", { name: "查看偏移 4000 的原文" }).click();
-  const source = page.getByRole("dialog", { name: "日志原文" });
-  await expect(source.locator("pre")).toContainText(rows[4].text);
-  await expect(source).toContainText("超长行已截断");
-  await page.keyboard.press("Escape");
-  await expect(source).not.toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "查看偏移 4000 的原文" }),
-  ).toBeFocused();
+  await expect(table.locator('[data-offset="4000"]')).toContainText(
+    "<script>window.logInjected=true</script>",
+  );
   expect(
     await page.evaluate(
       () => (window as Window & { logInjected?: boolean }).logInjected,
@@ -175,6 +209,7 @@ test("access table virtualizes history, follows matching replacements and recove
   const path = "/home/wwwlogs/access.log";
   const modified = "2026-10-27T06:23:45Z";
   const long = "long request 中文".repeat(45);
+  const longLocation = "中国测试省测试市测试区 运营商 ".repeat(12);
   let appended = false,
     appendNext = false,
     rotateNext = false,
@@ -214,7 +249,13 @@ test("access table virtualizes history, follows matching replacements and recove
           lines:
             req.mode === "after"
               ? []
-              : [{ offset: "0", text: accessLog(503, "/rotated") }],
+              : [
+                  {
+                    offset: "0",
+                    text: accessLog(503, "/rotated"),
+                    ip_location: "轮转属地",
+                  },
+                ],
           from: req.mode === "after" ? "1000" : "0",
           to: "1000",
           replace_from: req.mode === "after" ? "1000" : "0",
@@ -254,7 +295,10 @@ test("access table virtualizes history, follows matching replacements and recove
           : base;
     return route.fulfill({
       json: {
-        lines,
+        lines: lines.map((line) => ({
+          ...line,
+          ip_location: before ? "历史属地" : longLocation,
+        })),
         from: String(from),
         to: String(before ? 100000 : end),
         replace_from: String(replacing ? 1299000 : from),
@@ -326,6 +370,10 @@ test("access table virtualizes history, follows matching replacements and recove
     )
     .toBeLessThan(2);
   await expect.poll(headerPosition).toBe(1);
+  await viewport.evaluate((node) => {
+    node.scrollTop = 0;
+  });
+  await expect(page.locator('[data-offset="50000"]')).toContainText("历史属地");
   await expect
     .poll(() =>
       page
@@ -387,6 +435,9 @@ test("access table virtualizes history, follows matching replacements and recove
   await expect(page.locator('[data-offset="1300000"]')).toContainText(
     "/latest",
   );
+  await expect(
+    page.locator('[data-offset="1300000"]').getByRole("cell").nth(2),
+  ).toHaveText(longLocation);
   await expect(follow).toBeChecked();
   await expect.poll(atBottom).toBeLessThan(2);
   // A tall final row may virtualize its predecessor out on a small screen.
@@ -405,6 +456,7 @@ test("access table virtualizes history, follows matching replacements and recove
   ).toBeVisible();
   await expect(page.locator(".log-access-row")).toHaveCount(1);
   await expect(page.locator(".log-access-row")).toContainText("/rotated");
+  await expect(page.locator(".log-access-row")).toContainText("轮转属地");
   await expect(
     page.getByRole("checkbox", { name: "502", exact: true }),
   ).toBeChecked();

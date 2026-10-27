@@ -1,0 +1,13 @@
+IP 地址位置数据由纯真 CZ88 提供支持：https://www.cz88.net/
+数据格式：QQWry DAT（IPv4，GBK）
+分发来源：https://github.com/metowolf/qqwry.dat
+版本：20261021
+下载地址：https://github.com/metowolf/qqwry.dat/releases/download/20261021/qqwry.dat
+SHA-256：15197d3a13d767a3113ca92bde9aa2fa02a99b0620eee07ebbd630262a4f57bf
+
+纯真社区版数据使用说明：https://www.cz88.net/geo-public
+数据署名及许可：知识共享署名-相同方式共享 4.0 国际许可证（CC BY-SA 4.0）
+https://creativecommons.org/licenses/by-sa/4.0/
+
+此文件随源代码记录数据库来源；发布包的 README.md 同步提供署名和来源链接。
+数据库随面板二进制分发并离线查询，升级数据库时同步更新版本与 SHA-256。

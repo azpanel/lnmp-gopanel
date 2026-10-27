@@ -60,10 +60,11 @@ type Request struct {
 	Rules []Rule `json:"rules"`
 }
 type Line struct {
-	Offset    string `json:"offset"`
-	Text      string `json:"text"`
-	Truncated bool   `json:"truncated,omitempty"`
-	Partial   bool   `json:"partial,omitempty"`
+	Offset     string `json:"offset"`
+	Text       string `json:"text"`
+	Truncated  bool   `json:"truncated,omitempty"`
+	Partial    bool   `json:"partial,omitempty"`
+	IPLocation string `json:"ip_location,omitempty"`
 }
 type Window struct {
 	ReplaceFrom string    `json:"replace_from"`

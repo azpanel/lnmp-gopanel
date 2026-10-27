@@ -3013,9 +3013,9 @@ a {
   overscroll-behavior-x: contain;
 }
 .log-access-table {
-  min-width: 1440px;
-  --log-access-columns: 100px 160px 220px minmax(240px, 2fr) 110px 110px
-    minmax(160px, 1fr) minmax(220px, 1fr) 80px;
+  min-width: 1600px;
+  --log-access-columns: 100px 160px minmax(220px, 1fr) 220px minmax(240px, 2fr)
+    110px 110px minmax(160px, 1fr) minmax(220px, 1fr);
 }
 .log-access-table .log-viewport {
   border: 0;
@@ -3058,19 +3058,6 @@ a {
 .log-http-status[data-group="4"],
 .log-http-status[data-group="5"] {
   color: var(--danger);
-}
-.log-source-dialog {
-  width: min(900px, calc(100% - 32px));
-  max-width: none;
-  min-width: 0;
-}
-.log-source-text {
-  min-width: 0;
-  max-height: 65vh;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 13px;
 }
 @media (max-width: 640px) {
   .log-heading {

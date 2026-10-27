@@ -1,14 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { LogLine } from "@/lib/logs";
 import type { NginxAccessEntry } from "@/lib/nginx-access";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 
 const rowHeight = 30;
 const overscan = 240;
@@ -20,7 +12,10 @@ type Measurement = {
 
 function sameLine(a: LogLine, b: LogLine) {
   return (
-    a.text === b.text && a.truncated === b.truncated && a.partial === b.partial
+    a.text === b.text &&
+    a.truncated === b.truncated &&
+    a.partial === b.partial &&
+    a.ip_location === b.ip_location
   );
 }
 
@@ -39,13 +34,13 @@ function LogText({ line }: { line: LogLine }) {
 const accessHeaders = [
   "字节偏移",
   "客户端 IP",
+  "IP 属地",
   "时间",
   "请求",
   "HTTP 状态码",
   "响应字节数",
   "Referer",
   "User-Agent",
-  "原文",
 ];
 
 // Find the row containing a pixel offset in the variable-height layout.
@@ -79,8 +74,6 @@ export function LogViewport({
   const [scroll, setScroll] = useState(0);
   const [size, setSize] = useState({ width: 0, height: 480, gutter: 0 });
   const [revision, setRevision] = useState(0);
-  const [source, setSource] = useState<LogLine | null>(null);
-  const sourceTrigger = useRef<HTMLButtonElement | null>(null);
   const layout = useMemo(() => {
     const starts = [0];
     for (const line of lines) {
@@ -215,6 +208,7 @@ export function LogViewport({
                   entry ? (
                     <>
                       <span role="cell">{entry.client}</span>
+                      <span role="cell">{line.ip_location || "未知"}</span>
                       <span role="cell">{entry.time}</span>
                       <span role="cell">
                         {entry.request}
@@ -235,25 +229,12 @@ export function LogViewport({
                       <span role="cell">{entry.bytes}</span>
                       <span role="cell">{entry.referer}</span>
                       <span role="cell">{entry.userAgent}</span>
-                      <span role="cell">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          aria-label={`查看偏移 ${line.offset} 的原文`}
-                          onClick={(event) => {
-                            sourceTrigger.current = event.currentTarget;
-                            setSource(line);
-                          }}
-                        >
-                          原文
-                        </Button>
-                      </span>
                     </>
                   ) : (
                     <span
                       className="log-access-unparsed log-text"
                       role="cell"
-                      aria-colspan={8}
+                      aria-colspan={accessHeaders.length - 1}
                     >
                       <span className="log-mark">[无法解析] </span>
                       <LogText line={line} />
@@ -274,60 +255,34 @@ export function LogViewport({
 
   if (!accessEntries) return content;
   return (
-    <>
+    <div
+      className="log-table-scroll"
+      tabIndex={0}
+      aria-label="访问日志表格横向滚动"
+    >
       <div
-        className="log-table-scroll"
-        tabIndex={0}
-        aria-label="访问日志表格横向滚动"
+        className="log-access-table"
+        role="table"
+        aria-label="Nginx 访问日志"
+        aria-rowcount={lines.length + 1}
+        aria-colcount={accessHeaders.length}
       >
-        <div
-          className="log-access-table"
-          role="table"
-          aria-label="Nginx 访问日志"
-          aria-rowcount={lines.length + 1}
-          aria-colcount={accessHeaders.length}
-        >
-          <div role="rowgroup">
-            <div
-              className="log-access-header"
-              role="row"
-              aria-rowindex={1}
-              style={{ paddingRight: size.gutter }}
-            >
-              {accessHeaders.map((name) => (
-                <span role="columnheader" key={name}>
-                  {name}
-                </span>
-              ))}
-            </div>
+        <div role="rowgroup">
+          <div
+            className="log-access-header"
+            role="row"
+            aria-rowindex={1}
+            style={{ paddingRight: size.gutter }}
+          >
+            {accessHeaders.map((name) => (
+              <span role="columnheader" key={name}>
+                {name}
+              </span>
+            ))}
           </div>
-          {content}
         </div>
+        {content}
       </div>
-      <Dialog
-        open={source !== null}
-        onOpenChange={(open) => {
-          if (!open) setSource(null);
-        }}
-      >
-        <DialogContent
-          className="log-source-dialog"
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            if (sourceTrigger.current?.isConnected)
-              sourceTrigger.current.focus();
-            else viewport.current?.focus();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>日志原文</DialogTitle>
-            <DialogDescription>文件字节偏移 {source?.offset}</DialogDescription>
-          </DialogHeader>
-          <pre className="log-source-text">
-            {source && <LogText line={source} />}
-          </pre>
-        </DialogContent>
-      </Dialog>
-    </>
+    </div>
   );
 }

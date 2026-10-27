@@ -358,10 +358,12 @@ screenshots:
 
 点击“日志内容”旁的“筛选规则”，在右侧抽屉中编辑并应用规则；关闭抽屉保留未应用的编辑，应用成功后自动收起。可添加最多 20 条关键词或 Go 正则规则，逐行选择“显示匹配”或“隐藏匹配”，支持启停及忽略大小写，默认区分大小写。存在显示规则时命中任意一条即可，隐藏规则优先；没有显示规则时默认显示全部。点击“应用规则”后，仅重新筛选已加载范围，不搜索整个文件；慢 SQL 和错误堆栈也逐行处理。规则按文件保存在当前浏览器，每条内容最多 256 字节、合计最多 2048 字节，请求 JSON 总长不超过 4 KiB。Go 正则不支持前后查找、回溯引用，无效规则会提示并保留当前有效筛选。超长行只显示和匹配前 64 KiB；无法在有界回溯范围内找到行首时跳过该行并提示。日志按 UTF-8 展示，非法字符显示为替代字符。
 
-读取 Nginx 日志目录（`/home/wwwlogs`、`/usr/local/nginx/logs/gopanel`）中的日志时，可勾选“格式化为表格”，显示客户端 IP、时间、请求、HTTP 状态码、响应字节数、Referer 和 User-Agent，并按字节偏移查看原文。支持 common、combined 及相同字段前缀的常见文本格式；无法解析的行保留原文，自定义 JSON 或不同字段顺序不解析。表格支持在容器内横向滚动，沿用虚拟列表、历史加载和实时追踪。
+读取 Nginx 日志目录（`/home/wwwlogs`、`/usr/local/nginx/logs/gopanel`）中的日志时，可勾选“格式化为表格”，依次显示字节偏移、客户端 IP、IP 属地、时间、请求、HTTP 状态码、响应字节数、Referer 和 User-Agent。属地展示数据库返回的地区及运营商信息；表格不提供原文列或原文弹窗。支持 common、combined 及相同字段前缀的常见文本格式；无法解析的行保留文本，自定义 JSON 或不同字段顺序不解析。表格支持在容器内横向滚动，沿用虚拟列表、历史加载和实时追踪。
+
+IP 地址位置数据由[纯真 CZ88](https://www.cz88.net/) 提供支持，使用 [metowolf/qqwry.dat 的 20261021 版本](https://github.com/metowolf/qqwry.dat/releases/tag/20261021)，以 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) 署名并分发，详见[纯真社区版数据说明](https://www.cz88.net/geo-public)。数据库 SHA-256 为 `15197d3a13d767a3113ca92bde9aa2fa02a99b0620eee07ebbd630262a4f57bf`，内嵌在面板二进制中，随安装包交付并随面板版本更新；运行时离线查询，无需另行安装数据库。DAT 格式只支持 IPv4，IPv6 显示“暂不支持”，未命中或查询失败显示“未知”。初始化失败会记录日志，日志读取继续运行。
 
 表格模式下可多选具体 HTTP 状态码及 1xx～5xx 类别，多个选择取并集，未选择或点击“清除筛选”时显示全部。状态码筛选仅作用于现有关键词、正则规则返回的已加载范围，不扫描整个文件；加载历史和收到新增日志后继续筛选。启用状态码筛选时不展示无法解析的行。取消表格模式会清空状态码选择；切换文件时恢复原文模式并清空选择，表格及状态码设置不保存到浏览器。
 
-新增需登录接口 `GET /api/v1/logs` 和 `POST /api/v1/logs/read`，POST 需要 CSRF。读取 JSON 包含 `path`、`mode`（`tail`、`before`、`after`、`range`）、不透明的 `start` / `end` 游标和 `rules`；每条规则包含 `kind`（`keyword` / `regex`）、`action`（`show` / `hide`）、`pattern`、`ignore_case`、`enabled`。响应提供匹配行及字节偏移、源文件范围、前后游标和文件状态；409 表示文件已变化。游标始终按原始范围推进，筛选全部隐藏也不会反复读取同一批。规则在 Go 后端执行，读取有超时和全局并发限制。
+新增需登录接口 `GET /api/v1/logs` 和 `POST /api/v1/logs/read`，POST 需要 CSRF。读取 JSON 包含 `path`、`mode`（`tail`、`before`、`after`、`range`）、不透明的 `start` / `end` 游标和 `rules`；每条规则包含 `kind`（`keyword` / `regex`）、`action`（`show` / `hide`）、`pattern`、`ignore_case`、`enabled`。响应提供匹配行及字节偏移、源文件范围、前后游标和文件状态，Nginx 日志行可包含 `ip_location` 属地显示文本；409 表示文件已变化。属地由普通面板进程补充，不增加辅助程序权限。游标始终按原始范围推进，筛选全部隐藏也不会反复读取同一批。规则在 Go 后端执行，读取有超时和全局并发限制。
 
 升级时同步安装两个二进制和 sudoers 模板，新增固定授权 `/usr/local/libexec/lnmp-gopanel-control logs list`、`/usr/local/libexec/lnmp-gopanel-control logs read`，验证 sudoers 并重启面板。文件、游标和规则通过有界 JSON stdin 传递，辅助程序重新校验白名单、文件类型和路径，禁止跟随任意路径组件中的符号链接。安装脚本仅检查这两项的 sudo 授权，不实际读取或输出日志内容。

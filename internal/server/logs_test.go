@@ -4,17 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/azpanel/lnmp-gopanel/internal/auth"
+	"github.com/azpanel/lnmp-gopanel/internal/ipgeo"
 	"github.com/azpanel/lnmp-gopanel/internal/logs"
 )
 
 type stubLogs struct {
 	calls int
 	err   error
+	lines []logs.Line
 }
 
 func (s *stubLogs) List(context.Context) (logs.Catalog, error) {
@@ -23,7 +26,48 @@ func (s *stubLogs) List(context.Context) (logs.Catalog, error) {
 }
 func (s *stubLogs) Read(_ context.Context, req logs.Request) (logs.Window, error) {
 	s.calls++
+	if s.lines != nil {
+		return logs.Window{Lines: append([]logs.Line(nil), s.lines...)}, s.err
+	}
 	return logs.Window{Lines: []logs.Line{{Offset: "0", Text: "hello"}}, Start: "start", End: "end", From: "0", To: "6"}, s.err
+}
+
+func TestLogLocations(t *testing.T) {
+	s, _ := testServer(t)
+	s.Logs = &stubLogs{lines: []logs.Line{
+		{Offset: "0", Text: `114.114.114.114 - - [27/Oct/2026:14:23:45 +0800] "GET / HTTP/1.1" 200 123`},
+		{Offset: "100", Text: "114.114.114.114\t- - repeated"},
+		{Offset: "200", Text: "2001:db8::1 - - request"},
+		{Offset: "300", Text: "unrecognized access log"},
+		{Offset: "400", Text: "bad\"ip - - request"},
+		{Offset: "500", Text: "fe80::1%eth0 - - request"},
+	}}
+	s.logReads = make(chan struct{}, 1)
+	id, session := s.Sessions.Create()
+	cookie := &http.Cookie{Name: auth.CookieName, Value: id}
+	h := s.Handler()
+	for _, path := range []string{logs.Directory + "/access.log", logs.ManagedDirectory + "/access.log", logs.PHP, logs.MySQL} {
+		body := fmt.Sprintf(`{"path":%q,"mode":"tail","rules":[]}`, path)
+		w := request(h, "POST", "/api/v1/logs/read", body, cookie, session.CSRF, "")
+		var out logs.Window
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &out) != nil || len(out.Lines) != 6 {
+			t.Fatalf("read %s: %d %s", path, w.Code, w.Body.String())
+		}
+		for i, line := range out.Lines {
+			want := ""
+			if path != logs.PHP && path != logs.MySQL {
+				if i < 2 {
+					want = ipgeo.Lookup("114.114.114.114")
+				}
+				if i == 2 {
+					want = "暂不支持"
+				}
+			}
+			if line.IPLocation != want {
+				t.Errorf("%s line %d: got %q; want %q", path, i, line.IPLocation, want)
+			}
+		}
+	}
 }
 func TestLogEndpoints(t *testing.T) {
 	s, _ := testServer(t)
