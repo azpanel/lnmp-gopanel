@@ -326,6 +326,7 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   const table = page.getByRole("table", { name: "虚拟主机列表" });
   await expect(table).toBeVisible();
   await expect(table.getByRole("columnheader")).toHaveText([
+    "",
     "站点图片",
     "域名 / 配置",
     "状态 / 监听",
@@ -352,19 +353,19 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   await expect(certificateStatus).toBeVisible();
   const row = table.locator("tbody tr").first();
   const cells = row.getByRole("cell");
-  const imageCell = cells.nth(0);
-  const siteCell = cells.nth(1);
+  const imageCell = cells.nth(1);
+  const siteCell = cells.nth(2);
   await expect(siteCell).toContainText("example.conf");
   await expect(siteCell).toContainText("www.example.com");
   await expect(
     imageCell.getByAltText("example.com 的网站截图", { exact: true }),
   ).toBeVisible();
   await expect(imageCell).not.toContainText("example.conf");
-  await expect(cells.nth(2)).toContainText("已启用");
+  await expect(cells.nth(3)).toContainText("已启用");
   await expect(
-    cells.nth(2).getByRole("list", { name: "监听端口" }),
+    cells.nth(3).getByRole("list", { name: "监听端口" }),
   ).toBeVisible();
-  await expect(cells.nth(3)).toHaveText("/home/wwwroot/example（2.0 GiB）");
+  await expect(cells.nth(4)).toHaveText("/home/wwwroot/example（2.0 GiB）");
   await expect(table).not.toContainText("统计上一级项目目录");
   await expect(table).not.toContainText("按实际磁盘块统计");
   const previewBounds = await imageCell
@@ -375,13 +376,13 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   expect(nameBounds).not.toBeNull();
   expect(previewBounds!.x + previewBounds!.width).toBeLessThan(nameBounds!.x);
   expect((await row.boundingBox())!.height).toBeLessThanOrEqual(110);
-  await expect(cells.nth(4).locator('[data-slot="badge"]')).toHaveText([
+  await expect(cells.nth(5).locator('[data-slot="badge"]')).toHaveText([
     "有效 · 剩余 60 天",
     "ZeroSSL",
   ]);
-  await expect(cells.nth(4).locator("details")).toHaveCount(0);
-  await expect(cells.nth(4)).not.toContainText("生效时间");
-  await expect(cells.nth(4)).not.toContainText("证书详情");
+  await expect(cells.nth(5).locator("details")).toHaveCount(0);
+  await expect(cells.nth(5)).not.toContainText("生效时间");
+  await expect(cells.nth(5)).not.toContainText("证书详情");
   await table.getByRole("button", { name: "查看配置", exact: true }).click();
   await expect(page.locator(".vhost-config-source")).toContainText(
     "# original configuration",

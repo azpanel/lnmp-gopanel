@@ -28,7 +28,7 @@ TARGETS = (
     "/etc/lnmp-gopanel/tls/panel.crt",
     "/etc/lnmp-gopanel/tls/panel.key",
 )
-VHOST_COMMANDS = tuple(f"vhosts {action}" for action in ("list", "config", "usage", "toggle", "options", "create", "basic-auth-get", "basic-auth-set", "basic-auth-disable"))
+VHOST_COMMANDS = tuple(f"vhosts {action}" for action in ("list", "config", "usage", "toggle", "options", "create", "ssl-renew-preview", "ssl-renew", "basic-auth-get", "basic-auth-set", "basic-auth-disable"))
 
 
 def copy_executable(root, command):

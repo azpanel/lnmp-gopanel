@@ -123,6 +123,7 @@ func authFallback() string { return "location ^~ " + authChallenge + " { auth_ba
 type AuthDirective struct {
 	Name     string
 	Args     []string
+	Start    int
 	Open     int
 	End      int
 	Children []AuthDirective
@@ -221,7 +222,7 @@ func ParseAuthConfig(content string) ([]AuthDirective, error) {
 			if err != nil || i == start {
 				return nil, errors.New("无法安全定位配置指令")
 			}
-			n := AuthDirective{Name: name, Open: -1}
+			n := AuthDirective{Name: name, Start: start, Open: -1}
 			for {
 				skip()
 				if i >= len(content) {
@@ -339,7 +340,19 @@ func (s Store) AttachBasicAuth(name, base, credential string) (string, error) {
 		if challenge == nil {
 			body += authFallback()
 		} else {
-			edits = append(edits, insertion{challenge.Open + 1, authBlock("auth_basic off;\n")})
+			existingOff := false
+			for _, c := range challenge.Children {
+				if c.Name != "auth_basic" {
+					continue
+				}
+				if existingOff || len(c.Args) != 1 || c.Args[0] != "off" {
+					return "", errors.New("证书验证 location 的认证配置冲突")
+				}
+				existingOff = true
+			}
+			if !existingOff {
+				edits = append(edits, insertion{challenge.Open + 1, authBlock("auth_basic off;\n")})
+			}
 		}
 		edits = append(edits, insertion{n.Open + 1, authBlock(body)})
 	}
@@ -377,6 +390,9 @@ func (s Store) InspectAuthDirectives(ctx context.Context, content string, global
 		var walk func([]AuthDirective) (string, error)
 		walk = func(nodes []AuthDirective) (string, error) {
 			for _, n := range nodes {
+				if isRenewalChallenge(n) {
+					continue
+				}
 				if global && n.Name == "server" {
 					continue
 				}

@@ -44,13 +44,35 @@ export type VhostCreateOptions = {
   database_auth_available: boolean;
   warnings: string[];
 };
+export type VhostRenewItem = {
+  name: string;
+  provider: "zerossl" | "letsencrypt";
+  email: string;
+  status?: "queued" | "running" | "succeeded" | "failed";
+  phase?: string;
+  error?: string;
+};
+export type VhostRenewPreview = {
+  name: string;
+  domains: string[];
+  provider: VhostRenewItem["provider"];
+  email: string;
+  eligible: boolean;
+  reason?: string;
+};
 export type VhostJobLine = {
+  name?: string;
   id: number;
   time: string;
   phase: string;
   text: string;
 };
 export type VhostJob = {
+  kind?: "ssl-renew";
+  items?: VhostRenewItem[];
+  completed?: number;
+  succeeded?: number;
+  failed?: number;
   id: string;
   name: string;
   status: "running" | "succeeded" | "partial" | "failed";

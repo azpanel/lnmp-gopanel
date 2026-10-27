@@ -263,7 +263,7 @@ check_helper() {
   # are optional. Never read site/account data, create sites, issue certificates
   # or change managed services as an installation self-check.
   for name in nginx docker components storage cron logs-list logs-read \
-    vhosts-list vhosts-config vhosts-usage vhosts-toggle vhosts-options vhosts-create \
+    vhosts-list vhosts-config vhosts-usage vhosts-toggle vhosts-options vhosts-create vhosts-ssl-renew-preview vhosts-ssl-renew \
     vhosts-basic-auth-get vhosts-basic-auth-set vhosts-basic-auth-disable; do
     case "$name" in
       nginx) action=status ;;

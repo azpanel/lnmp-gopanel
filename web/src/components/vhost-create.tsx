@@ -416,7 +416,9 @@ export function VhostCreate() {
     setDNS(null);
   }
   const existingJob =
-    recent.data?.find((job) => job.status === "running") || recent.data?.[0];
+    recent.data?.find(
+      (job) => job.kind !== "ssl-renew" && job.status === "running",
+    ) || recent.data?.find((job) => job.kind !== "ssl-renew");
   return (
     <>
       <div className="flex flex-wrap items-center justify-end gap-2">

@@ -1953,21 +1953,24 @@ a {
   padding-left: 20px;
 }
 .vhost-table th:nth-child(1) {
-  width: 14%;
+  width: 48px;
 }
 .vhost-table th:nth-child(2) {
-  width: 18%;
+  width: 14%;
 }
 .vhost-table th:nth-child(3) {
-  width: 16%;
+  width: 18%;
 }
 .vhost-table th:nth-child(4) {
-  width: 20%;
+  width: 16%;
 }
 .vhost-table th:nth-child(5) {
-  width: 13%;
+  width: 20%;
 }
 .vhost-table th:nth-child(6) {
+  width: 13%;
+}
+.vhost-table th:nth-child(7) {
   width: 19%;
 }
 .vhost-table-name {
@@ -3658,5 +3661,67 @@ body,
   [data-variant][data-size]:active,
   .nav-item:hover > svg {
     translate: none !important;
+  }
+}
+
+.vhost-renew-dialog {
+  width: min(900px, calc(100vw - 2rem));
+  max-width: 900px;
+  max-height: 90dvh;
+  overflow-y: auto;
+}
+.renew-items {
+  max-height: 36dvh;
+  overflow-y: auto;
+  margin-bottom: 1rem;
+}
+.renew-item,
+.renew-config-item {
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.renew-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.renew-item > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.renew-item [data-slot="badge"] {
+  flex-shrink: 0;
+  gap: 0.3rem;
+}
+.renew-config-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+.renew-config-fields label {
+  display: block;
+  font-size: 0.8rem;
+  margin-bottom: 0.3rem;
+}
+.renew-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.renew-progress progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--primary);
+}
+@media (max-width: 600px) {
+  .renew-config-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .renew-item {
+    flex-wrap: wrap;
   }
 }

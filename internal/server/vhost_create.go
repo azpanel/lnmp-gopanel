@@ -85,6 +85,40 @@ func (s *Server) registerVhostCreation(private *gin.RouterGroup) {
 	}
 	private.POST("/vhosts", s.csrf, start(false))
 	private.POST("/vhosts/ssl/retry", s.csrf, start(true))
+	private.POST("/vhosts/ssl/renew/preview", s.csrf, func(c *gin.Context) {
+		var input struct {
+			Names []string `json:"names"`
+		}
+		if err := decodeVhostBody(c, &input); err != nil {
+			fail(c, 400, err.Error())
+			return
+		}
+		ctx, done := context.WithTimeout(c.Request.Context(), 60*time.Second)
+		defer done()
+		out, err := s.VhostJobs.PreviewRenewal(ctx, input.Names)
+		if err != nil {
+			fail(c, 400, err.Error())
+			return
+		}
+		c.JSON(200, out)
+	})
+	private.POST("/vhosts/ssl/renew", s.csrf, func(c *gin.Context) {
+		var input vhosts.RenewRequest
+		if err := decodeVhostBody(c, &input); err != nil {
+			fail(c, 400, err.Error())
+			return
+		}
+		out, err := s.VhostJobs.StartRenewal(input)
+		if err != nil {
+			code := 400
+			if errors.Is(err, vhosts.ErrJobBusy) {
+				code = 409
+			}
+			fail(c, code, err.Error())
+			return
+		}
+		c.JSON(202, out)
+	})
 	private.GET("/vhosts/jobs", func(c *gin.Context) { c.JSON(200, s.VhostJobs.List()) })
 	private.GET("/vhosts/jobs/:id", func(c *gin.Context) {
 		out, ok := s.VhostJobs.Get(c.Param("id"))

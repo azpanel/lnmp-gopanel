@@ -392,6 +392,10 @@ func issueSiteCertificate(ctx context.Context, r vhosts.CreateRequest, binary st
 	if err != nil {
 		return "", "", err
 	}
+	return issueCertificate(ctx, r, binary, emit, client, false, "", true)
+}
+
+func issueCertificate(ctx context.Context, r vhosts.CreateRequest, binary string, emit func(string), client acmeClient, force bool, destination string, installCron bool) (string, string, error) {
 	acmeCertHome := client.certHome()
 	// ACME runs as root; never write challenge files into a website's writable
 	// .well-known directory, where an application could substitute a symlink.
@@ -423,15 +427,11 @@ func issueSiteCertificate(ctx context.Context, r vhosts.CreateRequest, binary st
 	if err := client.stream(ctx, append(append([]string{}, base...), "--register-account", "-m", r.SSL.Email), emit); err != nil {
 		return "", "", err
 	}
-	args := append(append([]string{}, base...), "--issue", "--webroot", vhosts.ChallengeDirectory, "--keylength", "ec-256")
-	for _, domain := range r.Domains() {
-		args = append(args, "-d", domain)
-	}
-	if err := client.stream(ctx, args, emit); err != nil {
+	if err := client.issue(ctx, r, force, emit); err != nil {
 		// acme.sh returns 2 when a still-valid existing order is not due. Only
 		// reuse files after complete key, lifetime and requested-SAN validation.
 		var exit *acmeExitError
-		if ctx.Err() != nil || !errors.As(err, &exit) || exit.Code != 2 {
+		if force || ctx.Err() != nil || !errors.As(err, &exit) || exit.Code != 2 {
 			return "", "", err
 		}
 		source := filepath.Join(acmeCertHome, r.Domain+"_ecc")
@@ -445,7 +445,10 @@ func issueSiteCertificate(ctx context.Context, r vhosts.CreateRequest, binary st
 		}
 		emit("已有证书仍有效，继续部署")
 	}
-	dir := filepath.Join(managedSSL, r.Domain)
+	dir := destination
+	if dir == "" {
+		dir = filepath.Join(managedSSL, r.Domain)
+	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", "", err
 	}
@@ -468,7 +471,7 @@ func issueSiteCertificate(ctx context.Context, r vhosts.CreateRequest, binary st
 		return "", "", errors.New("缺少可信的 flock，无法配置安全续期重载")
 	}
 	hook := "/usr/bin/flock -w 60 /run/lock/lnmp-gopanel-nginx.lock /bin/sh -c " + shellQuote(shellQuote(binary)+" -t && "+shellQuote(binary)+" -s reload")
-	args = append(append([]string{}, base...), "--install-cert", "--ecc", "-d", r.Domain, "--fullchain-file", cert, "--key-file", key, "--reloadcmd", hook)
+	args := append(append([]string{}, base...), "--install-cert", "--ecc", "-d", r.Domain, "--fullchain-file", cert, "--key-file", key, "--reloadcmd", hook)
 	if err := client.stream(ctx, args, emit); err != nil {
 		return "", "", err
 	}
@@ -483,8 +486,10 @@ func issueSiteCertificate(ctx context.Context, r vhosts.CreateRequest, binary st
 	// A separate cron uses this cert-home and does not change existing root
 	// crontab or existing certificates' renewal settings.
 	cron := client.renewalCron()
-	if err := writeRootAtomic("/etc/cron.d/lnmp-gopanel-acme", []byte(cron), 0644); err != nil {
-		return "", "", errors.New("证书已签发，但自动续期任务配置失败；请检查 cron 后重试")
+	if installCron {
+		if err := writeRootAtomic("/etc/cron.d/lnmp-gopanel-acme", []byte(cron), 0644); err != nil {
+			return "", "", errors.New("证书已签发，但自动续期任务配置失败；请检查 cron 后重试")
+		}
 	}
 	return cert, key, nil
 }

@@ -72,6 +72,9 @@ func (s *Server) Handler() http.Handler {
 			if c.Request.Method == http.MethodPost && (c.Request.URL.Path == "/api/v1/vhosts" || c.Request.URL.Path == "/api/v1/vhosts/ssl/retry" || c.Request.URL.Path == "/api/v1/vhosts/check-dns") {
 				limit = 32 * 1024
 			}
+			if c.Request.Method == http.MethodPost && (c.Request.URL.Path == "/api/v1/vhosts/ssl/renew" || c.Request.URL.Path == "/api/v1/vhosts/ssl/renew/preview") {
+				limit = 1024 * 1024
+			}
 			if c.Request.Method == http.MethodPut && c.Request.URL.Path == "/api/v1/vhosts/screenshot" {
 				limit = 128 * 1024
 			}

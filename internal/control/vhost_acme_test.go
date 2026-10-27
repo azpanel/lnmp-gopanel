@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"errors"
+	"github.com/azpanel/lnmp-gopanel/internal/vhosts"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -117,5 +118,34 @@ func TestACMEClientUsesSameInstallationForCommandsAndRenewal(t *testing.T) {
 	client.trust = func(string) error { return errors.New("permissions changed") }
 	if err := client.stream(context.Background(), []string{"--issue"}, func(string) { t.Fatal("unsafe client executed") }); err == nil {
 		t.Fatal("executed client after trust changed")
+	}
+}
+
+func TestForcedRenewalUsesExplicitCAAndIsolatedHome(t *testing.T) {
+	home := t.TempDir()
+	log := filepath.Join(home, "args")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + shellQuote(log) + "\nprintf 'signed order\\n'\n"
+	if err := os.WriteFile(filepath.Join(home, "acme.sh"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{"zerossl", "letsencrypt"} {
+		client := acmeClient{home: home, certDirectory: filepath.Join(home, "isolated-attempt"), trust: func(string) error { return nil }}
+		r := vhosts.CreateRequest{Domain: "example.com", Aliases: []string{"www.example.com"}, SSL: vhosts.SSLInput{Mode: provider}}
+		var lines []string
+		if err := client.issue(context.Background(), r, true, func(line string) { lines = append(lines, line) }); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := strings.Split(strings.TrimSpace(string(data)), "\n")
+		want := []string{"--home", home, "--cert-home", client.certDirectory, "--server", provider, "--issue", "--webroot", vhosts.ChallengeDirectory, "--keylength", "ec-256", "-d", "example.com", "-d", "www.example.com", "--force"}
+		if !reflect.DeepEqual(args, want) || len(lines) != 1 {
+			t.Fatal(args, lines)
+		}
+		if !strings.Contains(client.renewalCron(), shellQuote(client.certDirectory)) {
+			t.Fatal("cron lost isolated cert home")
+		}
 	}
 }

@@ -30,7 +30,7 @@ Cmnd_Alias LNMP_PANEL = /usr/local/libexec/lnmp-gopanel-control nginx status, \
  /usr/local/libexec/lnmp-gopanel-control vhosts usage, \
  /usr/local/libexec/lnmp-gopanel-control vhosts toggle, \
  /usr/local/libexec/lnmp-gopanel-control vhosts options, \
- /usr/local/libexec/lnmp-gopanel-control vhosts create, \
+ /usr/local/libexec/lnmp-gopanel-control vhosts create, /usr/local/libexec/lnmp-gopanel-control vhosts ssl-renew-preview, /usr/local/libexec/lnmp-gopanel-control vhosts ssl-renew, \
  /usr/local/libexec/lnmp-gopanel-control vhosts basic-auth-get, \
  /usr/local/libexec/lnmp-gopanel-control vhosts basic-auth-set, \
  /usr/local/libexec/lnmp-gopanel-control vhosts basic-auth-disable

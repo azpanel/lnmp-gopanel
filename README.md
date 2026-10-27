@@ -55,7 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/azpanel/lnmp-gopanel/main/install.s
 
 证书和私钥安装到 `/etc/lnmp-gopanel/tls/`，目录权限 `0750`、文件权限 `0640`、所有者 `root:lnmp-panel`。借用的证书不会自动跟随原证书续期；续期后重新执行 `sudo bash install.sh --certificate-dir /usr/local/nginx/conf/ssl/域名`，同步证书并重启面板，已有 HTTPS 端口保持不变。自签名证书可通过 `--tls-mode self-signed` 重新生成。
 
-安装时会以 `lnmp-panel` 账号检查服务状态、Docker 查询、文件扫描、定时任务、日志读取及虚拟主机全部九项操作的精确 sudo 授权，并实际免密调用只读 `docker snapshot`、`components snapshot` 辅助程序（无需安装或启动 Docker，不触发全盘扫描或服务启停）。虚拟主机只检查 `list/config/usage/toggle/options/create/basic-auth-get/basic-auth-set/basic-auth-disable` 授权，不读取站点或证书账号、不创建站点或申请证书。启动面板后读取实际进程的 `/proc/<MainPID>/status`，确认 `NoNewPrivs: 0`，避免 systemd 隐式限制使所有辅助功能不可用；检查失败会报错并回滚。`--no-start` 只执行辅助程序检查，进程限制需在自行启动后验证。
+安装时会以 `lnmp-panel` 账号检查服务状态、Docker 查询、文件扫描、定时任务、日志读取及虚拟主机全部十一项操作的精确 sudo 授权，并实际免密调用只读 `docker snapshot`、`components snapshot` 辅助程序（无需安装或启动 Docker，不触发全盘扫描或服务启停）。虚拟主机只检查 `list/config/usage/toggle/options/create/ssl-renew-preview/ssl-renew/basic-auth-get/basic-auth-set/basic-auth-disable` 授权，不读取站点或证书账号、不创建站点或申请证书。启动面板后读取实际进程的 `/proc/<MainPID>/status`，确认 `NoNewPrivs: 0`，避免 systemd 隐式限制使所有辅助功能不可用；检查失败会报错并回滚。`--no-start` 只执行辅助程序检查，进程限制需在自行启动后验证。
 
 在菜单选择更新或执行 `sudo bash install.sh --update` 即可从 GitHub Release 升级；带安装参数再次执行也可覆盖升级。已有 HTTPS 配置、端口、证书、管理员密码和 `services.yaml` 会保留。旧版 HTTP 安装升级时会询问证书来源、迁移为随机端口的 HTTPS，并保留管理员凭据及服务配置；原 HTTP 端口不再使用，需调整安全组或反向代理。升级只重启面板服务，不重启 Nginx、PHP、数据库、Redis 或 Docker；已有面板会话需重新登录。替换前的文件保存在 `/var/backups/lnmp-gopanel/`，替换或启动失败时自动恢复旧文件，包含原配置及证书。
 
@@ -91,7 +91,7 @@ bash scripts/package.sh arm64 v0.1.0
 
 包内包含 `bin/lnmp-gopanel`、`bin/lnmp-gopanel-control`、`deploy/`、`install.sh`、`README.md` 和 `VERSION`；本机配置、账号密码、依赖目录、测试截图和构建缓存不会提交或打包。
 
-从当前源码升级本机时，先构建前端，再运行上述打包命令，最后使用项目中的安装脚本执行 `sudo bash install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz`（arm64 使用对应文件名）。这样两个二进制、systemd 单元及 sudoers 会一起更新，并使用相同的备份、授权检查及失败回滚流程。定时任务、日志与虚拟主机仅检查 `cron list`、`logs list/read`、`vhosts list/config/usage/toggle/options/create/basic-auth-get/basic-auth-set/basic-auth-disable` 的精确授权，不读取业务内容、不创建站点或申请证书；缺少可选组件或业务文件不会阻止安装。旧版 HTTP 安装非交互升级时需追加 `--tls-mode self-signed`，或指定现有证书。
+从当前源码升级本机时，先构建前端，再运行上述打包命令，最后使用项目中的安装脚本执行 `sudo bash install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz`（arm64 使用对应文件名）。这样两个二进制、systemd 单元及 sudoers 会一起更新，并使用相同的备份、授权检查及失败回滚流程。定时任务、日志与虚拟主机仅检查 `cron list`、`logs list/read`、`vhosts list/config/usage/toggle/options/create/ssl-renew-preview/ssl-renew/basic-auth-get/basic-auth-set/basic-auth-disable` 的精确授权，不读取业务内容、不创建站点或申请证书；缺少可选组件或业务文件不会阻止安装。旧版 HTTP 安装非交互升级时需追加 `--tls-mode self-signed`，或指定现有证书。
 
 ## 构建
 
@@ -322,6 +322,18 @@ Go 辅助程序生成配置并检查、重载 Nginx，配置或重载失败会�
 
 新增认证接口：`GET /api/v1/vhosts/options`、`POST /api/v1/vhosts/check-dns`、`POST /api/v1/vhosts`、`GET /api/v1/vhosts/jobs`、`GET /api/v1/vhosts/jobs/:id`、`GET /api/v1/vhosts/jobs/:id/events` 和 `POST /api/v1/vhosts/ssl/retry`。POST 需要 CSRF，建站相关 JSON 请求上限 32 KiB；创建和重试返回 202 与任务 ID，重复提交相同 ID 不重复执行。升级需同步安装两个二进制与 sudoers，新增固定 `vhosts options` 和 `vhosts create` 授权；安装只检查授权，不创建站点或申请证书。
 
+### 批量提前续签 SSL
+
+表格视图支持逐行多选、全选当前筛选结果和清空选择。点击“提前续签 SSL”，为每个站点分别选择 ZeroSSL 或 Let's Encrypt 并填写联系邮箱；机构默认匹配当前证书，无法识别时使用 Let's Encrypt，邮箱优先读取已有面板记录。确认列表显示原签发者、到期时间、本次签发域名和无法续签的原因。
+
+支持原有 LNMP 站点及面板创建的已启用 SSL 站点，不要求存在建站记录或配置保持原样。首版使用 HTTP-01 验证，要求全部证书域名绑定在该配置且可从公网 80 端口访问。通配符、多组证书、动态证书引用、关键配置位于共享 include、无法安全调整的服务器级重写，以及不可读取的证书会显示原因并禁止提交；停用站点需先启用。只修改验证入口和证书引用，保留 PHP、代理、重写及访问认证。
+
+队列在后端逐站执行，每站最长 20 分钟，单站失败后继续。强制重新签发，不以旧证书尚未到期作为成功。新证书使用独立版本目录暂存，检查私钥、有效期和完整域名覆盖后切换配置；Nginx 检查、重载或续期登记失败时恢复原配置，遇到外部并发修改则停止覆盖并在输出中说明。原证书文件保留。成功后每站使用独立 `/etc/cron.d/lnmp-gopanel-acme-<站点哈希>` 任务续期，与原有证书续期目录隔离；续期不依赖面板运行。
+
+任务窗口实时显示每站状态、阶段、完成数量及带站点名称的签发输出。SSE 断线时每两秒轮询，关闭窗口或刷新页面后可通过“查看续签进度”重新打开；完成后可只重试失败项并保留其机构和邮箱。与建站任务共用执行互斥、最近 20 个任务及最近 1000 行脱敏日志的内存记录，面板进程重启后不自动恢复队列，应刷新站点确认实际状态。
+
+新增接口：`POST /api/v1/vhosts/ssl/renew/preview` 接收 `{"names":["example.conf"]}`，返回每站可续签状态与默认参数；`POST /api/v1/vhosts/ssl/renew` 接收 `{"request_id":"唯一请求标识","items":[{"name":"example.conf","provider":"zerossl","email":"admin@example.com"}]}`，返回 202 与批量任务。两者均需登录及 CSRF，请求体上限 1 MiB，最多 1000 个不重复站点；辅助程序仅逐站执行。进度复用现有任务查询和 SSE 接口，批量任务的 `kind` 为 `ssl-renew`，增加 `items`、`completed`、`succeeded`、`failed`，日志增加 `name`。升级需同步安装两个二进制和 sudoers，新增 `vhosts ssl-renew-preview`、`vhosts ssl-renew` 精确授权；安装只检查授权，不实际续签。
+
 ### 网站截图
 
 虚拟主机支持卡片和表格视图，两种视图均展示网站预览。通过“截图设置”填写 HTTP/HTTPS 地址，可启用 Basic Auth，并按站点指定浏览器语言（默认 `zh-CN`，例如 `en-US`）和最长加载时间（默认 30 秒，可设为 5–300 秒）。语言同时用于请求语言、浏览器语言及日期、数字格式。截图分辨率可选 1920×1080、1440×900（默认）、1366×768、768×1024、390×844，也可自定义宽高，均须为 320–3840 的整数。尺寸表示浏览器视口，设备像素比固定为 1；手机和平板尺寸不切换移动端 UA 或启用触摸模拟。保存后后台截取网站首屏，之后手动“重新截图”，点击图片可放大；没有定时截图、全页截图或历史图库。支持公网、本机和内网地址，浏览器访问的是服务器可达的地址，不使用管理员浏览器中的登录状态。页面加载后等待资源请求结束并连续稳定 2 秒、字体就绪后再截图；CSS、图片等加载较慢时可增加最长加载时间，超时显示原因并保留上次成功截图。持续轮询的页面可能需要更长时间才能稳定。HTTPS 证书错误、HTTP 错误和认证失败会显示原因，保留上次成功截图。
@@ -348,7 +360,7 @@ screenshots:
 
 部署后可用 `sudo -u lnmp-panel /usr/local/bin/lnmp-gopanel check-screenshots` 检查截图组件，仅访问临时本地测试页面，不访问业务站点。源码集成测试使用 `SCREENSHOT_TEST_BROWSER=/path/to/chromium go test -race ./internal/screenshots -run TestChromiumIntegration`，所有目标都是本地测试服务器；仅隔离的 root 测试进程会关闭浏览器沙箱，生产代码不提供该开关。
 
-新增接口：`GET /api/v1/vhosts/screenshots`、`PUT /api/v1/vhosts/screenshot?name=…`、`POST /api/v1/vhosts/screenshot/refresh?name=…`、`DELETE /api/v1/vhosts/screenshot?name=…`、`GET /api/v1/vhosts/screenshot/image?name=…`。均需登录，写操作需 CSRF；设置与刷新返回 202，图片通过面板鉴权后读取且禁止缓存。设置输入及返回数据包含 `viewport_width`、`viewport_height`、`javascript`；宽高同时省略或均为 0 时使用默认尺寸，只提供一项非零尺寸会报错。截图设置 PUT 请求体上限为 128 KiB，以容纳脚本和 JSON 转义，建站相关 POST 为 32 KiB，其他 API 为 4 KiB。
+新增接口：`GET /api/v1/vhosts/screenshots`、`PUT /api/v1/vhosts/screenshot?name=…`、`POST /api/v1/vhosts/screenshot/refresh?name=…`、`DELETE /api/v1/vhosts/screenshot?name=…`、`GET /api/v1/vhosts/screenshot/image?name=…`。均需登录，写操作需 CSRF；设置与刷新返回 202，图片通过面板鉴权后读取且禁止缓存。设置输入及返回数据包含 `viewport_width`、`viewport_height`、`javascript`；宽高同时省略或均为 0 时使用默认尺寸，只提供一项非零尺寸会报错。截图设置 PUT 请求体上限为 128 KiB，以容纳脚本和 JSON 转义，建站相关 POST 为 32 KiB，批量 SSL 续签及预检查 POST 为 1 MiB，其他 API 为 4 KiB。
 
 ### 定时任务
 

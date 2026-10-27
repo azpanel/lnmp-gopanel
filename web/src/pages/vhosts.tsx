@@ -50,6 +50,8 @@ import type {
 import { cn } from "@/lib/utils";
 import { useWebsiteScreenshots } from "@/components/website-screenshot";
 import { VhostBasicAuthDialog } from "@/components/vhost-basic-auth";
+import { Checkbox } from "@/components/ui/checkbox";
+import { VhostRenew } from "@/components/vhost-renew";
 import { VhostCreate } from "@/components/vhost-create";
 
 const certificateLabels = {
@@ -334,6 +336,7 @@ export function Vhosts() {
   const client = useQueryClient(),
     autoStarted = useRef(false);
   const [filter, setFilter] = useState("");
+  const [selectedNames, setSelectedNames] = useState<string[]>([]);
   const [view, setView] = useState<"cards" | "table">("cards");
   const [authSite, setAuthSite] = useState<Vhost | null>(null);
   const [configSite, setConfigSite] = useState<Vhost | null>(null);
@@ -383,6 +386,15 @@ export function Vhosts() {
   }, [snapshot.data?.status, refresh.mutate]);
   const data = snapshot.data;
   const all = data?.sites ?? [];
+  useEffect(() => {
+    if (data?.status !== "ready" && data?.status !== "scanning") return;
+    const names = new Set(data.sites.map((site) => site.name));
+    setSelectedNames((old) =>
+      old.some((name) => !names.has(name))
+        ? old.filter((name) => names.has(name))
+        : old,
+    );
+  }, [data?.sites, data?.status]);
   const knownCount =
     data?.status === "ready" || data?.status === "scanning" ? all.length : null;
   useEffect(() => {
@@ -438,6 +450,12 @@ export function Vhosts() {
           <p>查看站点配置、SSL 证书及网站目录空间。</p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <VhostRenew
+            names={selectedNames}
+            sites={all}
+            table={view === "table"}
+            onStarted={() => setSelectedNames([])}
+          />
           <VhostCreate />
           <Button
             variant="outline"
@@ -490,6 +508,20 @@ export function Vhosts() {
         ))}
       </div>
       <div className="vhost-toolbar">
+        {view === "table" && selectedNames.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="small-note">
+              已选 {selectedNames.length} 个站点
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedNames([])}
+            >
+              清空选择
+            </Button>
+          </div>
+        )}
         <span className="vhost-config-directory">
           <FolderOpen size={14} />
           /usr/local/nginx/conf/vhost
@@ -554,6 +586,35 @@ export function Vhosts() {
             <Table className="vhost-table" aria-label="虚拟主机列表">
               <TableHeader>
                 <TableRow>
+                  <TableHead>
+                    <Checkbox
+                      aria-label="全选当前筛选站点"
+                      checked={
+                        sites.every((site) => selectedNames.includes(site.name))
+                          ? true
+                          : sites.some((site) =>
+                                selectedNames.includes(site.name),
+                              )
+                            ? "indeterminate"
+                            : false
+                      }
+                      onCheckedChange={(checked) =>
+                        setSelectedNames((old) =>
+                          checked
+                            ? [
+                                ...new Set([
+                                  ...old,
+                                  ...sites.map((site) => site.name),
+                                ]),
+                              ]
+                            : old.filter(
+                                (name) =>
+                                  !sites.some((site) => site.name === name),
+                              ),
+                        )
+                      }
+                    />
+                  </TableHead>
                   <TableHead>站点图片</TableHead>
                   <TableHead>域名 / 配置</TableHead>
                   <TableHead>状态 / 监听</TableHead>
@@ -564,7 +625,25 @@ export function Vhosts() {
               </TableHeader>
               <TableBody>
                 {sites.map((site) => (
-                  <TableRow key={site.name}>
+                  <TableRow
+                    key={site.name}
+                    data-state={
+                      selectedNames.includes(site.name) ? "selected" : undefined
+                    }
+                  >
+                    <TableCell>
+                      <Checkbox
+                        aria-label={`选择站点 ${site.name}`}
+                        checked={selectedNames.includes(site.name)}
+                        onCheckedChange={(checked) =>
+                          setSelectedNames((old) =>
+                            checked
+                              ? [...new Set([...old, site.name])]
+                              : old.filter((name) => name !== site.name),
+                          )
+                        }
+                      />
+                    </TableCell>
                     <TableCell>{screenshots.preview(site, true)}</TableCell>
                     <TableCell>
                       <strong className="vhost-table-name">

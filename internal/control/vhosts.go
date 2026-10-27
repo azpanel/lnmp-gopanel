@@ -15,7 +15,7 @@ import (
 func (h Helper) vhostCommand(ctx context.Context, action string, input any, consume func(*json.Decoder) error) error {
 	cmd := exec.CommandContext(ctx, "/usr/bin/sudo", "-n", h.Path, "vhosts", action)
 	configureProcess(cmd)
-	if action == "create" {
+	if action == "create" || action == "ssl-renew" {
 		configureProvisionProcess(cmd)
 	}
 	cmd.Env = []string{"PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C"}
@@ -35,7 +35,7 @@ func (h Helper) vhostCommand(ctx context.Context, action string, input any, cons
 		return errors.New("站点辅助程序不可用")
 	}
 	limit := int64(8 * 1024 * 1024)
-	if action == "create" {
+	if action == "create" || action == "ssl-renew" {
 		limit = 64 * 1024 * 1024
 	}
 	decoder := json.NewDecoder(io.LimitReader(pipe, limit))
@@ -138,10 +138,16 @@ func (h Helper) VhostOptions(ctx context.Context) (vhosts.CreateOptions, error) 
 	return out, err
 }
 func (h Helper) CreateVhost(ctx context.Context, r vhosts.CreateRequest, report func(vhosts.CreateEvent)) (vhosts.CreateResult, error) {
-	result := vhosts.CreateResult{Name: r.Name, Database: "skipped", SSL: "skipped"}
+	return h.provisionVhost(ctx, "create", r, report)
+}
+func (h Helper) provisionVhost(ctx context.Context, action string, input any, report func(vhosts.CreateEvent)) (vhosts.CreateResult, error) {
+	result := vhosts.CreateResult{Database: "skipped", SSL: "skipped"}
+	if r, ok := input.(vhosts.CreateRequest); ok {
+		result.Name = r.Name
+	}
 	var helperErr error
 	complete := false
-	err := h.vhostCommand(ctx, "create", r, func(d *json.Decoder) error {
+	err := h.vhostCommand(ctx, action, input, func(d *json.Decoder) error {
 		for {
 			var envelope struct {
 				Data     *vhosts.CreateEvent `json:"data"`
@@ -177,4 +183,18 @@ func (h Helper) CreateVhost(ctx context.Context, r vhosts.CreateRequest, report 
 		return result, errors.New("建站辅助程序中断，请刷新站点确认实际状态")
 	}
 	return result, nil
+}
+
+func (h Helper) PreviewRenewal(ctx context.Context, names []string) ([]vhosts.RenewPreview, error) {
+	var out []vhosts.RenewPreview
+	var helperErr error
+	err := h.vhostCommand(ctx, "ssl-renew-preview", map[string]any{"names": names}, func(d *json.Decoder) error { helperErr = readVhostResponse(d, &out); return nil })
+	if helperErr != nil {
+		return nil, helperErr
+	}
+	return out, err
+}
+func (h Helper) RenewVhost(ctx context.Context, id string, item vhosts.RenewItem, report func(vhosts.CreateEvent)) error {
+	_, err := h.provisionVhost(ctx, "ssl-renew", vhosts.RenewRequest{RequestID: id, Items: []vhosts.RenewItem{item}}, report)
+	return err
 }

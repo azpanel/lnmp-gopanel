@@ -16,10 +16,16 @@ type JobLine struct {
 	ID    uint64    `json:"id"`
 	Time  time.Time `json:"time"`
 	Phase string    `json:"phase"`
+	Name  string    `json:"name,omitempty"`
 	Text  string    `json:"text"`
 }
 type Job struct {
 	ID        string        `json:"id"`
+	Kind      string        `json:"kind,omitempty"`
+	Items     []RenewItem   `json:"items,omitempty"`
+	Completed int           `json:"completed,omitempty"`
+	Succeeded int           `json:"succeeded,omitempty"`
+	Failed    int           `json:"failed,omitempty"`
 	Name      string        `json:"name"`
 	Status    string        `json:"status"`
 	Phase     string        `json:"phase"`
@@ -47,6 +53,7 @@ func (m *Jobs) Options(ctx context.Context) (CreateOptions, error) {
 }
 func cloneJob(j *Job) Job {
 	copy := *j
+	copy.Items = append([]RenewItem(nil), j.Items...)
 	copy.Lines = append([]JobLine{}, j.Lines...)
 	if j.Result != nil {
 		r := *j.Result
@@ -59,12 +66,8 @@ func (m *Jobs) List() []Job {
 	defer m.mu.RUnlock()
 	out := []Job{}
 	for i := len(m.order) - 1; i >= 0; i-- {
-		job := *m.jobs[m.order[i]]
+		job := cloneJob(m.jobs[m.order[i]])
 		job.Lines = []JobLine{}
-		if job.Result != nil {
-			result := *job.Result
-			job.Result = &result
-		}
 		out = append(out, job)
 	}
 	return out
@@ -86,6 +89,9 @@ func (m *Jobs) Start(r CreateRequest) (Job, error) {
 	if j, ok := m.jobs[r.RequestID]; ok {
 		out := cloneJob(j)
 		m.mu.Unlock()
+		if out.Kind == "ssl-renew" {
+			return Job{}, errors.New("提交标识已用于其他任务")
+		}
 		return out, nil
 	}
 	if m.active != "" {
@@ -109,44 +115,7 @@ func (m *Jobs) Start(r CreateRequest) (Job, error) {
 func (m *Jobs) run(r CreateRequest) {
 	ctx, cancel := context.WithTimeout(m.ctx, CreateTimeout)
 	defer cancel()
-	secrets := []string{r.Database.Password, r.Database.AdminPassword}
-	inPrivateKey := false
-	redact := func(line string) string {
-		for _, secret := range secrets {
-			if secret != "" {
-				line = strings.ReplaceAll(line, secret, "[已隐藏]")
-			}
-		}
-		upper := strings.ToUpper(line)
-		if strings.Contains(upper, "BEGIN ") && strings.Contains(upper, "PRIVATE KEY") {
-			inPrivateKey = true
-		}
-		if inPrivateKey {
-			if strings.Contains(upper, "END ") && strings.Contains(upper, "PRIVATE KEY") {
-				inPrivateKey = false
-			}
-			return "[私钥输出已隐藏]"
-		}
-		for _, marker := range []string{"PRIVATE KEY", "HMAC", "API_KEY", "ACCOUNT_KEY", "ACCOUNT_JSON", "SAVED_", "TOKEN=", "PASSWORD=", "SECRET="} {
-			if strings.Contains(upper, marker) {
-				return "[敏感输出已隐藏]"
-			}
-		}
-		line = strings.ToValidUTF8(line, "")
-		if len(line) > 4096 {
-			line = line[:4096]
-			for !utf8.ValidString(line) {
-				line = line[:len(line)-1]
-			}
-			line += "…"
-		}
-		return strings.Map(func(c rune) rune {
-			if c == '\t' || c >= 32 && c != 127 {
-				return c
-			}
-			return -1
-		}, line)
-	}
+	redact := newJobRedactor([]string{r.Database.Password, r.Database.AdminPassword})
 	var seq uint64
 	result, err := m.backend.CreateVhost(ctx, r, func(e CreateEvent) {
 		m.mu.Lock()
@@ -189,4 +158,44 @@ func (m *Jobs) run(r CreateRequest) {
 	}
 	m.active = ""
 	m.mu.Unlock()
+}
+
+func newJobRedactor(secrets []string) func(string) string {
+	inPrivateKey := false
+	return func(line string) string {
+		for _, secret := range secrets {
+			if secret != "" {
+				line = strings.ReplaceAll(line, secret, "[已隐藏]")
+			}
+		}
+		upper := strings.ToUpper(line)
+		if strings.Contains(upper, "BEGIN ") && strings.Contains(upper, "PRIVATE KEY") {
+			inPrivateKey = true
+		}
+		if inPrivateKey {
+			if strings.Contains(upper, "END ") && strings.Contains(upper, "PRIVATE KEY") {
+				inPrivateKey = false
+			}
+			return "[私钥输出已隐藏]"
+		}
+		for _, marker := range []string{"PRIVATE KEY", "HMAC", "API_KEY", "ACCOUNT_KEY", "ACCOUNT_JSON", "SAVED_", "TOKEN=", "PASSWORD=", "SECRET="} {
+			if strings.Contains(upper, marker) {
+				return "[敏感输出已隐藏]"
+			}
+		}
+		line = strings.ToValidUTF8(line, "")
+		if len(line) > 4096 {
+			line = line[:4096]
+			for !utf8.ValidString(line) {
+				line = line[:len(line)-1]
+			}
+			line += "…"
+		}
+		return strings.Map(func(c rune) rune {
+			if c == '\t' || c >= 32 && c != 127 {
+				return c
+			}
+			return -1
+		}, line)
+	}
 }
