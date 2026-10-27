@@ -36,6 +36,12 @@ import { bytes } from "@/lib/format";
 import { loadLogRules, logLines, validateLogRules } from "@/lib/logs";
 import type { LogCatalog, LogRule } from "@/lib/logs";
 import { useLogReader } from "@/lib/use-log-reader";
+import {
+  httpStatusGroups,
+  isNginxLog,
+  matchesHTTPStatus,
+  parseNginxAccess,
+} from "@/lib/nginx-access";
 
 export function Logs() {
   const catalog = useQuery({
@@ -62,13 +68,48 @@ export function Logs() {
   const reader = useLogReader(file?.available ? path : "");
   const [rules, setRules] = useState<LogRule[]>([]);
   const [dirty, setDirty] = useState(false);
+  const [table, setTable] = useState(false);
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const rulesRef = useRef(rules);
   rulesRef.current = rules;
   useEffect(() => {
     setRules(loadLogRules(path));
     setDirty(false);
+    setTable(false);
+    setStatusFilters([]);
   }, [path]);
   const lines = useMemo(() => logLines(reader.pages), [reader.pages]);
+  const formatted = table && isNginxLog(path);
+  const accessEntries = useMemo(
+    () =>
+      formatted
+        ? new Map(
+            lines.map((line) => [line.offset, parseNginxAccess(line.text)]),
+          )
+        : undefined,
+    [formatted, lines],
+  );
+  const statusCodes = useMemo(
+    () =>
+      [
+        ...new Set([
+          ...Array.from(accessEntries?.values() ?? []).flatMap((entry) =>
+            entry ? [entry.status] : [],
+          ),
+          ...statusFilters.filter((value) => /^\d{3}$/.test(value)),
+        ]),
+      ].sort(),
+    [accessEntries, statusFilters],
+  );
+  const visibleLines = useMemo(
+    () =>
+      formatted
+        ? lines.filter((line) =>
+            matchesHTTPStatus(accessEntries?.get(line.offset), statusFilters),
+          )
+        : lines,
+    [formatted, lines, accessEntries, statusFilters],
+  );
   const first = reader.pages[0],
     last = reader.pages.at(-1);
   const status = reader.paused
@@ -233,11 +274,60 @@ export function Logs() {
           <span className="log-reader-status" role="status">
             {status}
           </span>
+          {isNginxLog(path) && (
+            <div className="log-format-controls">
+              <label className="log-check">
+                <Checkbox
+                  checked={formatted}
+                  onCheckedChange={(checked) => {
+                    setTable(checked === true);
+                    setStatusFilters([]);
+                  }}
+                />
+                格式化为表格
+              </label>
+            </div>
+          )}
+          {formatted && (
+            <fieldset className="log-http-filters">
+              <legend>HTTP 状态码</legend>
+              <div className="log-http-options">
+                {[...httpStatusGroups, ...statusCodes].map((value) => (
+                  <label className="log-check" key={value}>
+                    <Checkbox
+                      checked={statusFilters.includes(value)}
+                      onCheckedChange={(checked) =>
+                        setStatusFilters((old) =>
+                          checked === true
+                            ? [...old, value]
+                            : old.filter((item) => item !== value),
+                        )
+                      }
+                    />
+                    {value}
+                  </label>
+                ))}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={statusFilters.length === 0}
+                  onClick={() => setStatusFilters([])}
+                >
+                  清除筛选
+                </Button>
+              </div>
+              <p className="small-note" role="status">
+                仅筛选已加载范围 · 显示 {visibleLines.length} / {lines.length}{" "}
+                行 · 未选择时显示全部，多个选择取并集。
+              </p>
+            </fieldset>
+          )}
           <LogViewport
-            key={path}
-            lines={lines}
+            key={`${path}:${formatted}`}
+            lines={visibleLines}
             follow={reader.follow}
             onFollow={reader.setFollow}
+            accessEntries={accessEntries}
           />
           <p className="small-note log-meta">
             {first && last

@@ -1,9 +1,416 @@
 import { test, expect, type Page } from "@playwright/test";
 
+function accessLog(status: number, request: string, agent = "Test browser") {
+  return `2001:db8::1 - - [27/Oct/2026:14:23:45 +0800] "GET ${request} HTTP/1.1" ${status} 123 "-" "${agent}"`;
+}
+
 async function chooseOption(page: Page, label: string, option: string) {
   await page.getByRole("combobox", { name: label, exact: true }).click();
   await page.getByRole("option", { name: option, exact: true }).click();
 }
+
+test("access log table filters loaded rows, combines rules and resets per file", async ({
+  page,
+}, testInfo) => {
+  const site = "/home/wwwlogs/site.log";
+  const managed = "/usr/local/nginx/logs/gopanel/other.log";
+  const php = "/usr/local/php/var/log/php_errors.log";
+  const mysql = "/var/log/mysql/mariadb-slow.log";
+  const rows = [
+    { offset: "0", text: accessLog(200, "/ok?query=404"), partial: true },
+    { offset: "1000", text: accessLog(302, "/redirect").split(' "-" "')[0] },
+    { offset: "2000", text: accessLog(404, "/missing") },
+    { offset: "3000", text: accessLog(404, "/secret") },
+    {
+      offset: "4000",
+      text: accessLog(
+        500,
+        "/failed",
+        "<script>window.logInjected=true</script>",
+      ),
+      truncated: true,
+    },
+    { offset: "5000", text: "unrecognized access log" },
+  ];
+  let reads = 0;
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("**/api/v1/logs", (route) =>
+    route.fulfill({
+      json: {
+        files: [site, managed, php, mysql].map((path) => ({
+          path,
+          available: true,
+          size: 6000,
+          modified: "2026-10-27T06:23:45Z",
+        })),
+        warnings: [],
+      },
+    }),
+  );
+  await page.route("**/api/v1/logs/read", (route) => {
+    reads++;
+    const req = route.request().postDataJSON();
+    const after = req.mode === "after";
+    const lines = after
+      ? []
+      : rows.filter(
+          (row) =>
+            !req.rules.some(
+              (rule: { enabled: boolean; action: string; pattern: string }) =>
+                rule.enabled &&
+                rule.action === "hide" &&
+                row.text.includes(rule.pattern),
+            ),
+        );
+    return route.fulfill({
+      json: {
+        lines,
+        from: after ? "6000" : "0",
+        to: "6000",
+        replace_from: after ? "6000" : "0",
+        start: after ? "c6000" : "c0",
+        end: "c6000",
+        size: 6000,
+        modified: "2026-10-27T06:23:45Z",
+        has_before: false,
+        has_after: false,
+        limited: false,
+      },
+    });
+  });
+  await page.goto("/logs");
+  await page
+    .getByLabel("密码", { exact: true })
+    .fill("Test-Only-Panel-Password-2026");
+  await page.getByRole("button", { name: "登录面板" }).click();
+  await expect(page.locator(".log-line")).toHaveCount(6);
+  await page.getByRole("button", { name: "暂停追踪" }).click();
+  const initialReads = reads;
+  const format = page.getByRole("checkbox", { name: "格式化为表格" });
+  const table = page.getByRole("table", { name: "Nginx 访问日志" });
+  await expect(format).not.toBeChecked();
+  await expect(page.getByRole("group", { name: "HTTP 状态码" })).toHaveCount(0);
+  await format.focus();
+  await page.keyboard.press("Space");
+  await expect(table).toBeVisible();
+  await expect(table.getByRole("columnheader")).toHaveCount(9);
+  await expect(table.getByText("[无法解析]", { exact: true })).toBeVisible();
+  await expect(table.locator('[data-offset="0"]')).toContainText("尚未换行");
+  await expect(table.locator('[data-offset="4000"]')).toContainText("已截断");
+  await page.getByRole("button", { name: "查看偏移 4000 的原文" }).click();
+  const source = page.getByRole("dialog", { name: "日志原文" });
+  await expect(source.locator("pre")).toContainText(rows[4].text);
+  await expect(source).toContainText("超长行已截断");
+  await page.keyboard.press("Escape");
+  await expect(source).not.toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "查看偏移 4000 的原文" }),
+  ).toBeFocused();
+  expect(
+    await page.evaluate(
+      () => (window as Window & { logInjected?: boolean }).logInjected,
+    ),
+  ).toBeUndefined();
+
+  const status = (name: string) =>
+    page.getByRole("checkbox", { name, exact: true });
+  await status("404").click();
+  await expect(page.locator(".log-access-row")).toHaveCount(2);
+  await expect(page.getByText(/显示 2 \/ 6 行/)).toBeVisible();
+  await status("5xx").click();
+  await expect(page.locator(".log-access-row")).toHaveCount(3);
+  await status("4xx").click();
+  await expect(page.locator(".log-access-row")).toHaveCount(3);
+  await page.getByRole("button", { name: "清除筛选" }).click();
+  await status("1xx").click();
+  await expect(page.getByText("当前范围没有可显示的日志行")).toBeVisible();
+  await page.getByRole("button", { name: "清除筛选" }).click();
+  expect(reads).toBe(initialReads);
+
+  await status("4xx").click();
+  await page.getByRole("button", { name: /^筛选规则/ }).click();
+  await page.getByRole("button", { name: "添加规则" }).click();
+  await page.getByLabel("规则 1 内容").fill("secret");
+  await chooseOption(page, "规则 1 操作", "隐藏匹配");
+  await page.getByRole("button", { name: "应用规则" }).click();
+  await expect(page.locator(".log-access-row")).toHaveCount(1);
+  await expect(page.locator(".log-access-row")).toContainText("/missing");
+  await expect(page.getByText(/显示 1 \/ 5 行/)).toBeVisible();
+  await format.click();
+  await expect(table).toHaveCount(0);
+  await expect(page.locator(".log-line")).toHaveCount(5);
+  await format.click();
+  await expect(status("4xx")).not.toBeChecked();
+  await expect(page.locator(".log-access-row")).toHaveCount(5);
+  await page.screenshot({
+    path: testInfo.outputPath("access-log-table.png"),
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+
+  await chooseOption(page, "选择日志", managed);
+  await expect(format).not.toBeChecked();
+  await format.click();
+  await status("404").click();
+  await chooseOption(page, "选择日志", site);
+  await expect(format).not.toBeChecked();
+  await format.click();
+  await expect(status("404")).not.toBeChecked();
+  for (const path of [php, mysql]) {
+    await chooseOption(page, "选择日志", path);
+    await expect(format).toHaveCount(0);
+    await expect(table).toHaveCount(0);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("access table virtualizes history, follows matching replacements and recovers rotation", async ({
+  page,
+}, testInfo) => {
+  const path = "/home/wwwlogs/access.log";
+  const modified = "2026-10-27T06:23:45Z";
+  const long = "long request 中文".repeat(45);
+  let appended = false,
+    appendNext = false,
+    rotateNext = false,
+    rotated = false;
+  const base = Array.from({ length: 1200 }, (_, i) => ({
+    offset: String(100000 + i * 1000),
+    text:
+      i === 1199
+        ? accessLog(500, "/incomplete").slice(0, -1)
+        : accessLog(
+            i % 2 ? 404 : 200,
+            `/entry-${i}`,
+            i % 3 === 0 ? long : "browser",
+          ),
+    partial: i === 1199,
+  }));
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("**/api/v1/logs", (route) =>
+    route.fulfill({
+      json: {
+        files: [{ path, available: true, size: 1300000, modified }],
+        warnings: [],
+      },
+    }),
+  );
+  await page.route("**/api/v1/logs/read", (route) => {
+    const req = route.request().postDataJSON();
+    if (rotateNext && req.mode === "after") {
+      rotateNext = false;
+      rotated = true;
+      return route.fulfill({ status: 409, json: { error: "日志已轮转" } });
+    }
+    if (rotated)
+      return route.fulfill({
+        json: {
+          lines:
+            req.mode === "after"
+              ? []
+              : [{ offset: "0", text: accessLog(503, "/rotated") }],
+          from: req.mode === "after" ? "1000" : "0",
+          to: "1000",
+          replace_from: req.mode === "after" ? "1000" : "0",
+          start: req.mode === "after" ? "c1000" : "c0",
+          end: "c1000",
+          size: 1000,
+          modified,
+          has_before: false,
+          has_after: false,
+          limited: false,
+        },
+      });
+    const before = req.mode === "before",
+      after = req.mode === "after";
+    const replacing = after && appendNext;
+    if (replacing) {
+      appended = true;
+      appendNext = false;
+    }
+    const end = appended ? 1301000 : 1300000;
+    const from = before ? 50000 : after ? Number(req.end.slice(1)) : 100000;
+    const replacements = [
+      { offset: "1299000", text: accessLog(500, "/completed") },
+      { offset: "1300000", text: accessLog(502, "/latest", long) },
+    ];
+    const lines = before
+      ? Array.from({ length: 50 }, (_, i) => ({
+          offset: String(50000 + i * 1000),
+          text: accessLog(404, `/history-${i}`, long),
+        }))
+      : after
+        ? replacing
+          ? replacements
+          : []
+        : appended
+          ? [...base.slice(0, -1), ...replacements]
+          : base;
+    return route.fulfill({
+      json: {
+        lines,
+        from: String(from),
+        to: String(before ? 100000 : end),
+        replace_from: String(replacing ? 1299000 : from),
+        start: `c${from}`,
+        end: `c${before ? 100000 : end}`,
+        size: end,
+        modified,
+        has_before: !before,
+        has_after: false,
+        limited: false,
+      },
+    });
+  });
+  await page.goto("/logs");
+  await page
+    .getByLabel("密码", { exact: true })
+    .fill("Test-Only-Panel-Password-2026");
+  await page.getByRole("button", { name: "登录面板" }).click();
+  await expect(page.locator(".log-line").first()).toBeVisible();
+  await page.getByRole("checkbox", { name: "格式化为表格" }).click();
+  await page.getByRole("checkbox", { name: "4xx", exact: true }).click();
+  const viewport = page.locator(".log-viewport");
+  const follow = page.getByRole("checkbox", { name: "自动滚动" });
+  const atBottom = () =>
+    viewport.evaluate(
+      (node) => node.scrollHeight - node.scrollTop - node.clientHeight,
+    );
+  await expect.poll(atBottom).toBeLessThan(2);
+  expect(await page.locator(".log-access-row").count()).toBeLessThan(80);
+  await viewport.evaluate((node) => {
+    node.scrollTop = node.scrollHeight - node.clientHeight - 160;
+  });
+  await expect(follow).not.toBeChecked();
+  const anchor = await viewport.evaluate((node) => {
+    const top = node.getBoundingClientRect().top + node.clientTop;
+    const row = [...node.querySelectorAll<HTMLElement>(".log-access-row")].find(
+      (row) => row.getBoundingClientRect().bottom > top,
+    )!;
+    return {
+      offset: row.dataset.offset!,
+      y: row.getBoundingClientRect().top - top,
+    };
+  });
+  const headerPosition = () =>
+    page
+      .locator(".log-access-header")
+      .evaluate(
+        (node) =>
+          node.getBoundingClientRect().top -
+          node.closest(".log-table-scroll")!.getBoundingClientRect().top,
+      );
+  await page.getByRole("button", { name: "加载更早日志" }).click();
+  await expect(page.getByText(/显示 649 \/ 1250 行/)).toBeVisible();
+  await expect
+    .poll(() =>
+      viewport.evaluate((node, anchor) => {
+        const row = node.querySelector<HTMLElement>(
+          `[data-offset="${anchor.offset}"]`,
+        );
+        return row
+          ? Math.abs(
+              row.getBoundingClientRect().top -
+                node.getBoundingClientRect().top -
+                node.clientTop -
+                anchor.y,
+            )
+          : Infinity;
+      }, anchor),
+    )
+    .toBeLessThan(2);
+  await expect.poll(headerPosition).toBe(1);
+  await expect
+    .poll(() =>
+      page
+        .locator(".log-access-row")
+        .evaluateAll((nodes) =>
+          nodes.every(
+            (node, i) =>
+              i === 0 ||
+              node.getBoundingClientRect().top >=
+                nodes[i - 1].getBoundingClientRect().bottom - 1,
+          ),
+        ),
+    )
+    .toBe(true);
+
+  // Header and rows share their columns before and after horizontal scrolling.
+  await page.locator(".log-table-scroll").evaluate((node) => {
+    node.scrollLeft = 300;
+  });
+  const columnDifference = () =>
+    page.getByRole("table").evaluate((node) => {
+      const header = node.querySelectorAll('[role="columnheader"]');
+      const cells = node
+        .querySelector(".log-access-row")!
+        .querySelectorAll('[role="cell"]');
+      return Math.max(
+        ...[...header].map((cell, i) =>
+          Math.abs(
+            cell.getBoundingClientRect().left -
+              cells[i].getBoundingClientRect().left,
+          ),
+        ),
+      );
+    });
+  await expect.poll(columnDifference).toBeLessThan(2);
+  const originalSize = page.viewportSize()!;
+  await page.setViewportSize({
+    width: originalSize.width + 220,
+    height: originalSize.height,
+  });
+  await expect.poll(columnDifference).toBeLessThan(2);
+  await page.setViewportSize(originalSize);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("access-log-history.png"),
+    fullPage: true,
+  });
+
+  await page.getByRole("button", { name: "清除筛选" }).click();
+  await page.getByRole("checkbox", { name: "5xx", exact: true }).click();
+  await expect(page.getByText("当前范围没有可显示的日志行")).toBeVisible();
+  await page.getByRole("button", { name: "回到最新" }).click();
+  appendNext = true;
+  await expect(page.getByText(/显示 2 \/ 1201 行/)).toBeVisible();
+  await expect(page.locator('[data-offset="1300000"]')).toContainText(
+    "/latest",
+  );
+  await expect(follow).toBeChecked();
+  await expect.poll(atBottom).toBeLessThan(2);
+  // A tall final row may virtualize its predecessor out on a small screen.
+  await viewport.evaluate((node) => {
+    node.scrollTop = 0;
+  });
+  await expect(page.locator('[data-offset="1299000"]')).toContainText(
+    "/completed",
+  );
+  await follow.check();
+  await expect.poll(atBottom).toBeLessThan(2);
+  await page.getByRole("checkbox", { name: "502", exact: true }).click();
+  rotateNext = true;
+  await expect(
+    page.getByText("日志已轮转或截断，当前已切换至新文件的最新内容。"),
+  ).toBeVisible();
+  await expect(page.locator(".log-access-row")).toHaveCount(1);
+  await expect(page.locator(".log-access-row")).toContainText("/rotated");
+  await expect(
+    page.getByRole("checkbox", { name: "502", exact: true }),
+  ).toBeChecked();
+  await expect(page.getByText(/显示 1 \/ 1 行/)).toBeVisible();
+  expect(errors).toEqual([]);
+});
 
 for (const theme of ["light", "dark"] as const) {
   test(`custom log controls handle long paths, keyboard selection and empty lists in ${theme} theme`, async ({
@@ -50,6 +457,12 @@ for (const theme of ["light", "dark"] as const) {
       path: testInfo.outputPath(`log-select-${theme}.png`),
     });
     await page.keyboard.press("End");
+    await expect(
+      page.getByRole("option", {
+        name: "/home/wwwlogs/site-19.log（不可读取）",
+        exact: true,
+      }),
+    ).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(select).toContainText("site-19.log");
     await expect(select).toBeFocused();
