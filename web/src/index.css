@@ -1956,19 +1956,19 @@ a {
   width: 14%;
 }
 .vhost-table th:nth-child(2) {
-  width: 20%;
+  width: 18%;
 }
 .vhost-table th:nth-child(3) {
   width: 16%;
 }
 .vhost-table th:nth-child(4) {
-  width: 24%;
+  width: 20%;
 }
 .vhost-table th:nth-child(5) {
-  width: 15%;
+  width: 13%;
 }
 .vhost-table th:nth-child(6) {
-  width: 11%;
+  width: 19%;
 }
 .vhost-table-name {
   font-weight: 550;
@@ -2018,10 +2018,11 @@ a {
   line-height: 18px;
 }
 .vhost-table .vhost-actions {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
   width: auto;
   margin: 0;
   padding: 0;
-  flex-wrap: wrap;
   gap: 4px;
 }
 .vhost-table .vhost-actions button {
@@ -2248,6 +2249,7 @@ a {
 .vhost-actions {
   margin-left: auto;
   display: flex;
+  flex-wrap: wrap;
   gap: 9px;
   flex-shrink: 0;
 }

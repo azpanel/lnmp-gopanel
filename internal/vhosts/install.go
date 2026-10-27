@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 )
+
+// ErrInstallUncertain means the running or on-disk configuration could not be
+// restored. Callers must retain resources that either configuration may use.
+var ErrInstallUncertain = errors.New("站点配置恢复结果无法确认")
 
 // Install validates a new configuration before reloading and restores the exact
 // previous bytes on failure. Callers hold the shared Nginx lock throughout.
@@ -20,6 +25,7 @@ func (s Store) Install(ctx context.Context, name string, content, expected []byt
 		return err
 	}
 	target := filepath.Join(s.Directory, name)
+	mode := os.FileMode(0644)
 	if expected == nil {
 		for _, path := range []string{target, target + ".disabled"} {
 			if _, err := os.Lstat(path); !os.IsNotExist(err) {
@@ -31,6 +37,11 @@ func (s Store) Install(ctx context.Context, name string, content, expected []byt
 		if err != nil || !enabled {
 			return errors.New("站点不存在或已停用，请刷新后重试")
 		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return errors.New("站点配置不可读取")
+		}
+		mode = info.Mode().Perm()
 		current, err := readBounded(path, MaxConfig)
 		if err != nil || !bytes.Equal(current, expected) {
 			return errors.New("站点配置已被修改，请检查配置后重试")
@@ -43,7 +54,7 @@ func (s Store) Install(ctx context.Context, name string, content, expected []byt
 		}
 		tmp := f.Name()
 		defer os.Remove(tmp)
-		if err = f.Chmod(0644); err == nil {
+		if err = f.Chmod(mode); err == nil {
 			_, err = f.Write(data)
 		}
 		if err == nil {
@@ -67,7 +78,7 @@ func (s Store) Install(ctx context.Context, name string, content, expected []byt
 	rollback := func(reloadOld bool) error {
 		current, err := readBounded(target, MaxConfig)
 		if err != nil || !bytes.Equal(current, content) {
-			return errors.New("配置失败且文件已被外部修改，无法自动回滚，请立即检查 Nginx")
+			return fmt.Errorf("%w：配置失败且文件已被外部修改，无法自动回滚，请立即检查 Nginx", ErrInstallUncertain)
 		}
 		if expected == nil {
 			err = os.Remove(target)
@@ -75,13 +86,13 @@ func (s Store) Install(ctx context.Context, name string, content, expected []byt
 			err = write(expected, false)
 		}
 		if err != nil {
-			return errors.New("配置失败且恢复原配置失败，请立即检查 Nginx")
+			return fmt.Errorf("%w：配置失败且恢复原配置失败，请立即检查 Nginx", ErrInstallUncertain)
 		}
 		if reloadOld {
 			restore, done := context.WithTimeout(context.Background(), 10*time.Second)
 			defer done()
 			if check(restore) != nil || reload(restore) != nil {
-				return errors.New("已恢复配置，但重新加载原配置失败，请检查 Nginx")
+				return fmt.Errorf("%w：已恢复配置，但重新加载原配置失败，请检查 Nginx", ErrInstallUncertain)
 			}
 		}
 		return nil

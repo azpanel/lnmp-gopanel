@@ -55,7 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/azpanel/lnmp-gopanel/main/install.s
 
 证书和私钥安装到 `/etc/lnmp-gopanel/tls/`，目录权限 `0750`、文件权限 `0640`、所有者 `root:lnmp-panel`。借用的证书不会自动跟随原证书续期；续期后重新执行 `sudo bash install.sh --certificate-dir /usr/local/nginx/conf/ssl/域名`，同步证书并重启面板，已有 HTTPS 端口保持不变。自签名证书可通过 `--tls-mode self-signed` 重新生成。
 
-安装时会以 `lnmp-panel` 账号检查服务状态、Docker 查询、文件扫描、定时任务、日志读取及虚拟主机全部六项操作的精确 sudo 授权，并实际免密调用只读 `docker snapshot`、`components snapshot` 辅助程序（无需安装或启动 Docker，不触发全盘扫描或服务启停）。虚拟主机只检查 `list/config/usage/toggle/options/create` 授权，不读取站点或证书账号、不创建站点或申请证书。启动面板后读取实际进程的 `/proc/<MainPID>/status`，确认 `NoNewPrivs: 0`，避免 systemd 隐式限制使所有辅助功能不可用；检查失败会报错并回滚。`--no-start` 只执行辅助程序检查，进程限制需在自行启动后验证。
+安装时会以 `lnmp-panel` 账号检查服务状态、Docker 查询、文件扫描、定时任务、日志读取及虚拟主机全部九项操作的精确 sudo 授权，并实际免密调用只读 `docker snapshot`、`components snapshot` 辅助程序（无需安装或启动 Docker，不触发全盘扫描或服务启停）。虚拟主机只检查 `list/config/usage/toggle/options/create/basic-auth-get/basic-auth-set/basic-auth-disable` 授权，不读取站点或证书账号、不创建站点或申请证书。启动面板后读取实际进程的 `/proc/<MainPID>/status`，确认 `NoNewPrivs: 0`，避免 systemd 隐式限制使所有辅助功能不可用；检查失败会报错并回滚。`--no-start` 只执行辅助程序检查，进程限制需在自行启动后验证。
 
 在菜单选择更新或执行 `sudo bash install.sh --update` 即可从 GitHub Release 升级；带安装参数再次执行也可覆盖升级。已有 HTTPS 配置、端口、证书、管理员密码和 `services.yaml` 会保留。旧版 HTTP 安装升级时会询问证书来源、迁移为随机端口的 HTTPS，并保留管理员凭据及服务配置；原 HTTP 端口不再使用，需调整安全组或反向代理。升级只重启面板服务，不重启 Nginx、PHP、数据库、Redis 或 Docker；已有面板会话需重新登录。替换前的文件保存在 `/var/backups/lnmp-gopanel/`，替换或启动失败时自动恢复旧文件，包含原配置及证书。
 
@@ -91,7 +91,7 @@ bash scripts/package.sh arm64 v0.1.0
 
 包内包含 `bin/lnmp-gopanel`、`bin/lnmp-gopanel-control`、`deploy/`、`install.sh`、`README.md` 和 `VERSION`；本机配置、账号密码、依赖目录、测试截图和构建缓存不会提交或打包。
 
-从当前源码升级本机时，先构建前端，再运行上述打包命令，最后使用项目中的安装脚本执行 `sudo bash install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz`（arm64 使用对应文件名）。这样两个二进制、systemd 单元及 sudoers 会一起更新，并使用相同的备份、授权检查及失败回滚流程。定时任务、日志与虚拟主机仅检查 `cron list`、`logs list/read`、`vhosts list/config/usage/toggle/options/create` 的精确授权，不读取业务内容、不创建站点或申请证书；缺少可选组件或业务文件不会阻止安装。旧版 HTTP 安装非交互升级时需追加 `--tls-mode self-signed`，或指定现有证书。
+从当前源码升级本机时，先构建前端，再运行上述打包命令，最后使用项目中的安装脚本执行 `sudo bash install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz`（arm64 使用对应文件名）。这样两个二进制、systemd 单元及 sudoers 会一起更新，并使用相同的备份、授权检查及失败回滚流程。定时任务、日志与虚拟主机仅检查 `cron list`、`logs list/read`、`vhosts list/config/usage/toggle/options/create/basic-auth-get/basic-auth-set/basic-auth-disable` 的精确授权，不读取业务内容、不创建站点或申请证书；缺少可选组件或业务文件不会阻止安装。旧版 HTTP 安装非交互升级时需追加 `--tls-mode self-signed`，或指定现有证书。
 
 ## 构建
 
@@ -301,6 +301,12 @@ Redis 只显示状态和版本，不提供启停按钮，辅助程序也拒绝 R
 启停时只对普通配置文件原地重命名，保留原文件内容与权限；拒绝目录穿越、符号链接、同名文件冲突及覆盖目标。重命名后执行 `nginx -t`，通过才发出 `nginx -s reload`。检查失败恢复原文件名；重载失败恢复原文件名并尝试重新加载原配置，失败结果明确提示。所有面板触发的 Nginx 修改与站点启停共享进程间锁。
 
 新增接口：`GET /api/v1/vhosts`、`POST /api/v1/vhosts/refresh`（202，异步刷新）、`GET /api/v1/vhosts/config?name=example.conf`、`POST /api/v1/vhosts/toggle`（JSON `{"name":"example.conf","enabled":false}`）。全部需要登录，POST 需要 CSRF。特权操作仅开放固定参数 `vhosts list/config/usage/toggle`，文件名通过有界 JSON stdin 传递；辅助程序重新验证文件名与目录权限。升级时同步安装两个二进制和 sudoers 模板。
+
+虚拟主机卡片和表格的“访问认证”可开启、读取、关闭 Basic Auth 或替换用户名及密码。每个 vhost 一组凭证，同文件全部 server 共用；证书验证路径 `/.well-known/acme-challenge/` 免认证，SSL 重试会保留认证。停用站点只显示保存的配置状态，启用后才能修改。已有手写认证、共享 include 中的认证或 `satisfy any` 显示“外部配置”，不覆盖；动态 include、Lua 执行指令、提前返回成功响应的 `return 2xx`、异常管理标记、凭证缺失或无法确认继承关系时显示“无法确认”，禁止修改。状态来自磁盘配置检查，不代表已对公网地址执行认证探测。
+
+认证接口：`GET /api/v1/vhosts/basic-auth?name=example.conf` 读取状态；`PUT /api/v1/vhosts/basic-auth` 使用 JSON `{"name":"example.conf","username":"visitor","password":"新密码"}` 开启或完整替换凭证；`DELETE /api/v1/vhosts/basic-auth?name=example.conf` 关闭，重复关闭成功。均需登录，写操作需要 CSRF，JSON 上限 4 KiB。状态返回 `name`、`status`（`disabled/enabled/external/unknown`）、`managed`、`site_enabled`，以及可选 `username` 和 `message`，不返回密码及哈希。用户名为 1–64 位字母、数字、点、下划线或连字符；密码为 8–256 字节，不含控制字符。
+
+辅助程序只接受固定 `vhosts basic-auth-get/set/disable`，凭证通过 JSON stdin 传递。需要可信 `/usr/bin/openssl` 生成带随机盐的 SHA-512 crypt 哈希；只将用户名和哈希保存在 `/usr/local/nginx/conf/gopanel-auth/`，目录 `0755`、文件 `0644`，均由 root 管理且不可被其他用户写入，供 Nginx worker 读取。每次更新使用独立凭证文件，原凭证文件保留供平滑退出的旧 worker 完成请求，不复用或改写。配置检查或重载失败会恢复原配置，确认回滚成功后未被引用的新凭证会清理；关闭认证精确移除面板插入的配置片段，保留原配置内容和权限。卸载面板保留网站认证及凭证文件。升级需同步安装面板、辅助程序和 sudoers；安装仅检查新增命令的精确授权，不读取或修改认证。
 
 ### 添加站点
 

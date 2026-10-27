@@ -67,7 +67,7 @@ func (m *Manager) Invalidate() {
 			return
 		}
 		if err != nil {
-			m.snapshot.Error = "建站结果刷新失败，请手动刷新：" + err.Error()
+			m.snapshot.Error = "站点信息刷新失败，请手动刷新：" + err.Error()
 			return
 		}
 		for i := range sites {

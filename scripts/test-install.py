@@ -28,7 +28,7 @@ TARGETS = (
     "/etc/lnmp-gopanel/tls/panel.crt",
     "/etc/lnmp-gopanel/tls/panel.key",
 )
-VHOST_COMMANDS = tuple(f"vhosts {action}" for action in ("list", "config", "usage", "toggle", "options", "create"))
+VHOST_COMMANDS = tuple(f"vhosts {action}" for action in ("list", "config", "usage", "toggle", "options", "create", "basic-auth-get", "basic-auth-set", "basic-auth-disable"))
 
 
 def copy_executable(root, command):
@@ -372,6 +372,7 @@ fi
         preserved = [write(self.root, path, "keep") for path in (
             "/home/wwwroot/site/index.html", "/var/lib/mysql/database", "/usr/local/nginx/conf/ssl/site/privkey.pem",
             "/usr/local/nginx/conf/vhost/site.conf", "/usr/local/nginx/conf/gopanel-sites/site.conf.json",
+            "/usr/local/nginx/conf/gopanel-auth/site.htpasswd",
             "/usr/local/nginx/conf/ssl/gopanel/site/privkey.pem", "/usr/local/nginx/conf/gopanel-acme/.well-known/acme-challenge/token",
             "/root/.acme.sh/gopanel-certs/site_ecc/site.key", "/etc/cron.d/lnmp-gopanel-acme",
             "/usr/local/acme.sh/acme.sh", "/usr/local/acme.sh/account.conf", "/usr/local/acme.sh/gopanel-certs/site_ecc/site.key",

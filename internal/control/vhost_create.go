@@ -180,6 +180,7 @@ func (p siteProvisioner) create(ctx context.Context, r vhosts.CreateRequest, bin
 	}
 	store := p.store
 	var old []byte
+	var authFile string
 	if !r.Retry {
 		var db *sql.DB
 		if r.Database.Enabled {
@@ -274,7 +275,12 @@ func (p siteProvisioner) create(ctx context.Context, r vhosts.CreateRequest, bin
 			return result, e
 		}
 		old = []byte(view.Content)
-		if view.Filename != r.Name || configHash(old) != state.Hash {
+		base, credential, authErr := store.StripBasicAuth(r.Name, view.Content)
+		if authErr != nil {
+			return result, authErr
+		}
+		authFile = credential
+		if view.Filename != r.Name || configHash([]byte(base)) != state.Hash {
 			return result, errors.New("站点已停用或配置已修改，无法自动重试 SSL")
 		}
 	}
@@ -295,12 +301,20 @@ func (p siteProvisioner) create(ctx context.Context, r vhosts.CreateRequest, bin
 		return result, err
 	}
 	defer lock()
-	content := []byte(vhosts.RenderSite(r, php, cert, key))
+	baseContent := vhosts.RenderSite(r, php, cert, key)
+	content := []byte(baseContent)
+	if authFile != "" {
+		withAuth, e := store.AttachBasicAuth(r.Name, baseContent, authFile)
+		if e != nil {
+			return result, e
+		}
+		content = []byte(withAuth)
+	}
 	if err = store.Install(ctx, r.Name, content, old, check, reload); err != nil {
 		return result, err
 	}
 	state.Request = r
-	state.Hash = configHash(content)
+	state.Hash = configHash([]byte(baseContent))
 	if err = p.saveManaged(state); err != nil {
 		if e := store.Install(context.WithoutCancel(ctx), r.Name, old, content, check, reload); e != nil {
 			return result, errors.New("HTTPS 已部署，但站点记录写入及配置恢复失败，请检查 Nginx")

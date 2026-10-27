@@ -215,3 +215,12 @@ export type ComponentSnapshot = {
   items: ProgrammingComponent[];
   error?: string;
 };
+
+export interface VhostBasicAuth {
+  name: string;
+  status: "disabled" | "enabled" | "external" | "unknown";
+  managed: boolean;
+  username?: string;
+  site_enabled: boolean;
+  message?: string;
+}

@@ -258,3 +258,45 @@ func TestDatabaseGrantEscapesUnderscores(t *testing.T) {
 		}
 	}
 }
+
+func TestSSLRetryPreservesBasicAuthAndRejectsTamperedFragments(t *testing.T) {
+	p, r, _ := provisionFixture(t)
+	p.issue = func(context.Context, vhosts.CreateRequest, string, func(string)) (string, string, error) {
+		return "", "", errors.New("initial issue failed")
+	}
+	if _, err := p.create(context.Background(), r, "/trusted/nginx", func(vhosts.CreateEvent) {}); err == nil {
+		t.Fatal("expected initial failure")
+	}
+	name := "example.com.conf"
+	view, _ := p.store.Read(name)
+	file := filepath.Join(p.store.BasicAuthDirectory(), vhosts.BasicAuthKey(name)+"-"+strings.Repeat("a", 32)+".htpasswd")
+	content, err := p.store.AttachBasicAuth(name, view.Content, file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(p.store.Directory, name), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	p.issue = func(context.Context, vhosts.CreateRequest, string, func(string)) (string, string, error) {
+		return "/test/fullchain.pem", "/test/key.pem", nil
+	}
+	retry := vhosts.CreateRequest{RequestID: "request-retry", Name: name, Retry: true, SSL: r.SSL}
+	for i := 0; i < 2; i++ {
+		result, err := p.create(context.Background(), retry, "/trusted/nginx", func(vhosts.CreateEvent) {})
+		if err != nil || result.SSL != "enabled" {
+			t.Fatal(result, err)
+		}
+		view, _ = p.store.Read(name)
+		base, credential, err := p.store.StripBasicAuth(name, view.Content)
+		if err != nil || credential != file || strings.Count(view.Content, "auth_basic_user_file") != 2 || !strings.Contains(base, "listen 443 ssl;") {
+			t.Fatal("SSL lost auth", err)
+		}
+	}
+	bad := strings.Replace(view.Content, "Restricted", "tampered", 1)
+	if err = os.WriteFile(filepath.Join(p.store.Directory, name), []byte(bad), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.create(context.Background(), retry, "/trusted/nginx", func(vhosts.CreateEvent) {}); err == nil {
+		t.Fatal("tampered auth allowed SSL retry")
+	}
+}

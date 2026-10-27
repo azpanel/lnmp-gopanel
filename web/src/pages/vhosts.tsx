@@ -49,6 +49,7 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useWebsiteScreenshots } from "@/components/website-screenshot";
+import { VhostBasicAuthDialog } from "@/components/vhost-basic-auth";
 import { VhostCreate } from "@/components/vhost-create";
 
 const certificateLabels = {
@@ -334,6 +335,7 @@ export function Vhosts() {
     autoStarted = useRef(false);
   const [filter, setFilter] = useState("");
   const [view, setView] = useState<"cards" | "table">("cards");
+  const [authSite, setAuthSite] = useState<Vhost | null>(null);
   const [configSite, setConfigSite] = useState<Vhost | null>(null);
   const [selection, setSelection] = useState<Vhost | null>(null);
   const snapshot = useQuery({
@@ -405,6 +407,10 @@ export function Vhosts() {
   const renderActions = (site: Vhost) => (
     <div className="vhost-actions">
       {screenshots.settings(site)}
+      <Button variant="outline" size="sm" onClick={() => setAuthSite(site)}>
+        <LockKeyhole size={13} />
+        访问认证
+      </Button>
       <Button variant="outline" size="sm" onClick={() => setConfigSite(site)}>
         <Code2 size={13} />
         查看配置
@@ -716,6 +722,13 @@ export function Vhosts() {
         </span>
       </div>
       {screenshots.dialogs}
+      {authSite && (
+        <VhostBasicAuthDialog
+          key={authSite.name}
+          site={authSite}
+          onClose={() => setAuthSite(null)}
+        />
+      )}
       <Dialog
         open={configSite !== null}
         onOpenChange={(open) => {

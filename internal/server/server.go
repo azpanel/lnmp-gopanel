@@ -156,6 +156,7 @@ func (s *Server) Handler() http.Handler {
 		c.JSON(200, s.Vhosts.Latest())
 	})
 	s.registerVhostCreation(private)
+	s.registerVhostBasicAuth(private)
 	private.GET("/vhosts/count", func(c *gin.Context) {
 		if s.Vhosts == nil {
 			fail(c, 503, "站点管理未配置")
