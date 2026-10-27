@@ -28,6 +28,7 @@ TARGETS = (
     "/etc/lnmp-gopanel/tls/panel.crt",
     "/etc/lnmp-gopanel/tls/panel.key",
 )
+VHOST_COMMANDS = tuple(f"vhosts {action}" for action in ("list", "config", "usage", "toggle", "options", "create"))
 
 
 def copy_executable(root, command):
@@ -370,6 +371,9 @@ fi
             write(self.root, path, "panel data")
         preserved = [write(self.root, path, "keep") for path in (
             "/home/wwwroot/site/index.html", "/var/lib/mysql/database", "/usr/local/nginx/conf/ssl/site/privkey.pem",
+            "/usr/local/nginx/conf/vhost/site.conf", "/usr/local/nginx/conf/gopanel-sites/site.conf.json",
+            "/usr/local/nginx/conf/ssl/gopanel/site/privkey.pem", "/usr/local/nginx/conf/gopanel-acme/.well-known/acme-challenge/token",
+            "/root/.acme.sh/gopanel-certs/site_ecc/site.key", "/etc/cron.d/lnmp-gopanel-acme",
             "/etc/systemd/system/nginx.service", "/usr/bin/chromium", "/custom/screenshots/state")]
         # Neither sudo nor tar/curl is required for uninstall.
         for path in ("usr/bin/sudo", "usr/bin/curl"):
@@ -478,13 +482,13 @@ fi
             " /usr/local/libexec/lnmp-gopanel-control cron list, \\\n",
             (self.root / "etc/sudoers.d/lnmp-gopanel").read_text(),
         )
-        for command in ("logs list", "logs read", "components snapshot"):
+        for command in ("logs list", "logs read", "components snapshot") + VHOST_COMMANDS:
             self.assertIn(f"/usr/local/libexec/lnmp-gopanel-control {command}", (self.root / "etc/sudoers.d/lnmp-gopanel").read_text())
         self.assertTrue((self.root / "run/panel.active").exists())
         self.assertTrue((self.root / "run/panel.enabled").exists())
         self.assertTrue((self.root / "usr/local/bin/lnmp-gopanel").read_text().startswith("#!/bin/bash"))
         sudo_log = (self.root / "run/sudo.log").read_text()
-        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read"):
+        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read") + VHOST_COMMANDS:
             self.assertIn(f"-n -u lnmp-panel -- /usr/bin/sudo -n -l -- /usr/local/libexec/lnmp-gopanel-control {command}\n", sudo_log)
         self.assertIn("-n -u lnmp-panel -- /usr/bin/sudo -n -- /usr/local/libexec/lnmp-gopanel-control docker snapshot\n", sudo_log)
         self.assertIn("-n -u lnmp-panel -- /usr/bin/sudo -n -- /usr/local/libexec/lnmp-gopanel-control components snapshot\n", sudo_log)
@@ -518,6 +522,24 @@ fi
         # sudo authorization, never invoke a log read or copy its output.
         self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\ncomponents snapshot\n")
         self.assertEqual((self.root / "usr/local/libexec/lnmp-gopanel-control").read_text(), HELPER)
+
+    def test_vhost_upgrade_checks_all_permissions_without_touching_sites(self):
+        previous = self.old_installation(https=True)
+        preserved = [write(self.root, path, "keep") for path in (
+            "/usr/local/nginx/conf/vhost/site.conf", "/home/wwwroot/site/index.html",
+            "/root/.acme.sh/account.conf", "/etc/cron.d/lnmp-gopanel-acme",
+            "/usr/local/nginx/conf/ssl/gopanel/site/fullchain.pem")]
+        self.run_installer(automatic_tls=False)
+        for target in TARGETS[4:]:
+            self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
+        sudoers = (self.root / "etc/sudoers.d/lnmp-gopanel").read_text()
+        sudo_log = (self.root / "run/sudo.log").read_text()
+        for command in VHOST_COMMANDS:
+            self.assertIn(f"/usr/local/libexec/lnmp-gopanel-control {command}", sudoers)
+            self.assertIn(f"-n -l -- /usr/local/libexec/lnmp-gopanel-control {command}\n", sudo_log)
+        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\ncomponents snapshot\n")
+        for path in preserved:
+            self.assertEqual(path.read_text(), "keep")
 
     def test_http_upgrade_migrates_and_preserves_credentials_and_services(self):
         previous = self.old_installation()
@@ -588,7 +610,7 @@ fi
 
     def test_missing_helper_permissions_rolls_back(self):
         previous = self.old_installation()
-        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read"):
+        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read") + VHOST_COMMANDS:
             with self.subTest(command=command):
                 write(self.root, "/run/deny-helper-command", f"/usr/local/libexec/lnmp-gopanel-control {command}\n")
                 result = self.run_installer(success=False)

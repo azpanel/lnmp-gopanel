@@ -21,13 +21,14 @@ import (
 )
 
 const (
-	Directory        = "/home/wwwlogs"
-	MySQL            = "/var/log/mysql/mariadb-slow.log"
-	PHP              = "/usr/local/php/var/log/php_errors.log"
-	BatchBytes int64 = 256 * 1024
-	LineBytes  int64 = 64 * 1024
-	MaxFiles         = 4096
-	Timeout          = 8 * time.Second
+	Directory              = "/home/wwwlogs"
+	ManagedDirectory       = "/usr/local/nginx/logs/gopanel"
+	MySQL                  = "/var/log/mysql/mariadb-slow.log"
+	PHP                    = "/usr/local/php/var/log/php_errors.log"
+	BatchBytes       int64 = 256 * 1024
+	LineBytes        int64 = 64 * 1024
+	MaxFiles               = 4096
+	Timeout                = 8 * time.Second
 )
 
 var ErrInvalid = errors.New("日志请求无效")
@@ -86,7 +87,7 @@ func ValidPath(path string) bool {
 	if path == MySQL || path == PHP {
 		return true
 	}
-	if filepath.Dir(path) != Directory || filepath.Clean(path) != path {
+	if (filepath.Dir(path) != Directory && filepath.Dir(path) != ManagedDirectory) || filepath.Clean(path) != path {
 		return false
 	}
 	name := filepath.Base(path)

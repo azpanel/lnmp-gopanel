@@ -70,32 +70,39 @@ func (Store) List(ctx context.Context) (Catalog, error) {
 	out := Catalog{Files: []File{}, Warnings: []string{}}
 	paths := []string{MySQL, PHP}
 	// Listing never follows a substituted directory symlink.
-	dir, err := openPath(Directory, true)
-	if err != nil {
-		out.Warnings = append(out.Warnings, "无法列出 /home/wwwlogs：目录不存在、权限不足或为符号链接")
-	} else {
-		defer dir.Close()
-		count := 0
-		for {
-			entries, e := dir.ReadDir(128)
-			if err := ctx.Err(); err != nil {
-				return out, err
+	count := 0
+	for _, directory := range []string{Directory, ManagedDirectory} {
+		if count >= MaxFiles {
+			break
+		}
+		dir, err := openPath(directory, true)
+		if err != nil {
+			if directory == Directory || !os.IsNotExist(err) {
+				out.Warnings = append(out.Warnings, "无法列出 "+directory+"：目录不存在、权限不足或为符号链接")
 			}
-			for _, entry := range entries {
-				if strings.HasSuffix(entry.Name(), ".log") && entry.Type().IsRegular() {
-					paths = append(paths, filepath.Join(Directory, entry.Name()))
-					count++
-					if count >= MaxFiles {
-						break
+		} else {
+			defer dir.Close()
+			for {
+				entries, e := dir.ReadDir(128)
+				if err := ctx.Err(); err != nil {
+					return out, err
+				}
+				for _, entry := range entries {
+					if strings.HasSuffix(entry.Name(), ".log") && entry.Type().IsRegular() {
+						paths = append(paths, filepath.Join(directory, entry.Name()))
+						count++
+						if count >= MaxFiles {
+							break
+						}
 					}
 				}
-			}
-			if count >= MaxFiles {
-				out.Warnings = append(out.Warnings, "网站日志超过 4096 个，仅列出前 4096 个")
-				break
-			}
-			if e != nil {
-				break
+				if count >= MaxFiles {
+					out.Warnings = append(out.Warnings, "网站日志超过 4096 个，仅列出前 4096 个")
+					break
+				}
+				if e != nil {
+					break
+				}
 			}
 		}
 	}

@@ -82,6 +82,8 @@ func run() error {
 	app := server.New(c, collector, manager, web.Assets())
 	app.Storage = storage.NewManager(ctx, control.Helper{Path: c.Helper})
 	app.Vhosts = vhosts.NewManager(ctx, control.Helper{Path: c.Helper})
+	app.VhostJobs = vhosts.NewJobs(ctx, control.Helper{Path: c.Helper}, func() { app.Vhosts.Invalidate() })
+	app.DNS = &vhosts.DNSChecker{PublicIPs: c.Vhosts.PublicIPs}
 	app.Components = components.NewManager(ctx, control.Helper{Path: c.Helper})
 	app.Releases = releases.NewManager(ctx, releases.NewFetcher())
 	app.Docker = docker.NewManager(ctx, control.Helper{Path: c.Helper})

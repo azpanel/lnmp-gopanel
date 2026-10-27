@@ -39,6 +39,9 @@ func vhostResponse(data any, err error) error {
 	return json.NewEncoder(os.Stdout).Encode(map[string]any{"data": data})
 }
 func handleVhosts(action string) error {
+	if action == "options" || action == "create" {
+		return handleVhostProvision(action)
+	}
 	if action != "list" && action != "config" && action != "usage" && action != "toggle" {
 		return errors.New("站点操作不受支持")
 	}

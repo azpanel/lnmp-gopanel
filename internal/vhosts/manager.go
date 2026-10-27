@@ -25,24 +25,68 @@ type change struct {
 	enabled  bool
 }
 type Manager struct {
-	mu         sync.RWMutex
-	actions    sync.Mutex
-	ctx        context.Context
-	backend    Backend
-	snapshot   Snapshot
-	revision   uint64
-	changes    map[string]change
-	metadataAt time.Time
-	countMu    sync.Mutex
-	countAt    time.Time
-	countValue int
-	countErr   error
+	mu              sync.RWMutex
+	actions         sync.Mutex
+	ctx             context.Context
+	backend         Backend
+	snapshot        Snapshot
+	revision        uint64
+	catalogRevision uint64
+	changes         map[string]change
+	metadataAt      time.Time
+	countMu         sync.Mutex
+	countAt         time.Time
+	countValue      int
+	countErr        error
 }
 
 func NewManager(ctx context.Context, b Backend) *Manager {
 	return &Manager{ctx: ctx, backend: b, snapshot: Snapshot{Status: "idle", Sites: []Site{}, Usage: map[string]Usage{}}, changes: map[string]change{}}
 }
 func (m *Manager) Latest() Snapshot { m.mu.RLock(); defer m.mu.RUnlock(); return m.snapshot }
+
+// Invalidate refreshes metadata without waiting for a potentially long disk
+// usage scan. Older catalog responses cannot remove a newly created site.
+func (m *Manager) Invalidate() {
+	m.countMu.Lock()
+	m.countAt = time.Time{}
+	m.countMu.Unlock()
+	m.mu.Lock()
+	m.metadataAt = time.Time{}
+	m.revision++
+	revision := m.revision
+	m.catalogRevision = revision
+	m.mu.Unlock()
+	func() {
+		ctx, done := context.WithTimeout(m.ctx, 12*time.Second)
+		defer done()
+		sites, err := m.backend.ListVhosts(ctx)
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if m.catalogRevision != revision {
+			return
+		}
+		if err != nil {
+			m.snapshot.Error = "建站结果刷新失败，请手动刷新：" + err.Error()
+			return
+		}
+		for i := range sites {
+			if c, ok := m.changes[sites[i].Name]; ok && c.revision > revision {
+				sites[i].Enabled = c.enabled
+				sites[i].Filename = sites[i].Name
+				if !c.enabled {
+					sites[i].Filename += ".disabled"
+				}
+			}
+		}
+		m.snapshot.Sites = sites
+		m.metadataAt = time.Now()
+		m.snapshot.Error = ""
+		if m.snapshot.Status == "idle" || m.snapshot.Status == "failed" {
+			m.snapshot.Status = "ready"
+		}
+	}()
+}
 func (m *Manager) Refresh() Snapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -76,8 +120,10 @@ func (m *Manager) refresh(revision uint64) {
 			}
 		}
 	}
-	m.snapshot.Sites = sites
-	m.metadataAt = time.Now()
+	if m.catalogRevision <= revision {
+		m.snapshot.Sites = sites
+		m.metadataAt = time.Now()
+	}
 	m.snapshot.Usage = map[string]Usage{}
 	m.snapshot.Status = "scanning"
 	m.mu.Unlock()

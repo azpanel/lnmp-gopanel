@@ -172,7 +172,7 @@ uninstall_panel() {
   fi
   printf '完全卸载将删除面板程序、服务、权限规则、以下配置和数据，以及 lnmp-panel 专用账号和组：\n'
   printf '  %s\n' "${removals[@]}"
-  printf '保留 LNMP、网站、数据库、源证书及 Chromium 等系统依赖。自定义到其他目录的数据请自行清理。\n'
+  printf '保留 LNMP、网站、数据库、网站证书及其自动续期任务、Chromium 等系统依赖。自定义到其他目录的数据请自行清理。\n'
   if ! "$auto_confirm"; then
     [[ -t 0 ]] || die "Uninstall needs a terminal confirmation; use --uninstall --yes"
     read -r -p '确认完全卸载？输入 yes 继续：' confirmation || die "Uninstall cancelled"
@@ -259,9 +259,11 @@ check_helper() {
   # Query exact permissions as the panel account; never run a scan or change a
   # managed service during installation. Syntax validation alone is insufficient
   # when the system sudoers does not include /etc/sudoers.d.
-  # Only check authorization for cron and logs: these sources are optional,
-  # and their contents must not be copied to installer output or diagnostics.
-  for name in nginx docker components storage cron logs-list logs-read; do
+  # Only check authorization for cron, logs and virtual hosts: these sources
+  # are optional. Never read site/account data, create sites, issue certificates
+  # or change managed services as an installation self-check.
+  for name in nginx docker components storage cron logs-list logs-read \
+    vhosts-list vhosts-config vhosts-usage vhosts-toggle vhosts-options vhosts-create; do
     case "$name" in
       nginx) action=status ;;
       docker|components) action=snapshot ;;
@@ -269,6 +271,7 @@ check_helper() {
       cron) action=list ;;
       logs-list) name=logs; action=list ;;
       logs-read) name=logs; action="read" ;;
+      vhosts-*) action="${name#vhosts-}"; name=vhosts ;;
     esac
     # The installer is root; redirections intentionally stay outside sudo.
     # shellcheck disable=SC2024

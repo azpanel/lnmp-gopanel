@@ -49,6 +49,7 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useWebsiteScreenshots } from "@/components/website-screenshot";
+import { VhostCreate } from "@/components/vhost-create";
 
 const certificateLabels = {
   valid: "有效",
@@ -430,18 +431,21 @@ export function Vhosts() {
           <h1>虚拟主机</h1>
           <p>查看站点配置、SSL 证书及网站目录空间。</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={loading || scanning}
-          onClick={() => refresh.mutate()}
-        >
-          <RefreshCw
-            size={14}
-            className={loading || scanning ? "animate-spin" : ""}
-          />
-          {scanning ? "统计目录中…" : loading ? "读取中…" : "刷新站点"}
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <VhostCreate />
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={loading || scanning}
+            onClick={() => refresh.mutate()}
+          >
+            <RefreshCw
+              size={14}
+              className={loading || scanning ? "animate-spin" : ""}
+            />
+            {scanning ? "统计目录中…" : loading ? "读取中…" : "刷新站点"}
+          </Button>
+        </div>
       </div>
       <div className="vhost-summary">
         {[

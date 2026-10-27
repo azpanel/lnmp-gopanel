@@ -15,6 +15,9 @@ import (
 func (h Helper) vhostCommand(ctx context.Context, action string, input any, consume func(*json.Decoder) error) error {
 	cmd := exec.CommandContext(ctx, "/usr/bin/sudo", "-n", h.Path, "vhosts", action)
 	configureProcess(cmd)
+	if action == "create" {
+		configureProvisionProcess(cmd)
+	}
 	cmd.Env = []string{"PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C"}
 	cmd.Stderr = io.Discard
 	if input != nil {
@@ -31,7 +34,11 @@ func (h Helper) vhostCommand(ctx context.Context, action string, input any, cons
 	if e := cmd.Start(); e != nil {
 		return errors.New("站点辅助程序不可用")
 	}
-	decoder := json.NewDecoder(io.LimitReader(pipe, 8*1024*1024))
+	limit := int64(8 * 1024 * 1024)
+	if action == "create" {
+		limit = 64 * 1024 * 1024
+	}
+	decoder := json.NewDecoder(io.LimitReader(pipe, limit))
 	decodeErr := consume(decoder)
 	if decodeErr != nil {
 		_ = cmd.Process.Kill()
@@ -119,4 +126,55 @@ func (h Helper) VhostUsage(ctx context.Context, report func(vhosts.Usage)) error
 			}
 		}
 	})
+}
+
+func (h Helper) VhostOptions(ctx context.Context) (vhosts.CreateOptions, error) {
+	var out vhosts.CreateOptions
+	var helperErr error
+	err := h.vhostCommand(ctx, "options", nil, func(d *json.Decoder) error { helperErr = readVhostResponse(d, &out); return nil })
+	if helperErr != nil {
+		return out, helperErr
+	}
+	return out, err
+}
+func (h Helper) CreateVhost(ctx context.Context, r vhosts.CreateRequest, report func(vhosts.CreateEvent)) (vhosts.CreateResult, error) {
+	result := vhosts.CreateResult{Name: r.Name, Database: "skipped", SSL: "skipped"}
+	var helperErr error
+	complete := false
+	err := h.vhostCommand(ctx, "create", r, func(d *json.Decoder) error {
+		for {
+			var envelope struct {
+				Data     *vhosts.CreateEvent `json:"data"`
+				Message  string              `json:"message"`
+				Complete bool                `json:"complete"`
+			}
+			e := d.Decode(&envelope)
+			if e == io.EOF {
+				return nil
+			}
+			if e != nil {
+				return e
+			}
+			if envelope.Message != "" {
+				helperErr = errors.New(envelope.Message)
+			}
+			if envelope.Data != nil {
+				if envelope.Data.Result != nil {
+					result = *envelope.Data.Result
+				}
+				report(*envelope.Data)
+			}
+			complete = complete || envelope.Complete
+		}
+	})
+	if helperErr != nil {
+		return result, helperErr
+	}
+	if err != nil {
+		return result, err
+	}
+	if !complete {
+		return result, errors.New("建站辅助程序中断，请刷新站点确认实际状态")
+	}
+	return result, nil
 }

@@ -15,6 +15,50 @@ type testBackend struct {
 	release      chan struct{}
 }
 
+type invalidationBackend struct {
+	testBackend
+	oldStarted chan struct{}
+	releaseOld chan struct{}
+}
+
+func (b *invalidationBackend) ListVhosts(ctx context.Context) ([]Site, error) {
+	if b.calls.Add(1) == 1 {
+		close(b.oldStarted)
+		select {
+		case <-b.releaseOld:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return []Site{{Name: "old.conf"}}, nil
+	}
+	return []Site{{Name: "old.conf"}, {Name: "new.conf"}}, nil
+}
+func (*invalidationBackend) VhostUsage(context.Context, func(Usage)) error { return nil }
+func TestCreationRefreshDoesNotWaitForOldScanOrLoseNewSite(t *testing.T) {
+	b := &invalidationBackend{oldStarted: make(chan struct{}), releaseOld: make(chan struct{})}
+	m := NewManager(context.Background(), b)
+	m.Refresh()
+	<-b.oldStarted
+	m.Invalidate()
+	if len(m.Latest().Sites) != 2 {
+		t.Fatal("created site metadata not immediately visible")
+	}
+	close(b.releaseOld)
+	deadline := time.Now().Add(time.Second)
+	for m.Latest().Status != "ready" {
+		if time.Now().After(deadline) {
+			t.Fatal("old scan did not finish")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if len(m.Latest().Sites) != 2 {
+		t.Fatal("old scan removed newly created site")
+	}
+	if count, err := m.Count(context.Background()); err != nil || count != 2 || b.calls.Load() != 2 {
+		t.Fatal("stale site count", count, err)
+	}
+}
+
 func (b *testBackend) ListVhosts(context.Context) ([]Site, error) {
 	b.calls.Add(1)
 	return []Site{{Name: "site.conf", Filename: "site.conf", Enabled: true}}, nil

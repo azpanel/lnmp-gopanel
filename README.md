@@ -55,7 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/azpanel/lnmp-gopanel/main/install.s
 
 证书和私钥安装到 `/etc/lnmp-gopanel/tls/`，目录权限 `0750`、文件权限 `0640`、所有者 `root:lnmp-panel`。借用的证书不会自动跟随原证书续期；续期后重新执行 `sudo bash install.sh --certificate-dir /usr/local/nginx/conf/ssl/域名`，同步证书并重启面板，已有 HTTPS 端口保持不变。自签名证书可通过 `--tls-mode self-signed` 重新生成。
 
-安装时会以 `lnmp-panel` 账号检查服务状态、Docker 查询、文件扫描、定时任务与日志读取的精确 sudo 授权，并实际免密调用一次只读 `docker snapshot` 辅助程序（无需安装或启动 Docker，不触发全盘扫描或服务启停）。启动面板后读取实际进程的 `/proc/<MainPID>/status`，确认 `NoNewPrivs: 0`，避免 systemd 隐式限制使所有辅助功能不可用；检查失败会报错并回滚。`--no-start` 只执行辅助程序检查，进程限制需在自行启动后验证。
+安装时会以 `lnmp-panel` 账号检查服务状态、Docker 查询、文件扫描、定时任务、日志读取及虚拟主机全部六项操作的精确 sudo 授权，并实际免密调用只读 `docker snapshot`、`components snapshot` 辅助程序（无需安装或启动 Docker，不触发全盘扫描或服务启停）。虚拟主机只检查 `list/config/usage/toggle/options/create` 授权，不读取站点或证书账号、不创建站点或申请证书。启动面板后读取实际进程的 `/proc/<MainPID>/status`，确认 `NoNewPrivs: 0`，避免 systemd 隐式限制使所有辅助功能不可用；检查失败会报错并回滚。`--no-start` 只执行辅助程序检查，进程限制需在自行启动后验证。
 
 在菜单选择更新或执行 `sudo bash install.sh --update` 即可从 GitHub Release 升级；带安装参数再次执行也可覆盖升级。已有 HTTPS 配置、端口、证书、管理员密码和 `services.yaml` 会保留。旧版 HTTP 安装升级时会询问证书来源、迁移为随机端口的 HTTPS，并保留管理员凭据及服务配置；原 HTTP 端口不再使用，需调整安全组或反向代理。升级只重启面板服务，不重启 Nginx、PHP、数据库、Redis 或 Docker；已有面板会话需重新登录。替换前的文件保存在 `/var/backups/lnmp-gopanel/`，替换或启动失败时自动恢复旧文件，包含原配置及证书。
 
@@ -91,7 +91,7 @@ bash scripts/package.sh arm64 v0.1.0
 
 包内包含 `bin/lnmp-gopanel`、`bin/lnmp-gopanel-control`、`deploy/`、`install.sh`、`README.md` 和 `VERSION`；本机配置、账号密码、依赖目录、测试截图和构建缓存不会提交或打包。
 
-从当前源码升级本机时，先构建前端，再运行上述打包命令，最后使用项目中的安装脚本执行 `sudo bash install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz`（arm64 使用对应文件名）。这样两个二进制、systemd 单元及 sudoers 会一起更新，并使用相同的备份、授权检查及失败回滚流程。定时任务与日志仅检查 `cron list`、`logs list`、`logs read` 的精确授权，不读取或记录任务及日志内容；未安装 crontab 或日志文件不存在不会阻止安装。旧版 HTTP 安装非交互升级时需追加 `--tls-mode self-signed`，或指定现有证书。
+从当前源码升级本机时，先构建前端，再运行上述打包命令，最后使用项目中的安装脚本执行 `sudo bash install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz`（arm64 使用对应文件名）。这样两个二进制、systemd 单元及 sudoers 会一起更新，并使用相同的备份、授权检查及失败回滚流程。定时任务、日志与虚拟主机仅检查 `cron list`、`logs list/read`、`vhosts list/config/usage/toggle/options/create` 的精确授权，不读取业务内容、不创建站点或申请证书；缺少可选组件或业务文件不会阻止安装。旧版 HTTP 安装非交互升级时需追加 `--tls-mode self-signed`，或指定现有证书。
 
 ## 构建
 
@@ -296,6 +296,20 @@ Redis 只显示状态和版本，不提供启停按钮，辅助程序也拒绝 R
 
 新增接口：`GET /api/v1/vhosts`、`POST /api/v1/vhosts/refresh`（202，异步刷新）、`GET /api/v1/vhosts/config?name=example.conf`、`POST /api/v1/vhosts/toggle`（JSON `{"name":"example.conf","enabled":false}`）。全部需要登录，POST 需要 CSRF。特权操作仅开放固定参数 `vhosts list/config/usage/toggle`，文件名通过有界 JSON stdin 传递；辅助程序重新验证文件名与目录权限。升级时同步安装两个二进制和 sudoers 模板。
 
+### 添加站点
+
+“添加站点”支持主域名与附加域名、站点目录、PHP／纯静态、Pathinfo、现有伪静态模板、IPv6 和访问日志，可选创建数据库与同名本机用户，不创建 FTP 账号。默认目录是 `/home/wwwroot/<主域名>`；已有目录不递归修改权限，也不覆盖已有 `.user.ini`。新站点访问日志保存在 root 管理的 `/usr/local/nginx/logs/gopanel/`，可在日志页面查看；原有日志路径不变。数据库优先使用 root 配置或 Unix socket 认证，不可用时填写管理员密码；凭据仅用于本次操作。已有数据库、账号、域名绑定和同名配置不会被覆盖。
+
+SSL 支持申请 Let's Encrypt／ZeroSSL、填写 cert/key 绝对路径，或从 `/root/.acme.sh/` 扫描到的通配符证书中选择。证书会检查有效期、私钥匹配和全部站点域名的覆盖范围；通配符只匹配一级子域名，根域名需另含 SAN。已有证书直接引用原文件，沿用原续期与 Nginx 加载设置，本功能不额外接管。启用 SSL 后默认强制 HTTPS，可关闭；HTTP 证书验证路径始终保留。
+
+Go 辅助程序生成配置并检查、重载 Nginx，配置或重载失败会恢复原配置，不调用版本相关的 `lnmp vhost add`／`lnmp ssl`。自动申请由 Go 调用可信的 `/root/.acme.sh/acme.sh`，要求安装 `flock` 和运行中的系统 cron；使用 webroot HTTP-01 验证，所有域名需能从公网 80 端口访问本站。申请不支持通配符或 DNS API。新证书使用独立的 ACME 证书目录，不改写已有证书配置，通过 `--install-cert` 部署到 `/usr/local/nginx/conf/ssl/gopanel/`，每日续期任务保存在 `/etc/cron.d/lnmp-gopanel-acme`，续期重载使用与面板共享的 Nginx 锁并先检查配置。续期独立于面板运行，卸载面板仍保留网站证书和续期任务。
+
+“校验解析”逐域名查询 A／AAAA，与本机网卡和公网 IPv4／IPv6 对比。公网探测通过 HTTPS 访问 `api.ipify.org` 和 `api6.ipify.org`，结果缓存五分钟；失败时显示“无法确认”。NAT 环境可在配置中添加 `vhosts.public_ips: ["服务器公网 IPv4", "服务器公网 IPv6"]` 补充参考地址。CDN、代理、混合解析或暂未生效只作提示，不阻止建站与证书申请。
+
+创建后可实时查看证书申请输出。关闭窗口不取消任务，刷新页面可打开“查看建站进度”或“最近建站结果”；任务最长 20 分钟，在内存中保留最近 20 个任务，每个任务最多 1000 行日志，敏感输出会隐藏。面板重启不自动重放任务，请刷新站点确认实际状态。数据库创建失败只清理本次新增数据库资源；SSL 失败保留 HTTP 站点，可单独重试 SSL，不重复创建网站或数据库。重试只操作本功能创建且配置未被外部修改的启用站点。
+
+新增认证接口：`GET /api/v1/vhosts/options`、`POST /api/v1/vhosts/check-dns`、`POST /api/v1/vhosts`、`GET /api/v1/vhosts/jobs`、`GET /api/v1/vhosts/jobs/:id`、`GET /api/v1/vhosts/jobs/:id/events` 和 `POST /api/v1/vhosts/ssl/retry`。POST 需要 CSRF，建站相关 JSON 请求上限 32 KiB；创建和重试返回 202 与任务 ID，重复提交相同 ID 不重复执行。升级需同步安装两个二进制与 sudoers，新增固定 `vhosts options` 和 `vhosts create` 授权；安装只检查授权，不创建站点或申请证书。
+
 ### 网站截图
 
 虚拟主机支持卡片和表格视图，两种视图均展示网站预览。通过“截图设置”填写 HTTP/HTTPS 地址，可启用 Basic Auth，并按站点指定浏览器语言（默认 `zh-CN`，例如 `en-US`）和最长加载时间（默认 30 秒，可设为 5–300 秒）。语言同时用于请求语言、浏览器语言及日期、数字格式。截图分辨率可选 1920×1080、1440×900（默认）、1366×768、768×1024、390×844，也可自定义宽高，均须为 320–3840 的整数。尺寸表示浏览器视口，设备像素比固定为 1；手机和平板尺寸不切换移动端 UA 或启用触摸模拟。保存后后台截取网站首屏，之后手动“重新截图”，点击图片可放大；没有定时截图、全页截图或历史图库。支持公网、本机和内网地址，浏览器访问的是服务器可达的地址，不使用管理员浏览器中的登录状态。页面加载后等待资源请求结束并连续稳定 2 秒、字体就绪后再截图；CSS、图片等加载较慢时可增加最长加载时间，超时显示原因并保留上次成功截图。持续轮询的页面可能需要更长时间才能稳定。HTTPS 证书错误、HTTP 错误和认证失败会显示原因，保留上次成功截图。
@@ -322,7 +336,7 @@ screenshots:
 
 部署后可用 `sudo -u lnmp-panel /usr/local/bin/lnmp-gopanel check-screenshots` 检查截图组件，仅访问临时本地测试页面，不访问业务站点。源码集成测试使用 `SCREENSHOT_TEST_BROWSER=/path/to/chromium go test -race ./internal/screenshots -run TestChromiumIntegration`，所有目标都是本地测试服务器；仅隔离的 root 测试进程会关闭浏览器沙箱，生产代码不提供该开关。
 
-新增接口：`GET /api/v1/vhosts/screenshots`、`PUT /api/v1/vhosts/screenshot?name=…`、`POST /api/v1/vhosts/screenshot/refresh?name=…`、`DELETE /api/v1/vhosts/screenshot?name=…`、`GET /api/v1/vhosts/screenshot/image?name=…`。均需登录，写操作需 CSRF；设置与刷新返回 202，图片通过面板鉴权后读取且禁止缓存。设置输入及返回数据包含 `viewport_width`、`viewport_height`、`javascript`；宽高同时省略或均为 0 时使用默认尺寸，只提供一项非零尺寸会报错。截图设置 PUT 请求体上限为 128 KiB，以容纳脚本和 JSON 转义，其他 API 仍为 4 KiB。
+新增接口：`GET /api/v1/vhosts/screenshots`、`PUT /api/v1/vhosts/screenshot?name=…`、`POST /api/v1/vhosts/screenshot/refresh?name=…`、`DELETE /api/v1/vhosts/screenshot?name=…`、`GET /api/v1/vhosts/screenshot/image?name=…`。均需登录，写操作需 CSRF；设置与刷新返回 202，图片通过面板鉴权后读取且禁止缓存。设置输入及返回数据包含 `viewport_width`、`viewport_height`、`javascript`；宽高同时省略或均为 0 时使用默认尺寸，只提供一项非零尺寸会报错。截图设置 PUT 请求体上限为 128 KiB，以容纳脚本和 JSON 转义，建站相关 POST 为 32 KiB，其他 API 为 4 KiB。
 
 ### 定时任务
 
@@ -336,7 +350,7 @@ screenshots:
 
 ### 日志读取
 
-左侧“日志读取”页面支持 `/home/wwwlogs` 直属目录中的 `.log` 普通文件，以及 `/var/log/mysql/mariadb-slow.log`、`/usr/local/php/var/log/php_errors.log`。在“日志内容”卡片顶部选择日志，卡片显示路径、大小和修改时间；不递归读取子目录，不读取轮转归档或符号链接，不提供编辑、清空和下载功能。文件不存在不影响安装。
+左侧“日志读取”页面支持 `/home/wwwlogs`、`/usr/local/nginx/logs/gopanel` 直属目录中的 `.log` 普通文件，以及 `/var/log/mysql/mariadb-slow.log`、`/usr/local/php/var/log/php_errors.log`。在“日志内容”卡片顶部选择日志，卡片显示路径、大小和修改时间；不递归读取子目录，不读取轮转归档或符号链接，不提供编辑、清空和下载功能。文件不存在不影响安装。
 
 默认定位到文件末尾，约每秒增量读取，可暂停追踪、自动滚动、回到最新或加载更早日志。向上滚动会关闭自动滚动；加载历史会暂停追踪。后台标签页暂停轮询，返回后从游标继续读取。单批原始范围最多 256 KiB、最多返回 4000 行；页面缓存最多 2 MiB、20000 行和 64 批，超限会释放浏览方向另一端，可重新加载。日志使用虚拟列表显示，避免整文件读取和大量 DOM。文件轮转或截断后提示并重新读取最新文件，不混合不同版本的历史。
 

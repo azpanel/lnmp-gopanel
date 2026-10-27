@@ -39,6 +39,8 @@ type Server struct {
 	Releases    *releases.Manager
 	Storage     *storage.Manager
 	Vhosts      *vhosts.Manager
+	VhostJobs   *vhosts.Jobs
+	DNS         *vhosts.DNSChecker
 	Screenshots *screenshots.Manager
 	Host        metrics.Host
 	Assets      fs.FS
@@ -67,6 +69,9 @@ func (s *Server) Handler() http.Handler {
 		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
 			c.Header("Cache-Control", "no-store")
 			limit := int64(4096)
+			if c.Request.Method == http.MethodPost && (c.Request.URL.Path == "/api/v1/vhosts" || c.Request.URL.Path == "/api/v1/vhosts/ssl/retry" || c.Request.URL.Path == "/api/v1/vhosts/check-dns") {
+				limit = 32 * 1024
+			}
 			if c.Request.Method == http.MethodPut && c.Request.URL.Path == "/api/v1/vhosts/screenshot" {
 				limit = 128 * 1024
 			}
@@ -150,6 +155,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		c.JSON(200, s.Vhosts.Latest())
 	})
+	s.registerVhostCreation(private)
 	private.GET("/vhosts/count", func(c *gin.Context) {
 		if s.Vhosts == nil {
 			fail(c, 503, "站点管理未配置")

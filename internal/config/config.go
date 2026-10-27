@@ -22,6 +22,10 @@ type Config struct {
 	TLS          TLSConfig        `yaml:"tls"`
 	Helper       string           `yaml:"helper"`
 	Screenshots  ScreenshotConfig `yaml:"screenshots"`
+	Vhosts       VhostConfig      `yaml:"vhosts"`
+}
+type VhostConfig struct {
+	PublicIPs []string `yaml:"public_ips"`
 }
 type TLSConfig struct {
 	CertFile string `yaml:"cert_file"`
@@ -59,6 +63,11 @@ func Load(path string) (Config, error) {
 	var c Config
 	if err := Read(path, &c); err != nil {
 		return c, err
+	}
+	for _, value := range c.Vhosts.PublicIPs {
+		if net.ParseIP(value) == nil {
+			return c, errors.New("vhosts.public_ips must contain valid IP addresses")
+		}
 	}
 	if c.Username == "" || len(c.Username) > 128 {
 		return c, errors.New("username is required (max 128 characters)")

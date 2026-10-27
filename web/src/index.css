@@ -3123,3 +3123,131 @@ a {
   color: var(--danger);
   font-weight: 700;
 }
+
+.vhost-create-dialog {
+  width: min(780px, calc(100vw - 2rem));
+  max-width: 780px;
+  max-height: 90dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.vhost-create-dialog form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.create-form-body {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 0.25rem;
+}
+.create-section {
+  min-width: 0;
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--border);
+}
+.create-section legend {
+  padding: 0 0.5rem 0 0;
+  font-weight: 600;
+}
+.create-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.create-field {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.create-toggles,
+.create-form-footer,
+.create-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+.create-toggles {
+  gap: 1rem;
+}
+.create-form-footer {
+  justify-content: flex-end;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.create-dns,
+.create-certificate-info {
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.5rem;
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+}
+.create-dns-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.25rem 0.5rem;
+}
+.create-certificate-info code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.create-dns-row code {
+  grid-column: 1 / -1;
+}
+.create-dns-row span,
+.create-task-heading span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.create-task {
+  display: grid;
+  gap: 0.85rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+.create-task-heading,
+.create-result-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  overflow-wrap: anywhere;
+}
+.create-result-grid {
+  justify-content: flex-start;
+  font-size: 0.85rem;
+}
+.create-task-log {
+  height: min(360px, 40dvh);
+  min-height: 120px;
+  overflow: auto;
+  padding: 0.85rem;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  font: 0.75rem/1.75 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.create-log-time {
+  color: var(--muted-foreground);
+}
+@media (max-width: 600px) {
+  .vhost-create-dialog {
+    padding: 1rem;
+  }
+  .create-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

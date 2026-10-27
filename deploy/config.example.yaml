@@ -10,6 +10,9 @@ tls:
 # Optional fixed HTTPS origin, including the port when using a non-default port.
 public_origin: ""
 helper: /usr/local/libexec/lnmp-gopanel-control
+# Optional NAT/public IPs used as additional references for domain DNS checks.
+vhosts:
+  public_ips: []
 # Optional Chromium executable; empty detects Chromium/Chrome on PATH.
 screenshots:
   browser: ""
