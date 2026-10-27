@@ -104,6 +104,35 @@ test("access log table filters loaded rows, combines rules and resets per file",
   await page.getByRole("button", { name: "暂停追踪" }).click();
   const initialReads = reads;
   const format = page.getByRole("checkbox", { name: "格式化为表格" });
+  const follow = page.getByRole("checkbox", { name: "自动滚动" });
+  const help = page.getByRole("button", { name: "IP 属地说明", exact: true });
+  const explanation =
+    "IP 地址位置数据由 纯真 CZ88 提供 · 数据版本 20261021 · IPv6 暂不支持";
+  const followBounds = (await follow.boundingBox())!;
+  const formatBounds = (await format.boundingBox())!;
+  expect(formatBounds.y).toBeCloseTo(followBounds.y, 0);
+  expect(formatBounds.x).toBeGreaterThan(followBounds.x + followBounds.width);
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  if (testInfo.project.name === "mobile") await help.tap();
+  else await help.hover();
+  await expect(page.getByRole("tooltip")).toContainText(explanation);
+  await expect(format).not.toBeChecked();
+  await expect(follow).toBeChecked();
+  await page.screenshot({
+    path: testInfo.outputPath("log-location-tooltip.png"),
+    fullPage: true,
+  });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await follow.focus();
+  await help.focus();
+  await expect(page.getByRole("tooltip")).toContainText(explanation);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await help.click();
+  await expect(page.getByRole("tooltip")).toContainText(explanation);
+  await page.locator(".log-file-meta").click();
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
   const table = page.getByRole("table", { name: "Nginx 访问日志" });
   await expect(format).not.toBeChecked();
   await expect(page.getByRole("group", { name: "HTTP 状态码" })).toHaveCount(0);
@@ -198,6 +227,7 @@ test("access log table filters loaded rows, combines rules and resets per file",
   for (const path of [php, mysql]) {
     await chooseOption(page, "选择日志", path);
     await expect(format).toHaveCount(0);
+    await expect(help).toHaveCount(0);
     await expect(table).toHaveCount(0);
   }
   expect(errors).toEqual([]);

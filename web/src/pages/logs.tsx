@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   FileText,
+  CircleHelp,
   ListFilter,
   Pause,
   Play,
@@ -10,6 +11,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { Tooltip } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { LogViewport } from "@/components/log-viewport";
 import { Input } from "@/components/ui/input";
@@ -42,6 +44,42 @@ import {
   matchesHTTPStatus,
   parseNginxAccess,
 } from "@/lib/nginx-access";
+
+function LogLocationHelp() {
+  const [open, setOpen] = useState(false);
+  return (
+    <Tooltip.Provider delayDuration={150}>
+      <Tooltip.Root open={open} onOpenChange={setOpen}>
+        <Tooltip.Trigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="log-location-help"
+            aria-label="IP 属地说明"
+            onClick={(event) => {
+              event.preventDefault();
+              setOpen(true);
+            }}
+          >
+            <CircleHelp size={15} aria-hidden="true" />
+          </Button>
+        </Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content
+            className="log-location-tooltip"
+            side="top"
+            sideOffset={6}
+            collisionPadding={16}
+          >
+            IP 地址位置数据由 纯真 CZ88 提供 · 数据版本 20261021 · IPv6 暂不支持
+            <Tooltip.Arrow className="log-location-arrow" />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
+  );
+}
 
 export function Logs() {
   const catalog = useQuery({
@@ -261,46 +299,36 @@ export function Logs() {
                   `${bytes(last?.size ?? file.size)} · 修改时间 ${new Date(last?.modified || file.modified).toLocaleString("zh-CN")}`}
               </p>
             )}
-            <label className="log-check">
-              <Checkbox
-                checked={reader.follow}
-                onCheckedChange={(checked) =>
-                  reader.setFollow(checked === true)
-                }
-              />
-              自动滚动
-            </label>
+            <div className="log-reader-controls">
+              <label className="log-check">
+                <Checkbox
+                  checked={reader.follow}
+                  onCheckedChange={(checked) =>
+                    reader.setFollow(checked === true)
+                  }
+                />
+                自动滚动
+              </label>
+              {isNginxLog(path) && (
+                <div className="log-format-controls">
+                  <label className="log-check">
+                    <Checkbox
+                      checked={formatted}
+                      onCheckedChange={(checked) => {
+                        setTable(checked === true);
+                        setStatusFilters([]);
+                      }}
+                    />
+                    格式化为表格
+                  </label>
+                  <LogLocationHelp />
+                </div>
+              )}
+            </div>
           </div>
           <span className="log-reader-status" role="status">
             {status}
           </span>
-          {isNginxLog(path) && (
-            <div className="log-format-controls">
-              <label className="log-check">
-                <Checkbox
-                  checked={formatted}
-                  onCheckedChange={(checked) => {
-                    setTable(checked === true);
-                    setStatusFilters([]);
-                  }}
-                />
-                格式化为表格
-              </label>
-              {formatted && (
-                <p className="small-note">
-                  IP 地址位置数据由{" "}
-                  <a
-                    href="https://www.cz88.net/"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    纯真 CZ88
-                  </a>{" "}
-                  提供 · 数据版本 20261021 · IPv6 暂不支持
-                </p>
-              )}
-            </div>
-          )}
           {formatted && (
             <fieldset className="log-http-filters">
               <legend>HTTP 状态码</legend>

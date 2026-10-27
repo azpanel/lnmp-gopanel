@@ -17,6 +17,8 @@ import {
   Menu,
   Moon,
   Pause,
+  PanelLeftClose,
+  PanelLeftOpen,
   Play,
   Server,
   Settings2,
@@ -115,6 +117,33 @@ function Workspace({
     client = useQueryClient();
   const [mobileOpen, setMobileOpen] = useState(false),
     [loggingOut, setLoggingOut] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(() => {
+    try {
+      return localStorage.getItem("sidebar-hidden") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [mobileViewport, setMobileViewport] = useState(
+    () => window.matchMedia("(max-width: 720px)").matches,
+  );
+  useEffect(() => {
+    try {
+      localStorage.setItem("sidebar-hidden", String(sidebarHidden));
+    } catch {
+      // Navigation still works when browser storage is unavailable.
+    }
+  }, [sidebarHidden]);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 720px)");
+    const change = () => {
+      setMobileViewport(media.matches);
+      setMobileOpen(false);
+    };
+    media.addEventListener("change", change);
+    return () => media.removeEventListener("change", change);
+  }, []);
+  const sidebarVisible = mobileViewport ? mobileOpen : !sidebarHidden;
   const host = useQuery({
     queryKey: ["host"],
     queryFn: () => api<Host>("/host"),
@@ -151,11 +180,16 @@ function Workspace({
     }
   }
   return (
-    <div className="workspace">
+    <div className={cn("workspace", sidebarHidden && "sidebar-hidden")}>
       {mobileOpen && (
         <div className="mobile-overlay" onClick={() => setMobileOpen(false)} />
       )}
-      <aside className={cn("sidebar", mobileOpen && "open")}>
+      <aside
+        id="workspace-navigation"
+        className={cn("sidebar", mobileOpen && "open")}
+        aria-hidden={!sidebarVisible}
+        inert={!sidebarVisible}
+      >
         <NavLink to="/" className="brand" onClick={() => setMobileOpen(false)}>
           <div className="brand-logo">
             <Activity size={21} />
@@ -267,8 +301,21 @@ function Workspace({
             <Button
               variant="ghost"
               size="icon"
+              className="sidebar-toggle"
+              aria-label={sidebarHidden ? "显示导航" : "隐藏导航"}
+              aria-controls="workspace-navigation"
+              aria-expanded={!sidebarHidden}
+              onClick={() => setSidebarHidden((hidden) => !hidden)}
+            >
+              {sidebarHidden ? <PanelLeftOpen /> : <PanelLeftClose />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               className="mobile-menu"
               aria-label="打开导航"
+              aria-controls="workspace-navigation"
+              aria-expanded={mobileOpen}
               onClick={() => setMobileOpen(true)}
             >
               <Menu />
