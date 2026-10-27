@@ -127,6 +127,7 @@ function DNSHelp({ warnings }: { warnings: string[] }) {
         <Tooltip.Portal>
           <Tooltip.Content
             className="create-help-tooltip"
+            aria-hidden={!open}
             side="top"
             sideOffset={6}
             collisionPadding={16}

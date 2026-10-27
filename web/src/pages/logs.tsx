@@ -68,6 +68,7 @@ function LogLocationHelp() {
         <Tooltip.Portal>
           <Tooltip.Content
             className="log-location-tooltip"
+            aria-hidden={!open}
             side="top"
             sideOffset={6}
             collisionPadding={16}

@@ -57,6 +57,7 @@ export function CronSchedule({
           id={id}
           role="tooltip"
           className="cron-preview"
+          aria-hidden={!open}
           side="top"
           align="start"
           sideOffset={8}

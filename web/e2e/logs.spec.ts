@@ -689,13 +689,18 @@ test("log filters, bounded viewport, history, rotation and per-file preferences"
   const meta = await page.locator(".log-file-meta").boundingBox();
   const followLabel = await page
     .locator(".log-status .log-check")
+    .filter({ hasText: "自动滚动" })
     .boundingBox();
-  expect(followLabel!.x).toBeGreaterThanOrEqual(meta!.x + meta!.width);
-  expect(
-    Math.abs(
-      followLabel!.y + followLabel!.height / 2 - meta!.y - meta!.height / 2,
-    ),
-  ).toBeLessThan(2);
+  if (testInfo.project.name === "mobile") {
+    expect(followLabel!.y).toBeGreaterThanOrEqual(meta!.y + meta!.height);
+  } else {
+    expect(followLabel!.x).toBeGreaterThanOrEqual(meta!.x + meta!.width);
+    expect(
+      Math.abs(
+        followLabel!.y + followLabel!.height / 2 - meta!.y - meta!.height / 2,
+      ),
+    ).toBeLessThan(2);
+  }
   await expect(follow).toBeChecked();
   await page.getByText("自动滚动", { exact: true }).click();
   await expect(follow).not.toBeChecked();

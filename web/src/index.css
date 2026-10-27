@@ -48,6 +48,11 @@
   --danger: #d3525a;
   --chart-grid: #e8ebed;
   --violet: #8d84cf;
+  --motion-feedback: 140ms;
+  --motion-overlay: 180ms;
+  --motion-page: 240ms;
+  --motion-step: 35ms;
+  --motion-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 .dark {
   color-scheme: dark;
@@ -113,6 +118,11 @@ a {
   flex-direction: column;
   padding: 0 16px;
   overflow-y: auto;
+  transition:
+    transform var(--motion-page) var(--motion-ease),
+    visibility 0s linear,
+    background-color var(--motion-feedback) var(--motion-ease),
+    border-color var(--motion-feedback) var(--motion-ease);
 }
 .brand {
   display: flex;
@@ -219,9 +229,6 @@ a {
   margin-bottom: 5px;
   color: var(--muted-foreground);
   font-size: 16px;
-  transition:
-    background 0.15s,
-    color 0.15s;
 }
 .nav-item:hover {
   background: var(--accent);
@@ -360,9 +367,9 @@ a {
   margin-bottom: 29px;
   gap: 16px;
 }
-.page-heading [data-slot="button"],
-[data-slot="card-header"] [data-slot="button"],
-.vhost-toolbar [data-slot="button"] {
+.page-heading [data-variant][data-size],
+[data-slot="card-header"] [data-variant][data-size],
+.vhost-toolbar [data-variant][data-size] {
   font-size: 14px;
 }
 .eyebrow {
@@ -1179,12 +1186,19 @@ a {
   justify-content: space-between;
 }
 .mobile-close,
-.mobile-menu {
+.mobile-menu,
+.mobile-overlay {
   display: none;
 }
 @media (min-width: 721px) {
+  .main-shell {
+    transition: margin-left var(--motion-page) var(--motion-ease);
+  }
   .sidebar-hidden .sidebar {
-    display: none;
+    transform: translateX(-100%);
+    visibility: hidden;
+    pointer-events: none;
+    transition-delay: 0s, var(--motion-page), 0s, 0s;
   }
   .sidebar-hidden .main-shell {
     margin-left: 0;
@@ -1289,10 +1303,15 @@ a {
   .sidebar {
     transform: translateX(-100%);
     width: 280px;
-    transition: transform 0.2s;
+    visibility: hidden;
+    pointer-events: none;
+    transition-delay: 0s, var(--motion-page), 0s, 0s;
   }
   .sidebar.open {
     transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s;
   }
   .main-shell {
     margin-left: 0;
@@ -1311,11 +1330,24 @@ a {
     font-size: 19px;
   }
   .mobile-overlay {
+    display: block;
     position: fixed;
     inset: 0;
     background: #0009;
     z-index: 29;
     backdrop-filter: blur(2px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity var(--motion-overlay) var(--motion-ease),
+      visibility 0s linear var(--motion-overlay);
+  }
+  .mobile-overlay.open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s;
   }
   .topbar {
     padding: 0 16px;
@@ -1412,16 +1444,6 @@ a {
     gap: 30px;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation: none !important;
-    transition: none !important;
-    scroll-behavior: auto !important;
-  }
-}
-
 .storage-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2798,11 +2820,6 @@ a {
     transform: translateX(100%);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .cron-preview-skeleton [aria-hidden] span::after {
-    animation: none;
-  }
-}
 .cron-source .token.comment {
   color: #94a3b8;
 }
@@ -3107,10 +3124,10 @@ a {
   background: var(--card);
 }
 .log-rules-drawer[data-state="open"] {
-  animation: log-drawer-in 180ms ease-out;
+  animation: log-drawer-in var(--motion-overlay) var(--motion-ease);
 }
 .log-rules-drawer[data-state="closed"] {
-  animation: log-drawer-out 150ms ease-in;
+  animation: log-drawer-out var(--motion-overlay) var(--motion-ease);
 }
 .log-drawer-header,
 .log-drawer-footer {
@@ -3163,11 +3180,6 @@ a {
   }
   to {
     transform: translateX(100%);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .log-rules-drawer {
-    animation: none !important;
   }
 }
 
@@ -3462,5 +3474,187 @@ a {
     gap: 4px;
     padding-inline: 6px;
     font-size: 12px;
+  }
+}
+
+/* Animate page sections, never individual live metrics or log rows. */
+.page-transition {
+  min-width: 0;
+}
+.page-transition > *,
+.login-brand,
+.login-intro,
+.login-card,
+.login-footer {
+  animation: page-enter var(--motion-page) var(--motion-ease) backwards;
+}
+.page-transition > :nth-child(2),
+.login-intro {
+  animation-delay: var(--motion-step);
+}
+.page-transition > :nth-child(3),
+.login-card {
+  animation-delay: calc(var(--motion-step) * 2);
+}
+.page-transition > :nth-child(4),
+.login-footer {
+  animation-delay: calc(var(--motion-step) * 3);
+}
+.page-transition > :nth-child(n + 5) {
+  animation-delay: calc(var(--motion-step) * 4);
+}
+.form-error {
+  animation: motion-fade-in var(--motion-feedback) var(--motion-ease);
+}
+
+body,
+.topbar,
+.main-footer,
+[data-slot="card"] {
+  transition:
+    background-color var(--motion-feedback) var(--motion-ease),
+    color var(--motion-feedback) var(--motion-ease),
+    border-color var(--motion-feedback) var(--motion-ease);
+}
+/* Radix composition replaces data-slot; variant and size still identify buttons. */
+.nav-item,
+.cron-schedule,
+[data-variant][data-size],
+[data-slot="input"],
+[data-slot="select-trigger"],
+[data-slot="select-item"],
+[data-slot="checkbox"],
+[data-slot="switch"],
+[data-slot="table-row"] {
+  transition:
+    background-color var(--motion-feedback) var(--motion-ease),
+    color var(--motion-feedback) var(--motion-ease),
+    border-color var(--motion-feedback) var(--motion-ease),
+    box-shadow var(--motion-feedback) var(--motion-ease),
+    opacity var(--motion-feedback) var(--motion-ease),
+    translate var(--motion-feedback) var(--motion-ease);
+}
+[data-variant][data-size]:not(:disabled):not([aria-disabled="true"]):not(
+    [data-disabled]
+  ):active {
+  translate: 0 1px;
+}
+[data-slot="switch-thumb"] {
+  transition-duration: var(--motion-feedback);
+  transition-timing-function: var(--motion-ease);
+}
+[data-slot="select-trigger"] > svg,
+.nav-item > svg {
+  transition:
+    rotate var(--motion-feedback) var(--motion-ease),
+    translate var(--motion-feedback) var(--motion-ease);
+}
+[data-slot="select-trigger"][data-state="open"] > svg {
+  rotate: 180deg;
+}
+@media (hover: hover) and (pointer: fine) {
+  .nav-item:hover > svg {
+    translate: 1px 0;
+  }
+}
+
+/* Individual scale leaves Radix and Tailwind positioning transforms intact. */
+[data-slot="dialog-overlay"][data-state="open"] {
+  animation: motion-fade-in var(--motion-overlay) var(--motion-ease);
+}
+[data-slot="dialog-overlay"][data-state="closed"] {
+  animation: motion-fade-out var(--motion-overlay) var(--motion-ease);
+}
+[data-slot="dialog-content"]:not(.log-rules-drawer)[data-state="open"],
+[data-slot="select-content"][data-state="open"],
+.cron-preview[data-state="open"],
+:is(.create-help-tooltip, .log-location-tooltip):is(
+  [data-state="delayed-open"],
+  [data-state="instant-open"]
+) {
+  animation: surface-enter var(--motion-overlay) var(--motion-ease);
+}
+[data-slot="dialog-content"]:not(.log-rules-drawer)[data-state="closed"],
+[data-slot="select-content"][data-state="closed"],
+.cron-preview[data-state="closed"],
+:is(.create-help-tooltip, .log-location-tooltip)[data-state="closed"] {
+  animation: surface-exit var(--motion-overlay) var(--motion-ease);
+}
+[data-slot="select-content"] {
+  transform-origin: var(--radix-select-content-transform-origin);
+}
+.create-help-tooltip,
+.log-location-tooltip {
+  transform-origin: var(--radix-tooltip-content-transform-origin);
+}
+.cron-preview {
+  transform-origin: var(--radix-popover-content-transform-origin);
+}
+:is(
+  .cron-preview,
+  .create-help-tooltip,
+  .log-location-tooltip
+)[data-state="closed"] {
+  pointer-events: none;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes motion-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes motion-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes surface-enter {
+  from {
+    opacity: 0;
+    scale: 0.98;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+@keyframes surface-exit {
+  from {
+    opacity: 1;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    scale: 0.98;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  [data-variant][data-size]:active,
+  .nav-item:hover > svg {
+    translate: none !important;
   }
 }

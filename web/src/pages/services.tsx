@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -47,6 +47,7 @@ export function Services({
     service: Service;
     action: Action;
   } | null>(null);
+  const actionTrigger = useRef<HTMLButtonElement | null>(null);
   const client = useQueryClient();
   const components = useQuery({
     queryKey: ["components"],
@@ -226,9 +227,10 @@ export function Services({
                         variant="outline"
                         size="sm"
                         disabled={unavailable}
-                        onClick={() =>
-                          setSelection({ service, action: action as Action })
-                        }
+                        onClick={(event) => {
+                          actionTrigger.current = event.currentTarget;
+                          setSelection({ service, action: action as Action });
+                        }}
                       >
                         <Icon size={13} />
                         {item.label}
@@ -370,6 +372,15 @@ export function Services({
       >
         <DialogContent
           showCloseButton={!mutation.isPending}
+          onCloseAutoFocus={(event) => {
+            if (
+              actionTrigger.current?.isConnected &&
+              !actionTrigger.current.disabled
+            ) {
+              event.preventDefault();
+              actionTrigger.current.focus();
+            }
+          }}
           onEscapeKeyDown={(e) => {
             if (mutation.isPending) e.preventDefault();
           }}

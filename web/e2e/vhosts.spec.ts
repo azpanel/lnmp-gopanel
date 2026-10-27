@@ -300,11 +300,15 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   await page
     .getByRole("textbox", { name: "筛选虚拟主机" })
     .fill("missing.example");
+  if (testInfo.project.name === "mobile")
+    await page.getByRole("button", { name: "打开导航", exact: true }).click();
   await expect(
     page
       .getByRole("link", { name: "虚拟主机", exact: true })
       .locator(".nav-count"),
   ).toHaveText("1");
+  if (testInfo.project.name === "mobile")
+    await page.getByRole("button", { name: "关闭导航", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "没有匹配的站点" }),
   ).toBeVisible();

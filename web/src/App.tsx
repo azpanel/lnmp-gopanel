@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { Navigate, NavLink, Route, Routes } from "react-router-dom";
+import {
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -115,6 +121,7 @@ function Workspace({
 }) {
   const monitor = useMonitor(),
     client = useQueryClient();
+  const { pathname } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false),
     [loggingOut, setLoggingOut] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(() => {
@@ -181,9 +188,11 @@ function Workspace({
   }
   return (
     <div className={cn("workspace", sidebarHidden && "sidebar-hidden")}>
-      {mobileOpen && (
-        <div className="mobile-overlay" onClick={() => setMobileOpen(false)} />
-      )}
+      <div
+        className={cn("mobile-overlay", mobileOpen && "open")}
+        aria-hidden="true"
+        onClick={() => setMobileOpen(false)}
+      />
       <aside
         id="workspace-navigation"
         className={cn("sidebar", mobileOpen && "open")}
@@ -354,45 +363,47 @@ function Workspace({
           </div>
         </header>
         <main className="main-content">
-          <Routes>
-            <Route
-              path="/"
-              element={
-                <Dashboard
-                  monitor={monitor}
-                  host={host.data}
-                  services={services.data}
-                  serviceError={services.error?.message}
-                />
-              }
-            />
-            <Route
-              path="/services"
-              element={
-                <Services
-                  services={services.data}
-                  error={services.error?.message}
-                  loading={services.isFetching}
-                />
-              }
-            />
-            <Route
-              path="/system"
-              element={
-                <System
-                  host={host.data}
-                  snapshot={monitor.latest}
-                  error={host.error?.message}
-                />
-              }
-            />
-            <Route path="/storage" element={<Storage />} />
-            <Route path="/vhosts" element={<Vhosts />} />
-            <Route path="/docker" element={<Docker />} />
-            <Route path="/cron" element={<Cron />} />
-            <Route path="/logs" element={<Logs />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <div className="page-transition" key={pathname}>
+            <Routes>
+              <Route
+                path="/"
+                element={
+                  <Dashboard
+                    monitor={monitor}
+                    host={host.data}
+                    services={services.data}
+                    serviceError={services.error?.message}
+                  />
+                }
+              />
+              <Route
+                path="/services"
+                element={
+                  <Services
+                    services={services.data}
+                    error={services.error?.message}
+                    loading={services.isFetching}
+                  />
+                }
+              />
+              <Route
+                path="/system"
+                element={
+                  <System
+                    host={host.data}
+                    snapshot={monitor.latest}
+                    error={host.error?.message}
+                  />
+                }
+              />
+              <Route path="/storage" element={<Storage />} />
+              <Route path="/vhosts" element={<Vhosts />} />
+              <Route path="/docker" element={<Docker />} />
+              <Route path="/cron" element={<Cron />} />
+              <Route path="/logs" element={<Logs />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </div>
         </main>
         <footer className="main-footer">
           <span>
