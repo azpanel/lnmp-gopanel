@@ -960,7 +960,7 @@ export function VhostCreate() {
                     {!retryName && (
                       <>
                         <SelectItem value="files">
-                          指定 cert／key 文件
+                          指定 cert / key 文件
                         </SelectItem>
                         <SelectItem
                           value="existing"

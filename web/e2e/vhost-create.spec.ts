@@ -219,7 +219,7 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
     .fill("site-access.log");
   await expect(dialog.getByText("创建 ftp", { exact: false })).toHaveCount(0);
   await dialog.getByRole("combobox", { name: "证书来源" }).click();
-  await page.getByRole("option", { name: "指定 cert／key 文件" }).click();
+  await page.getByRole("option", { name: "指定 cert / key 文件" }).click();
   await dialog
     .getByLabel("cert 文件绝对路径（完整证书链）")
     .fill("/ssl/fullchain.pem");
