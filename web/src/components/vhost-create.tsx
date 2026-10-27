@@ -1,13 +1,38 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowRightLeft,
+  BadgeCheck,
   Check,
+  CircleHelp,
+  Code2,
+  Database,
+  Eye,
+  EyeOff,
+  FileBadge,
+  FileKey2,
+  FileText,
+  FolderOpen,
+  Globe,
+  KeyRound,
+  Link,
   Loader2,
+  LockKeyhole,
+  Mail,
+  Network,
   Plus,
   RefreshCw,
+  Route,
   Search,
+  ScrollText,
+  ShieldCheck,
+  Shuffle,
   Terminal,
+  UserRoundCog,
+  UserRound,
+  type LucideIcon,
 } from "lucide-react";
+import { Tooltip } from "radix-ui";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +55,7 @@ import {
 import { api, fetchSession } from "@/lib/api";
 import {
   certificateCovers,
+  generateDatabasePassword,
   newVhostInput,
   splitDomains,
   type DNSCheck,
@@ -61,22 +87,82 @@ const dnsLabels = {
   unknown: "无法确认",
 };
 
+function FieldLabel({
+  htmlFor,
+  icon: Icon,
+  children,
+}: {
+  htmlFor: string;
+  icon: LucideIcon;
+  children: ReactNode;
+}) {
+  return (
+    <Label htmlFor={htmlFor} className="create-field-label">
+      <Icon size={14} aria-hidden="true" />
+      {children}
+    </Label>
+  );
+}
+
+function DNSHelp({ warnings }: { warnings: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Tooltip.Provider delayDuration={150}>
+      <Tooltip.Root open={open} onOpenChange={setOpen}>
+        <Tooltip.Trigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="create-help-button"
+            aria-label="解析校验说明"
+            onClick={(event) => {
+              event.preventDefault();
+              setOpen(true);
+            }}
+          >
+            <CircleHelp size={15} aria-hidden="true" />
+          </Button>
+        </Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content
+            className="create-help-tooltip"
+            side="top"
+            sideOffset={6}
+            collisionPadding={16}
+          >
+            {[...new Set(warnings)].map((warning) => (
+              <p key={warning}>{warning}</p>
+            ))}
+            <p>解析校验仅供参考，未通过仍可继续；CDN 或代理可能显示其他 IP。</p>
+            <Tooltip.Arrow className="create-help-arrow" />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
+  );
+}
+
 function Choice({
   id,
   label,
+  icon,
   value,
   onChange,
   children,
 }: {
   id: string;
   label: string;
+  icon: LucideIcon;
   value: string;
   onChange: (value: string) => void;
   children: ReactNode;
 }) {
   return (
     <div className="create-field">
-      <Label htmlFor={id}>{label}</Label>
+      <FieldLabel htmlFor={id} icon={icon}>
+        {label}
+      </FieldLabel>
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger id={id}>
           <SelectValue />
@@ -89,12 +175,14 @@ function Choice({
 function Toggle({
   id,
   label,
+  icon,
   checked,
   onChange,
   disabled,
 }: {
   id: string;
   label: string;
+  icon: LucideIcon;
   checked: boolean;
   onChange: (value: boolean) => void;
   disabled?: boolean;
@@ -107,7 +195,9 @@ function Toggle({
         onCheckedChange={(value) => onChange(value === true)}
         disabled={disabled}
       />
-      <Label htmlFor={id}>{label}</Label>
+      <FieldLabel htmlFor={id} icon={icon}>
+        {label}
+      </FieldLabel>
     </div>
   );
 }
@@ -122,6 +212,7 @@ export function VhostCreate() {
   const [live, setLive] = useState(false);
   const [error, setError] = useState("");
   const [dns, setDNS] = useState<DNSCheck | null>(null);
+  const [showDatabasePassword, setShowDatabasePassword] = useState(false);
   const logsRef = useRef<HTMLPreElement>(null);
   const followLogs = useRef(true);
   const completed = useRef(new Set<string>());
@@ -309,6 +400,7 @@ export function VhostCreate() {
     setSelected(null);
     setRetryName(null);
     setDNS(null);
+    setShowDatabasePassword(false);
     setError("");
     setOpen(true);
   }
@@ -529,12 +621,14 @@ export function VhostCreate() {
                   <>
                     <fieldset
                       disabled={submit.isPending}
-                      className="create-section"
+                      className="create-section create-section-website"
                     >
-                      <legend>网站配置</legend>
-                      <div className="create-grid">
+                      <legend className="sr-only">网站配置</legend>
+                      <div className="create-domain-row">
                         <div className="create-field">
-                          <Label htmlFor="site-domain">主域名</Label>
+                          <FieldLabel htmlFor="site-domain" icon={Globe}>
+                            主域名
+                          </FieldLabel>
                           <Input
                             id="site-domain"
                             required
@@ -545,7 +639,9 @@ export function VhostCreate() {
                           />
                         </div>
                         <div className="create-field">
-                          <Label htmlFor="site-aliases">附加域名</Label>
+                          <FieldLabel htmlFor="site-aliases" icon={Link}>
+                            附加域名
+                          </FieldLabel>
                           <Input
                             id="site-aliases"
                             value={aliases}
@@ -553,22 +649,23 @@ export function VhostCreate() {
                             placeholder="www.example.com，多个域名用空格分隔"
                           />
                         </div>
-                      </div>
-                      <div className="flex justify-end">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={checkDNS.isPending || !domains.length}
-                          onClick={() => checkDNS.mutate(domains)}
-                        >
-                          {checkDNS.isPending ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : (
-                            <Search size={14} />
-                          )}
-                          校验解析
-                        </Button>
+                        <div className="create-dns-actions">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={checkDNS.isPending || !domains.length}
+                            onClick={() => checkDNS.mutate(domains)}
+                          >
+                            {checkDNS.isPending ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <Search size={14} />
+                            )}
+                            校验解析
+                          </Button>
+                          <DNSHelp warnings={dns?.warnings ?? []} />
+                        </div>
                       </div>
                       {dns && (
                         <div className="create-dns">
@@ -598,19 +695,12 @@ export function VhostCreate() {
                               </code>
                             </div>
                           ))}
-                          {dns.warnings.map((warning) => (
-                            <p key={warning} className="small-note">
-                              {warning}
-                            </p>
-                          ))}
-                          <p className="small-note">
-                            解析校验仅供参考，未通过仍可继续；CDN
-                            或代理可能显示其他 IP。
-                          </p>
                         </div>
                       )}
                       <div className="create-field">
-                        <Label htmlFor="site-root">站点目录（绝对路径）</Label>
+                        <FieldLabel htmlFor="site-root" icon={FolderOpen}>
+                          站点目录（绝对路径）
+                        </FieldLabel>
                         <Input
                           id="site-root"
                           value={input.root}
@@ -622,6 +712,7 @@ export function VhostCreate() {
                         <Choice
                           id="site-php"
                           label="PHP 版本"
+                          icon={Code2}
                           value={input.php}
                           onChange={(value) => {
                             set("php", value);
@@ -640,6 +731,7 @@ export function VhostCreate() {
                         <Choice
                           id="site-rewrite"
                           label="伪静态"
+                          icon={ArrowRightLeft}
                           value={input.rewrite}
                           onChange={(value) => set("rewrite", value)}
                         >
@@ -654,6 +746,7 @@ export function VhostCreate() {
                         <Toggle
                           id="site-pathinfo"
                           label="启用 Pathinfo"
+                          icon={Route}
                           checked={input.path_info}
                           onChange={(value) => set("path_info", value)}
                           disabled={
@@ -664,19 +757,23 @@ export function VhostCreate() {
                         <Toggle
                           id="site-ipv6"
                           label="启用 IPv6"
+                          icon={Network}
                           checked={input.ipv6}
                           onChange={(value) => set("ipv6", value)}
                         />
                         <Toggle
                           id="site-log"
                           label="记录访问日志"
+                          icon={ScrollText}
                           checked={input.access_log}
                           onChange={(value) => set("access_log", value)}
                         />
                       </div>
                       {input.access_log && (
                         <div className="create-field">
-                          <Label htmlFor="site-log-name">访问日志文件名</Label>
+                          <FieldLabel htmlFor="site-log-name" icon={FileText}>
+                            访问日志文件名
+                          </FieldLabel>
                           <Input
                             id="site-log-name"
                             value={input.log_name}
@@ -684,19 +781,20 @@ export function VhostCreate() {
                             placeholder={`${input.domain || "example.com"}.log`}
                           />
                           <span className="small-note">
-                            保存在 /usr/local/nginx/logs/gopanel/ 下
+                            保存在 /home/wwwlogs/ 下
                           </span>
                         </div>
                       )}
                     </fieldset>
                     <fieldset
                       disabled={submit.isPending}
-                      className="create-section"
+                      className="create-section create-section-database"
                     >
-                      <legend>数据库</legend>
+                      <legend className="sr-only">数据库</legend>
                       <Toggle
                         id="site-db"
                         label="创建数据库及同名本机用户"
+                        icon={Database}
                         checked={input.database.enabled}
                         onChange={(value) =>
                           set("database", { ...input.database, enabled: value })
@@ -705,11 +803,14 @@ export function VhostCreate() {
                       />
                       {input.database.enabled && (
                         <>
-                          <div className="create-grid">
+                          <div className="create-grid create-database-grid">
                             <div className="create-field">
-                              <Label htmlFor="site-db-name">
+                              <FieldLabel
+                                htmlFor="site-db-name"
+                                icon={UserRound}
+                              >
                                 数据库／用户名
-                              </Label>
+                              </FieldLabel>
                               <Input
                                 id="site-db-name"
                                 required
@@ -724,30 +825,84 @@ export function VhostCreate() {
                               />
                             </div>
                             <div className="create-field">
-                              <Label htmlFor="site-db-pass">数据库密码</Label>
-                              <Input
-                                id="site-db-pass"
-                                type="password"
-                                required
-                                minLength={8}
-                                autoComplete="new-password"
-                                value={input.database.password}
-                                onChange={(e) =>
-                                  set("database", {
-                                    ...input.database,
-                                    password: e.target.value,
-                                  })
-                                }
-                              />
+                              <div className="create-password-heading">
+                                <FieldLabel
+                                  htmlFor="site-db-pass"
+                                  icon={KeyRound}
+                                >
+                                  数据库密码
+                                </FieldLabel>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    try {
+                                      set("database", {
+                                        ...input.database,
+                                        password: generateDatabasePassword(),
+                                      });
+                                    } catch {
+                                      toast.error(
+                                        "无法生成安全随机密码，请手动输入",
+                                      );
+                                    }
+                                  }}
+                                >
+                                  <Shuffle size={13} aria-hidden="true" />
+                                  随机生成强密码
+                                </Button>
+                              </div>
+                              <div className="create-password-input">
+                                <Input
+                                  id="site-db-pass"
+                                  type={
+                                    showDatabasePassword ? "text" : "password"
+                                  }
+                                  required
+                                  minLength={8}
+                                  autoComplete="new-password"
+                                  value={input.database.password}
+                                  onChange={(e) =>
+                                    set("database", {
+                                      ...input.database,
+                                      password: e.target.value,
+                                    })
+                                  }
+                                />
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  aria-label={
+                                    showDatabasePassword
+                                      ? "隐藏数据库密码"
+                                      : "显示数据库密码"
+                                  }
+                                  aria-pressed={showDatabasePassword}
+                                  onClick={() =>
+                                    setShowDatabasePassword((old) => !old)
+                                  }
+                                >
+                                  {showDatabasePassword ? (
+                                    <EyeOff size={16} aria-hidden="true" />
+                                  ) : (
+                                    <Eye size={16} aria-hidden="true" />
+                                  )}
+                                </Button>
+                              </div>
                             </div>
                           </div>
                           <div className="create-field">
-                            <Label htmlFor="site-db-admin">
+                            <FieldLabel
+                              htmlFor="site-db-admin"
+                              icon={UserRoundCog}
+                            >
                               数据库管理员密码
                               {data?.database_auth_available
                                 ? "（可留空）"
                                 : "（自动认证不可用时填写）"}
-                            </Label>
+                            </FieldLabel>
                             <Input
                               id="site-db-admin"
                               type="password"
@@ -772,12 +927,13 @@ export function VhostCreate() {
                 )}
                 <fieldset
                   disabled={submit.isPending}
-                  className="create-section"
+                  className="create-section create-section-ssl"
                 >
-                  <legend>SSL 证书</legend>
+                  <legend className="sr-only">SSL 证书</legend>
                   <Choice
                     id="site-ssl"
                     label="证书来源"
+                    icon={ShieldCheck}
                     value={input.ssl.mode}
                     onChange={(value) =>
                       set("ssl", {
@@ -819,7 +975,9 @@ export function VhostCreate() {
                   {autoSSL && (
                     <>
                       <div className="create-field">
-                        <Label htmlFor="site-ssl-email">联系邮箱</Label>
+                        <FieldLabel htmlFor="site-ssl-email" icon={Mail}>
+                          联系邮箱
+                        </FieldLabel>
                         <Input
                           id="site-ssl-email"
                           type="email"
@@ -843,9 +1001,9 @@ export function VhostCreate() {
                   {input.ssl.mode === "files" && (
                     <>
                       <div className="create-field">
-                        <Label htmlFor="site-cert">
+                        <FieldLabel htmlFor="site-cert" icon={FileBadge}>
                           cert 文件绝对路径（完整证书链）
-                        </Label>
+                        </FieldLabel>
                         <Input
                           id="site-cert"
                           required
@@ -860,7 +1018,9 @@ export function VhostCreate() {
                         />
                       </div>
                       <div className="create-field">
-                        <Label htmlFor="site-key">key 文件绝对路径</Label>
+                        <FieldLabel htmlFor="site-key" icon={FileKey2}>
+                          key 文件绝对路径
+                        </FieldLabel>
                         <Input
                           id="site-key"
                           required
@@ -881,6 +1041,7 @@ export function VhostCreate() {
                       <Choice
                         id="site-existing-cert"
                         label="通配符证书"
+                        icon={BadgeCheck}
                         value={input.ssl.certificate_id}
                         onChange={(value) =>
                           set("ssl", { ...input.ssl, certificate_id: value })
@@ -950,6 +1111,7 @@ export function VhostCreate() {
                     <Toggle
                       id="site-redirect"
                       label="强制 HTTPS（保留 HTTP 证书验证路径）"
+                      icon={LockKeyhole}
                       checked={input.ssl.redirect}
                       onChange={(value) =>
                         set("ssl", { ...input.ssl, redirect: value })

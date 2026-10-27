@@ -3235,16 +3235,78 @@ a {
   min-height: 0;
   padding: 0 0.25rem;
 }
+.vhost-create-dialog .create-form-body,
+.vhost-create-dialog .create-task,
+.vhost-create-dialog .create-task-log {
+  scrollbar-width: none;
+}
+.vhost-create-dialog .create-form-body::-webkit-scrollbar,
+.vhost-create-dialog .create-task::-webkit-scrollbar,
+.vhost-create-dialog .create-task-log::-webkit-scrollbar {
+  display: none;
+}
 .create-section {
+  --create-section-accent: var(--primary);
   min-width: 0;
   display: grid;
   gap: 0.85rem;
-  padding: 1rem 0;
-  border-top: 1px solid var(--border);
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border: 1px solid
+    color-mix(in srgb, var(--create-section-accent) 22%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--create-section-accent) 6%, var(--card));
 }
-.create-section legend {
-  padding: 0 0.5rem 0 0;
-  font-weight: 600;
+.create-section-database {
+  --create-section-accent: var(--violet);
+}
+.create-section-ssl {
+  --create-section-accent: #4f91d8;
+}
+.create-field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.create-field-label svg {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+.create-domain-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+.create-dns-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 2px;
+}
+.create-help-button {
+  width: 26px;
+  height: 28px;
+  color: var(--muted-foreground);
+}
+.create-help-tooltip {
+  z-index: 80;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 4px 16px #0002;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.create-help-tooltip p + p {
+  margin-top: 8px;
+}
+.create-help-arrow {
+  fill: var(--card);
 }
 .create-grid {
   display: grid;
@@ -3256,6 +3318,32 @@ a {
   align-content: start;
   gap: 0.5rem;
   min-width: 0;
+}
+.create-database-grid {
+  align-items: end;
+}
+.create-password-heading,
+.create-password-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.create-password-heading {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.create-password-heading > button {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.create-password-input > input {
+  min-width: 0;
+  flex: 1;
+}
+.create-password-input > button {
+  flex-shrink: 0;
 }
 .create-toggles,
 .create-form-footer,
@@ -3342,5 +3430,32 @@ a {
   }
   .create-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .create-section {
+    padding: 0.75rem;
+  }
+  .create-domain-row {
+    gap: 6px;
+  }
+  .create-domain-row .create-field-label {
+    gap: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .create-domain-row .create-field-label svg {
+    width: 12px;
+    height: 12px;
+  }
+  .create-domain-row input {
+    padding-inline: 6px;
+    font-size: 13px;
+  }
+  .create-dns-actions {
+    gap: 2px;
+  }
+  .create-dns-actions > button:first-child {
+    gap: 4px;
+    padding-inline: 6px;
+    font-size: 12px;
   }
 }

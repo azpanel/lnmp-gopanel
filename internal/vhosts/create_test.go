@@ -25,8 +25,8 @@ func createInput() CreateRequest {
 	return CreateRequest{RequestID: "request-1234", Domain: "Example.COM.", PHP: "none", SSL: SSLInput{Mode: "none"}}
 }
 func TestCreateValidationAndEscapedConfig(t *testing.T) {
-	if AccessLogDirectory != logs.ManagedDirectory || !logs.ValidPath(AccessLogDirectory+"/site.log") {
-		t.Fatal("managed access logs are not readable by the log viewer")
+	if AccessLogDirectory != logs.Directory || !logs.ValidPath(AccessLogDirectory+"/site.log") {
+		t.Fatal("default access logs are not readable by the log viewer")
 	}
 	r := createInput()
 	r.Aliases = []string{"WWW.Example.COM", "example.com", "www.example.com"}
@@ -39,6 +39,10 @@ func TestCreateValidationAndEscapedConfig(t *testing.T) {
 	}
 	content := RenderSite(r, PHPRuntime{}, "", "")
 	if !strings.Contains(content, `root "/home/space \"quoted\"; folder";`) || !strings.Contains(content, "location ^~ /.well-known/acme-challenge/") {
+		t.Fatal(content)
+	}
+	r.AccessLog = true
+	if content := RenderSite(r, PHPRuntime{}, "", ""); !strings.Contains(content, `access_log "/home/wwwlogs/example.com.log";`) {
 		t.Fatal(content)
 	}
 	s := testStore(t)

@@ -63,6 +63,40 @@ func request(h http.Handler, method, path, body string, cookie *http.Cookie, csr
 	h.ServeHTTP(w, r)
 	return w
 }
+
+func TestFrontendAssetCaching(t *testing.T) {
+	s, _ := testServer(t)
+	s.Assets = fstest.MapFS{
+		"index.html":        &fstest.MapFile{Data: []byte("<html>panel</html>")},
+		"asset-version.js":  &fstest.MapFile{Data: []byte("version check")},
+		"theme.js":          &fstest.MapFile{Data: []byte("theme")},
+		"assets/app-a1.js":  &fstest.MapFile{Data: []byte("app")},
+		"assets/app-b2.css": &fstest.MapFile{Data: []byte("body {}")},
+	}
+	h := s.Handler()
+	for _, tc := range []struct{ path, cache string }{
+		{"/", "no-store"},
+		{"/index.html?_asset_check=123", "no-store"},
+		{"/vhosts", "no-store"},
+		{"/asset-version.js", "no-cache"},
+		{"/theme.js", "no-cache"},
+		{"/assets/app-a1.js", "public, max-age=31536000, immutable"},
+		{"/assets/app-b2.css", "public, max-age=31536000, immutable"},
+	} {
+		for _, method := range []string{"GET", "HEAD"} {
+			w := request(h, method, tc.path, "", nil, "", "")
+			if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != tc.cache {
+				t.Errorf("%s %s: status=%d cache=%q", method, tc.path, w.Code, w.Header().Get("Cache-Control"))
+			}
+		}
+	}
+	for _, path := range []string{"/assets/old.js", "/assets/old.css", "/missing.js"} {
+		if w := request(h, "GET", path, "", nil, "", ""); w.Code != http.StatusNotFound {
+			t.Errorf("missing asset %s returned %d", path, w.Code)
+		}
+	}
+}
+
 func TestAuthenticationAndCookie(t *testing.T) {
 	s, _ := testServer(t)
 	s.Config.SecureCookie = true

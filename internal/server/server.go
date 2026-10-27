@@ -242,6 +242,10 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		if name == "index.html" {
+			c.Header("Cache-Control", "no-store")
+		} else if strings.HasPrefix(name, "assets/") {
+			c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
 			c.Header("Cache-Control", "no-cache")
 		}
 		http.ServeContent(c.Writer, c.Request, name, time.Time{}, strings.NewReader(string(data)))

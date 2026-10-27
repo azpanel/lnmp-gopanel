@@ -81,6 +81,30 @@ export type DNSCheck = {
 export function splitDomains(value: string): string[] {
   return [...new Set(value.split(/[\s,，]+/).filter(Boolean))];
 }
+
+export function generateDatabasePassword(): string {
+  const groups = [
+    "ABCDEFGHJKLMNPQRSTUVWXYZ",
+    "abcdefghijkmnopqrstuvwxyz",
+    "23456789",
+    "!@#$%*_+-=",
+  ];
+  const alphabet = groups.join("");
+  const random = (limit: number) => {
+    const byte = new Uint8Array(1);
+    const ceiling = 256 - (256 % limit);
+    do crypto.getRandomValues(byte);
+    while (byte[0] >= ceiling);
+    return byte[0] % limit;
+  };
+  const password = groups.map((group) => group[random(group.length)]);
+  while (password.length < 24) password.push(alphabet[random(alphabet.length)]);
+  for (let i = password.length - 1; i > 0; i--) {
+    const j = random(i + 1);
+    [password[i], password[j]] = [password[j], password[i]];
+  }
+  return password.join("");
+}
 function hostname(value: string): string {
   try {
     return new URL(`http://${value.trim()}`).hostname

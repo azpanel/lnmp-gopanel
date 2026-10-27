@@ -72,7 +72,9 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
     route.fulfill({
       json: {
         server_ips: ["192.0.2.1"],
-        warnings: [],
+        warnings: [
+          "部分公网 IP 无法探测，未匹配的解析可能无法确认；NAT 可在配置中补充公网 IP",
+        ],
         records: route
           .request()
           .postDataJSON()
@@ -157,12 +159,64 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   await page.getByRole("button", { name: "登录面板" }).click();
   await page.getByRole("button", { name: "添加站点", exact: true }).click();
   const dialog = page.getByRole("dialog");
+  await page.screenshot({
+    path: testInfo.outputPath("create-site-sections.png"),
+    fullPage: true,
+  });
   await dialog.getByLabel("主域名", { exact: true }).fill("app.example.com");
   await dialog.getByLabel("附加域名", { exact: true }).fill("www.example.com");
+  const domainBox = (await dialog
+    .getByLabel("主域名", { exact: true })
+    .boundingBox())!;
+  const aliasesBox = (await dialog
+    .getByLabel("附加域名", { exact: true })
+    .boundingBox())!;
+  const dnsBox = (await dialog
+    .getByRole("button", { name: "校验解析", exact: true })
+    .boundingBox())!;
+  expect(Math.abs(domainBox.y - aliasesBox.y)).toBeLessThan(2);
+  expect(
+    Math.abs(domainBox.y + domainBox.height / 2 - dnsBox.y - dnsBox.height / 2),
+  ).toBeLessThan(2);
+  expect(dnsBox.x).toBeGreaterThanOrEqual(aliasesBox.x + aliasesBox.width);
+  const help = dialog.getByRole("button", {
+    name: "解析校验说明",
+    exact: true,
+  });
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await help.focus();
+  await expect(page.getByRole("tooltip")).toContainText(
+    "解析校验仅供参考，未通过仍可继续；CDN 或代理可能显示其他 IP。",
+  );
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "校验解析" }).click();
   await expect(dialog.getByText("未解析到本机", { exact: true })).toHaveCount(
     2,
   );
+  await expect(dialog.locator(".create-dns")).not.toContainText(
+    "部分公网 IP 无法探测",
+  );
+  await expect(dialog.locator(".create-dns")).not.toContainText(
+    "解析校验仅供参考",
+  );
+  await help.click();
+  await expect(page.getByRole("tooltip")).toContainText(
+    "部分公网 IP 无法探测，未匹配的解析可能无法确认；NAT 可在配置中补充公网 IP",
+  );
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("记录访问日志", { exact: true }).check();
+  await expect(
+    dialog.getByText("保存在 /home/wwwlogs/ 下", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByLabel("访问日志文件名", { exact: true }),
+  ).toHaveAttribute("placeholder", "app.example.com.log");
+  await dialog
+    .getByLabel("访问日志文件名", { exact: true })
+    .fill("site-access.log");
   await expect(dialog.getByText("创建 ftp", { exact: false })).toHaveCount(0);
   await dialog.getByRole("combobox", { name: "证书来源" }).click();
   await page.getByRole("option", { name: "指定 cert／key 文件" }).click();
@@ -195,10 +249,36 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   await dialog.getByLabel("联系邮箱").fill("admin@example.com");
   await dialog.getByLabel("创建数据库及同名本机用户").check();
   await dialog.getByLabel("数据库／用户名").fill("site_database");
+  const password = dialog.getByLabel("数据库密码", { exact: true });
+  const generate = dialog.getByRole("button", {
+    name: "随机生成强密码",
+    exact: true,
+  });
+  await generate.click();
+  const firstPassword = await password.inputValue();
+  await generate.click();
+  const generated = await password.inputValue();
+  expect(generated).not.toBe(firstPassword);
+  expect(generated).toHaveLength(24);
+  expect(generated).toMatch(/[A-Z]/);
+  expect(generated).toMatch(/[a-z]/);
+  expect(generated).toMatch(/[0-9]/);
+  expect(generated).toMatch(/[!@#$%*_+\-=]/);
+  expect(submissions).toBe(0);
+  await expect(password).toHaveAttribute("type", "password");
   await dialog
-    .getByLabel("数据库密码", { exact: true })
-    .fill("Database-Password-123");
+    .getByRole("button", { name: "显示数据库密码", exact: true })
+    .click();
+  await expect(password).toHaveAttribute("type", "text");
+  await dialog
+    .getByRole("button", { name: "隐藏数据库密码", exact: true })
+    .click();
+  await expect(password).toHaveAttribute("type", "password");
   await dialog.getByLabel(/数据库管理员密码/).fill("Admin-Password-123");
+  await page.screenshot({
+    path: testInfo.outputPath("create-site-database.png"),
+    fullPage: true,
+  });
   await dialog.getByRole("button", { name: "创建站点", exact: true }).click();
   await expect(dialog.getByLabel("建站实时输出")).toContainText(
     "acme.sh: validating app.example.com",
@@ -208,8 +288,10 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   expect(submitted).toMatchObject({
     domain: "app.example.com",
     aliases: ["www.example.com"],
+    access_log: true,
+    log_name: "site-access.log",
     ssl: { mode: "zerossl", redirect: true },
-    database: { enabled: true, name: "site_database" },
+    database: { enabled: true, name: "site_database", password: generated },
   });
   await dialog.getByRole("button", { name: "重试 SSL", exact: true }).click();
   await expect(dialog.getByLabel("主域名", { exact: true })).toHaveCount(0);

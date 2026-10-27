@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { certificateCovers, splitDomains } from "./vhost-create";
+import {
+  certificateCovers,
+  generateDatabasePassword,
+  splitDomains,
+} from "./vhost-create";
+
+describe("database password generation", () => {
+  it("generates distinct 24-character passwords with all four character classes", () => {
+    const passwords = Array.from({ length: 8 }, () =>
+      generateDatabasePassword(),
+    );
+    expect(new Set(passwords).size).toBe(passwords.length);
+    for (const password of passwords) {
+      expect(password).toHaveLength(24);
+      expect(password).toMatch(/[A-Z]/);
+      expect(password).toMatch(/[a-z]/);
+      expect(password).toMatch(/[0-9]/);
+      expect(password).toMatch(/[!@#$%*_+\-=]/);
+      expect(password).not.toMatch(/[\s\x00'"\\]/);
+    }
+  });
+});
 
 describe("site certificate matching", () => {
   it("requires every hostname and matches only one wildcard label", () => {

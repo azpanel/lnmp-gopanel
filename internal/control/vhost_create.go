@@ -503,9 +503,9 @@ func writeRootAtomic(path string, data []byte, mode os.FileMode) error {
 	return os.Rename(f.Name(), path)
 }
 
-// LNMP's shared /home/wwwlogs may be world writable. New root-opened nginx
-// logs live under a trusted directory so another account cannot substitute a
-// symlink before nginx opens them. Existing log paths are left unchanged.
+// Root-opened nginx logs require a trusted directory so another account cannot
+// substitute a symlink before nginx opens them. Reject unsafe existing directory
+// permissions rather than changing a shared directory's permissions implicitly.
 func prepareSiteLog(name string) error {
 	dir := vhosts.AccessLogDirectory
 	if err := TrustedPath(filepath.Dir(dir)); err != nil {

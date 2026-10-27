@@ -17,7 +17,7 @@ import (
 )
 
 const CreateTimeout = 20 * time.Minute
-const AccessLogDirectory = Prefix + "/logs/gopanel"
+const AccessLogDirectory = "/home/wwwlogs"
 const ChallengeDirectory = Prefix + "/conf/gopanel-acme"
 
 type SSLInput struct {
