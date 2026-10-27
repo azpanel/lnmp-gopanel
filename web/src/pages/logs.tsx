@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   FileText,
   CircleHelp,
+  History,
   ListFilter,
   Pause,
   Play,
@@ -266,6 +267,7 @@ export function Logs() {
               disabled={reader.busy || !first?.has_before}
               onClick={() => void reader.older()}
             >
+              <History size={14} aria-hidden="true" />
               加载更早日志
             </Button>
             <Button
