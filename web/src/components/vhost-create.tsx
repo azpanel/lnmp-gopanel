@@ -1103,7 +1103,7 @@ export function VhostCreate() {
                         </div>
                       )}
                       <p className="small-note">
-                        扫描 /root/.acme.sh/
+                        扫描 /root/.acme.sh/ 和 /usr/local/acme.sh/
                         下的通配符证书，沿用其原有续期和加载设置。
                       </p>
                     </>

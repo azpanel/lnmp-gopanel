@@ -318,11 +318,11 @@ type acmeExitError struct{ Code int }
 func (e *acmeExitError) Error() string {
 	return "证书申请或部署失败，请查看上方实时输出；HTTP 站点已保留"
 }
-func acmeStream(ctx context.Context, args []string, emit func(string)) error {
-	if err := TrustedPath(acmeHome + "/acme.sh"); err != nil {
+func (client acmeClient) stream(ctx context.Context, args []string, emit func(string)) error {
+	if !executable(client.program()) || client.trust(client.program()) != nil {
 		return errors.New("acme.sh 不存在或权限不安全")
 	}
-	cmd := exec.CommandContext(ctx, acmeHome+"/acme.sh", args...)
+	cmd := exec.CommandContext(ctx, client.program(), args...)
 	configureProcess(cmd)
 	cmd.Env = []string{"HOME=/root", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C", "LC_ALL=C", "NO_COLOR=1"}
 	stdout, e := cmd.StdoutPipe()
@@ -374,6 +374,11 @@ func acmeStream(ctx context.Context, args []string, emit func(string)) error {
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 func issueSiteCertificate(ctx context.Context, r vhosts.CreateRequest, binary string, emit func(string)) (string, string, error) {
+	client, err := findACMEClient(acmeHomes(), TrustedPath)
+	if err != nil {
+		return "", "", err
+	}
+	acmeCertHome := client.certHome()
 	// ACME runs as root; never write challenge files into a website's writable
 	// .well-known directory, where an application could substitute a symlink.
 	for _, path := range []string{vhosts.ChallengeDirectory, filepath.Join(vhosts.ChallengeDirectory, ".well-known"), filepath.Join(vhosts.ChallengeDirectory, ".well-known/acme-challenge")} {
@@ -400,15 +405,15 @@ func issueSiteCertificate(ctx context.Context, r vhosts.CreateRequest, binary st
 	if err := TrustedPath(acmeCertHome); err != nil {
 		return "", "", err
 	}
-	base := []string{"--home", acmeHome, "--cert-home", acmeCertHome, "--server", r.SSL.Mode}
-	if err := acmeStream(ctx, append(append([]string{}, base...), "--register-account", "-m", r.SSL.Email), emit); err != nil {
+	base := client.baseArgs(r.SSL.Mode)
+	if err := client.stream(ctx, append(append([]string{}, base...), "--register-account", "-m", r.SSL.Email), emit); err != nil {
 		return "", "", err
 	}
 	args := append(append([]string{}, base...), "--issue", "--webroot", vhosts.ChallengeDirectory, "--keylength", "ec-256")
 	for _, domain := range r.Domains() {
 		args = append(args, "-d", domain)
 	}
-	if err := acmeStream(ctx, args, emit); err != nil {
+	if err := client.stream(ctx, args, emit); err != nil {
 		// acme.sh returns 2 when a still-valid existing order is not due. Only
 		// reuse files after complete key, lifetime and requested-SAN validation.
 		var exit *acmeExitError
@@ -450,7 +455,7 @@ func issueSiteCertificate(ctx context.Context, r vhosts.CreateRequest, binary st
 	}
 	hook := "/usr/bin/flock -w 60 /run/lock/lnmp-gopanel-nginx.lock /bin/sh -c " + shellQuote(shellQuote(binary)+" -t && "+shellQuote(binary)+" -s reload")
 	args = append(append([]string{}, base...), "--install-cert", "--ecc", "-d", r.Domain, "--fullchain-file", cert, "--key-file", key, "--reloadcmd", hook)
-	if err := acmeStream(ctx, args, emit); err != nil {
+	if err := client.stream(ctx, args, emit); err != nil {
 		return "", "", err
 	}
 	c, e1 := readTrustedFile(cert, 4*1024*1024)
@@ -463,7 +468,7 @@ func issueSiteCertificate(ctx context.Context, r vhosts.CreateRequest, binary st
 	}
 	// A separate cron uses this cert-home and does not change existing root
 	// crontab or existing certificates' renewal settings.
-	cron := "SHELL=/bin/sh\nPATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n17 3 * * * root " + acmeHome + "/acme.sh --cron --home " + acmeHome + " --cert-home " + acmeCertHome + " > /dev/null 2>&1\n"
+	cron := client.renewalCron()
 	if err := writeRootAtomic("/etc/cron.d/lnmp-gopanel-acme", []byte(cron), 0644); err != nil {
 		return "", "", errors.New("证书已签发，但自动续期任务配置失败；请检查 cron 后重试")
 	}

@@ -19,8 +19,6 @@ import (
 	"github.com/azpanel/lnmp-gopanel/internal/vhosts"
 )
 
-const acmeHome = "/root/.acme.sh"
-const acmeCertHome = acmeHome + "/gopanel-certs"
 const managedSites = vhosts.Prefix + "/conf/gopanel-sites"
 const managedSSL = vhosts.Prefix + "/conf/ssl/gopanel"
 
@@ -93,10 +91,17 @@ func RootVhostOptions(ctx context.Context) (vhosts.CreateOptions, error) {
 			}
 		}
 	}
-	o.ACMEAvailable = TrustedPath(acmeHome+"/acme.sh") == nil && TrustedPath("/usr/bin/flock") == nil
-	o.Certificates = scanWildcardCertificates(acmeHome)
-	if !o.ACMEAvailable {
-		o.Warnings = append(o.Warnings, "需要可信的 /root/.acme.sh/acme.sh 和 /usr/bin/flock 才能自动申请及续期 SSL")
+	_, acmeErr := findACMEClient(acmeHomes(), TrustedPath)
+	flockAvailable := executable("/usr/bin/flock") && TrustedPath("/usr/bin/flock") == nil
+	o.ACMEAvailable = acmeErr == nil && flockAvailable
+	for _, home := range acmeHomes() {
+		o.Certificates = append(o.Certificates, scanWildcardCertificates(home)...)
+	}
+	if acmeErr != nil {
+		o.Warnings = append(o.Warnings, acmeErr.Error())
+	}
+	if !flockAvailable {
+		o.Warnings = append(o.Warnings, "需要可信且可执行的 /usr/bin/flock 才能自动申请及续期 SSL")
 	}
 	// Probe credentials without exposing root configuration or passwords.
 	probe, done := context.WithTimeout(ctx, 2*time.Second)

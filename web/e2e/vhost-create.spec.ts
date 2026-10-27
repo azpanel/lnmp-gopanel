@@ -12,7 +12,7 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   page.on("pageerror", (error) => errors.push(error.message));
   const now = new Date().toISOString();
   const cert = {
-    path: "/root/.acme.sh/example.com_ecc/fullchain.cer",
+    path: "/usr/local/acme.sh/example.com_ecc/fullchain.cer",
     issuer: "CN=Test Wildcard Issuer",
     subject: "CN=*.example.com",
     dns_names: ["*.example.com", "example.com"],
@@ -32,7 +32,7 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
       {
         id: "a".repeat(64),
         cert_file: cert.path,
-        key_file: "/root/.acme.sh/example.com_ecc/example.com.key",
+        key_file: "/usr/local/acme.sh/example.com_ecc/example.com.key",
         certificate: cert,
         usable: true,
       },

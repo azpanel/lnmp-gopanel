@@ -374,6 +374,7 @@ fi
             "/usr/local/nginx/conf/vhost/site.conf", "/usr/local/nginx/conf/gopanel-sites/site.conf.json",
             "/usr/local/nginx/conf/ssl/gopanel/site/privkey.pem", "/usr/local/nginx/conf/gopanel-acme/.well-known/acme-challenge/token",
             "/root/.acme.sh/gopanel-certs/site_ecc/site.key", "/etc/cron.d/lnmp-gopanel-acme",
+            "/usr/local/acme.sh/acme.sh", "/usr/local/acme.sh/account.conf", "/usr/local/acme.sh/gopanel-certs/site_ecc/site.key",
             "/etc/systemd/system/nginx.service", "/usr/bin/chromium", "/custom/screenshots/state")]
         # Neither sudo nor tar/curl is required for uninstall.
         for path in ("usr/bin/sudo", "usr/bin/curl"):
@@ -528,6 +529,7 @@ fi
         preserved = [write(self.root, path, "keep") for path in (
             "/usr/local/nginx/conf/vhost/site.conf", "/home/wwwroot/site/index.html",
             "/root/.acme.sh/account.conf", "/etc/cron.d/lnmp-gopanel-acme",
+            "/usr/local/acme.sh/acme.sh", "/usr/local/acme.sh/account.conf", "/usr/local/acme.sh/gopanel-certs/site_ecc/site.key",
             "/usr/local/nginx/conf/ssl/gopanel/site/fullchain.pem")]
         self.run_installer(automatic_tls=False)
         for target in TARGETS[4:]:

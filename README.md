@@ -306,9 +306,9 @@ Redis 只显示状态和版本，不提供启停按钮，辅助程序也拒绝 R
 
 “添加站点”支持主域名与附加域名、站点目录、PHP／纯静态、Pathinfo、现有伪静态模板、IPv6 和访问日志，可选创建数据库与同名本机用户，不创建 FTP 账号。默认目录是 `/home/wwwroot/<主域名>`；已有目录不递归修改权限，也不覆盖已有 `.user.ini`。新站点访问日志保存在 `/home/wwwlogs/`，目录与文件沿用 root 所有权、禁止其他用户写入及禁止符号链接的检查，可在日志页面查看；原有日志路径不变。数据库密码可点击“随机生成强密码”生成 24 位、包含大小写字母、数字及符号的密码，并可显示或隐藏；密码仅保留在当前表单，不存入浏览器存储。数据库优先使用 root 配置或 Unix socket 认证，不可用时填写管理员密码；凭据仅用于本次操作。已有数据库、账号、域名绑定和同名配置不会被覆盖。
 
-SSL 支持申请 Let's Encrypt／ZeroSSL、填写 cert/key 绝对路径，或从 `/root/.acme.sh/` 扫描到的通配符证书中选择。证书会检查有效期、私钥匹配和全部站点域名的覆盖范围；通配符只匹配一级子域名，根域名需另含 SAN。已有证书直接引用原文件，沿用原续期与 Nginx 加载设置，本功能不额外接管。启用 SSL 后默认强制 HTTPS，可关闭；HTTP 证书验证路径始终保留。
+SSL 支持申请 Let's Encrypt／ZeroSSL、填写 cert/key 绝对路径，或从 `/root/.acme.sh/`、`/usr/local/acme.sh/` 扫描到的通配符证书中选择。证书会检查有效期、私钥匹配和全部站点域名的覆盖范围；通配符只匹配一级子域名，根域名需另含 SAN。已有证书直接引用原文件，沿用原续期与 Nginx 加载设置，本功能不额外接管。启用 SSL 后默认强制 HTTPS，可关闭；HTTP 证书验证路径始终保留。
 
-Go 辅助程序生成配置并检查、重载 Nginx，配置或重载失败会恢复原配置，不调用版本相关的 `lnmp vhost add`／`lnmp ssl`。自动申请由 Go 调用可信的 `/root/.acme.sh/acme.sh`，要求安装 `flock` 和运行中的系统 cron；使用 webroot HTTP-01 验证，所有域名需能从公网 80 端口访问本站。申请不支持通配符或 DNS API。新证书使用独立的 ACME 证书目录，不改写已有证书配置，通过 `--install-cert` 部署到 `/usr/local/nginx/conf/ssl/gopanel/`，每日续期任务保存在 `/etc/cron.d/lnmp-gopanel-acme`，续期重载使用与面板共享的 Nginx 锁并先检查配置。续期独立于面板运行，卸载面板仍保留网站证书和续期任务。
+Go 辅助程序生成配置并检查、重载 Nginx，配置或重载失败会恢复原配置，不调用版本相关的 `lnmp vhost add`／`lnmp ssl`。自动申请由 Go 依次检测 `/root/.acme.sh/acme.sh`、`/usr/local/acme.sh/acme.sh`，使用首个可执行且由 root 所有、程序及父目录均不可被组或其他用户写入的安装；两个路径同时有效时优先前者。要求安装可信的 `/usr/bin/flock` 和运行中的系统 cron；使用 webroot HTTP-01 验证，所有域名需能从公网 80 端口访问本站。申请不支持通配符或 DNS API。新证书使用所选安装目录下独立的 `gopanel-certs/`，申请、部署和每日续期使用同一安装目录与证书目录，不改写已有证书配置。证书通过 `--install-cert` 部署到 `/usr/local/nginx/conf/ssl/gopanel/`，每日续期任务保存在 `/etc/cron.d/lnmp-gopanel-acme`，续期重载使用与面板共享的 Nginx 锁并先检查配置。续期独立于面板运行，卸载面板仍保留网站证书和续期任务。不会扫描备份目录来执行 acme.sh；缺少客户端或权限不安全与缺少 flock 会分别提示。
 
 “校验解析”与主域名、附加域名输入框同排，逐域名查询 A／AAAA，与本机网卡和公网 IPv4／IPv6 对比。公网探测通过 HTTPS 访问 `api.ipify.org` 和 `api6.ipify.org`，结果缓存五分钟；失败时显示“无法确认”。公网探测警告及解析校验说明收在问号图标的提示中，支持悬停、键盘聚焦和点击。NAT 环境可在配置中添加 `vhosts.public_ips: ["服务器公网 IPv4", "服务器公网 IPv6"]` 补充参考地址。CDN、代理、混合解析或暂未生效只作提示，不阻止建站与证书申请。
 
