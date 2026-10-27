@@ -202,7 +202,7 @@ class InstallerTests(unittest.TestCase):
             "bash", "uname", "tar", "gzip", "sha256sum", "awk", "install", "stat",
             "cp", "mv", "mkdir", "rm", "mktemp", "cat", "chmod", "chown", "id",
             "date", "sleep", "getent", "groupadd", "useradd", "userdel", "groupdel", "flock", "nologin",
-            "touch", "visudo",
+            "touch", "visudo", "grep",
         ):
             copy_executable(cls.template, command)
         # The installer intentionally uses /bin/bash and /usr/bin/sudo.
@@ -230,16 +230,26 @@ while (($#)); do
 done
 printf '%s\\n' "$url" >> /run/downloads.log
 [[ ! -f /run/fail-download ]] || exit 22
+if [[ "$url" == https://keyserver.ubuntu.com/* ]]; then
+  printf '%s\\n' 'test PPA signing key' > "$output"
+  exit 0
+fi
 cp "/tmp/${url##*/}" "$output"
 """, 0o755)
         write(cls.template, "/etc/os-release", 'ID=debian\nVERSION_ID="12"\n')
         write(cls.template, "/usr/bin/apt-get", """#!/bin/bash
 printf '%s\\n' "$*" >> /run/apt.log
 [[ ! -f /run/fail-apt ]] || exit 1
-if [[ "$1" == install ]]; then
+if [[ "$1" == install && " $* " == *' chromium '* ]]; then
   printf '#!/bin/bash\\nexit 0\\n' > /usr/bin/chromium
   chmod 0755 /usr/bin/chromium
+  mkdir -p /usr/lib/chromium
+  cp /usr/bin/chromium /usr/lib/chromium/chromium
 fi
+""", 0o755)
+        write(cls.template, "/usr/sbin/apparmor_parser", """#!/bin/bash
+printf '%s\\n' "$*" >> /run/apparmor.log
+[[ ! -f /run/fail-apparmor ]]
 """, 0o755)
         write(cls.template, "/run/panel.pid", "4242\n")
         write(cls.template, "/proc/4242/status", "Uid:\t999\t999\t999\t999\nNoNewPrivs:\t0\nSeccomp:\t2\n")
@@ -726,12 +736,104 @@ exit 1
         self.assertTrue((self.root / "run/screenshot-check.log").exists())
 
     def test_screenshot_check_only_never_installs_dependencies(self):
-        self.run_installer("--with-screenshots", "--check")
+        for distro, version in (("debian", "12"), ("ubuntu", "24.04")):
+            with self.subTest(distro=distro):
+                write(self.root, "/etc/os-release", f'ID={distro}\nVERSION_ID="{version}"\n')
+                self.run_installer("--with-screenshots", "--check")
+                self.assertFalse((self.root / "run/apt.log").exists())
+                self.assertFalse((self.root / "var/lib/lnmp-gopanel").exists())
+                self.assertFalse((self.root / "etc/apt/sources.list.d/lnmp-gopanel-chromium.sources").exists())
+                self.assertFalse((self.root / "run/downloads.log").exists())
+
+    def test_ubuntu_screenshot_dependencies_and_smoke_check(self):
+        for version, codename in (("22.04", "jammy"), ("24.04", "noble"), ("26.04", "resolute")):
+            with self.subTest(version=version):
+                write(self.root, "/etc/os-release", f'ID=ubuntu\nVERSION_ID="{version}"\n')
+                self.run_installer("--password-stdin", "--with-screenshots")
+                self.assertEqual((self.root / "run/apt.log").read_text(), "update\ninstall -y --no-install-recommends ca-certificates\nupdate\ninstall -y --no-install-recommends chromium chromium-sandbox fonts-noto-cjk ca-certificates\n")
+                source = self.root / "etc/apt/sources.list.d/lnmp-gopanel-chromium.sources"
+                self.assertEqual(source.read_text(), f"Types: deb\nURIs: https://ppa.launchpadcontent.net/xtradeb/apps/ubuntu\nSuites: {codename}\nComponents: main\nArchitectures: {ARCH}\nSigned-By: /etc/apt/keyrings/lnmp-gopanel-chromium.asc 5301FA4FD93244FBC6F6149982BB6851C64F6880\n")
+                preferences = self.root / "etc/apt/preferences.d/lnmp-gopanel-chromium"
+                self.assertEqual(preferences.read_text(), "Package: chromium*\nPin: release o=LP-PPA-xtradeb-apps\nPin-Priority: 700\n\nPackage: *\nPin: release o=LP-PPA-xtradeb-apps\nPin-Priority: -1\n")
+                keyring = self.root / "etc/apt/keyrings/lnmp-gopanel-chromium.asc"
+                self.assertEqual(keyring.read_text(), "test PPA signing key\n")
+                for path in (source, preferences, keyring):
+                    self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+                    self.assertEqual(path.parent.stat().st_mode & 0o777, 0o755)
+                self.assertEqual((self.root / "run/downloads.log").read_text(), "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x5301FA4FD93244FBC6F6149982BB6851C64F6880\n")
+                self.assertTrue((self.root / "run/screenshot-check.log").exists())
+                # Exercise the next release as a new browser installation.
+                (self.root / "usr/bin/chromium").unlink()
+                (self.root / "run/apt.log").unlink()
+                (self.root / "run/downloads.log").unlink()
+
+    def test_ubuntu_existing_native_browser_is_reused_without_adding_repository(self):
+        write(self.root, "/etc/os-release", 'ID=ubuntu\nVERSION_ID="24.04"\n')
+        write(self.root, "/usr/bin/chromium", "#!/bin/bash\nexit 0\n", 0o755)
+        self.run_installer("--password-stdin", "--with-screenshots")
         self.assertFalse((self.root / "run/apt.log").exists())
-        self.assertFalse((self.root / "var/lib/lnmp-gopanel").exists())
+        self.assertFalse((self.root / "run/downloads.log").exists())
+        self.assertFalse((self.root / "etc/apt/sources.list.d/lnmp-gopanel-chromium.sources").exists())
+        self.assertTrue((self.root / "run/screenshot-check.log").exists())
+
+    def test_ubuntu_snap_wrapper_is_replaced_with_native_chromium(self):
+        write(self.root, "/etc/os-release", 'ID=ubuntu\nVERSION_ID="24.04"\n')
+        write(self.root, "/usr/bin/chromium-browser", '#!/bin/bash\nexec /snap/bin/chromium "$@"\n', 0o755)
+        result = self.run_installer("--password-stdin", "--with-screenshots")
+        self.assertIn("Skipping Snap screenshot browser", result.stdout)
+        self.assertTrue((self.root / "run/apt.log").exists())
+        self.assertTrue((self.root / "run/screenshot-check.log").exists())
+
+    def test_ubuntu_repository_key_download_failure_leaves_sources_untouched(self):
+        write(self.root, "/etc/os-release", 'ID=ubuntu\nVERSION_ID="24.04"\n')
+        write(self.root, "/run/fail-download", "")
+        self.run_installer("--password-stdin", "--with-screenshots", success=False)
+        self.assertFalse((self.root / "etc/apt/sources.list.d/lnmp-gopanel-chromium.sources").exists())
+        self.assertFalse((self.root / "etc/apt/keyrings/lnmp-gopanel-chromium.asc").exists())
+        self.assertFalse((self.root / "usr/local/bin/lnmp-gopanel").exists())
+
+    def test_ubuntu_repository_rejects_symlinks(self):
+        write(self.root, "/etc/os-release", 'ID=ubuntu\nVERSION_ID="24.04"\n')
+        original = write(self.root, "/tmp/existing-source", "existing source\n")
+        source = self.root / "etc/apt/sources.list.d/lnmp-gopanel-chromium.sources"
+        source.parent.mkdir(parents=True)
+        source.symlink_to("/tmp/existing-source")
+        result = self.run_installer("--password-stdin", "--with-screenshots", success=False)
+        self.assertIn("Refusing a symlink Chromium repository destination", result.stderr)
+        self.assertEqual(original.read_text(), "existing source\n")
+        self.assertFalse((self.root / "run/apt.log").exists())
+
+    def test_ubuntu_restricted_userns_allows_only_native_chromium(self):
+        write(self.root, "/etc/os-release", 'ID=ubuntu\nVERSION_ID="24.04"\n')
+        write(self.root, "/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1\n")
+        self.run_installer("--password-stdin", "--with-screenshots")
+        profile = self.root / "etc/apparmor.d/lnmp-gopanel-chromium"
+        self.assertIn("/usr/lib/chromium/chromium flags=(unconfined)", profile.read_text())
+        self.assertIn("  userns,", profile.read_text())
+        self.assertEqual(profile.stat().st_mode & 0o777, 0o644)
+        self.assertEqual((self.root / "run/apparmor.log").read_text(), "-r /etc/apparmor.d/lnmp-gopanel-chromium\n")
+        self.assertEqual((self.root / "proc/sys/kernel/apparmor_restrict_unprivileged_userns").read_text(), "1\n")
+        self.assertTrue((self.root / "run/screenshot-check.log").exists())
+
+    def test_ubuntu_reuses_system_chromium_apparmor_profile(self):
+        write(self.root, "/etc/os-release", 'ID=ubuntu\nVERSION_ID="24.04"\n')
+        write(self.root, "/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1\n")
+        profile = write(self.root, "/etc/apparmor.d/chromium", "system profile\n")
+        self.run_installer("--password-stdin", "--with-screenshots")
+        self.assertEqual(profile.read_text(), "system profile\n")
+        self.assertEqual((self.root / "run/apparmor.log").read_text(), "-r /etc/apparmor.d/chromium\n")
+        self.assertFalse((self.root / "etc/apparmor.d/lnmp-gopanel-chromium").exists())
+
+    def test_ubuntu_apparmor_failure_stops_before_panel_installation(self):
+        write(self.root, "/etc/os-release", 'ID=ubuntu\nVERSION_ID="24.04"\n')
+        write(self.root, "/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1\n")
+        write(self.root, "/run/fail-apparmor", "")
+        self.run_installer("--password-stdin", "--with-screenshots", success=False)
+        self.assertFalse((self.root / "usr/local/bin/lnmp-gopanel").exists())
+        self.assertFalse((self.root / "run/screenshot-check.log").exists())
 
     def test_screenshot_unsupported_distribution_and_package_failure(self):
-        write(self.root, "/etc/os-release", 'ID=ubuntu\nVERSION_ID="24.04"\n')
+        write(self.root, "/etc/os-release", 'ID=fedora\nVERSION_ID="43"\n')
         result = self.run_installer("--password-stdin", "--with-screenshots", success=False)
         self.assertIn("supports Debian 12/13", result.stderr)
         self.assertFalse((self.root / "run/apt.log").exists())

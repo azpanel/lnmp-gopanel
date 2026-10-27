@@ -44,7 +44,11 @@ curl -fsSL https://raw.githubusercontent.com/azpanel/lnmp-gopanel/main/install.s
 
 更新要求已有完整安装，下载对应架构的 Release 安装包并验证 SHA-256，沿用备份和失败回滚流程。完全卸载无需联网，会停止并禁用面板，删除面板程序、辅助程序、systemd 单元及专属覆盖配置、sudoers 规则、`/etc/lnmp-gopanel`（含面板证书副本）、`/var/lib/lnmp-gopanel`、`/var/backups/lnmp-gopanel` 和 `lnmp-panel` 专用账号及组。LNMP、网站、数据库、Docker、借用的原始证书和 Chromium 等系统依赖会保留；自定义到其他目录的面板数据请自行清理。卸载会永久删除面板配置及备份，请先保存需要保留的内容。
 
-如需网站截图，可在 Debian 12/13 使用 `sudo bash install.sh --with-screenshots`，额外安装 Chromium、沙箱组件和中文字体，并以面板普通账号运行截图冒烟检查。已有 Chromium/Chrome 时优先复用；其他 Linux 发行版请自行安装浏览器，通过 `screenshots.browser` 指定其绝对路径。普通安装不安装浏览器，缺少浏览器只影响截图功能。`--check` 不安装系统依赖；可选安装产生的系统软件包不会在面板文件回滚时卸载。
+如需网站截图，可在 Debian 12/13 或 Ubuntu 22.04/24.04/26.04（amd64 / arm64）使用 `sudo bash install.sh --with-screenshots`，额外安装 Chromium、沙箱组件和中文字体，并以面板普通账号运行截图冒烟检查。已有原生 Chromium/Chrome 时优先复用；其他 Linux 发行版请自行安装浏览器，通过 `screenshots.browser` 指定其绝对路径。普通安装不安装浏览器，缺少浏览器只影响截图功能。`--check` 不安装系统依赖；可选安装产生的系统软件包和 APT 源配置不会在面板文件回滚或卸载时删除。
+
+Ubuntu 的官方 `chromium-browser` 是转到 Snap 的过渡包，Snap 的账号主目录和文件访问限制与面板账号及截图临时目录不兼容。因此 Ubuntu 自动安装使用第三方 [XtraDeb PPA](https://launchpad.net/~xtradeb/+archive/ubuntu/apps) 提供的原生 deb 包，跳过已有的 Snap 启动脚本，不关闭浏览器沙箱。脚本通过独立密钥文件及完整指纹校验限定签名来源，并将该源限定为仅提供 `chromium*` 软件包；后续可通过 APT 更新。相关配置位于 `/etc/apt/sources.list.d/lnmp-gopanel-chromium.sources`、`/etc/apt/preferences.d/lnmp-gopanel-chromium` 和 `/etc/apt/keyrings/lnmp-gopanel-chromium.asc`。不希望添加第三方源时，请先自行安装原生 Chromium/Chrome。
+
+Ubuntu 24.04 及更新版本若启用了 AppArmor 用户命名空间限制，脚本会加载系统已有的 `/etc/apparmor.d/chromium`；没有该配置时创建 `/etc/apparmor.d/lnmp-gopanel-chromium`，仅允许 `/usr/lib/chromium/chromium` 使用用户命名空间，并在缺少解析器时安装 `apparmor`。不会修改全局内核限制。该浏览器配置与 Chromium 一同保留，面板回滚或卸载时不删除。
 
 脚本下载最新 Release 中对应架构的预编译安装包，验证 SHA-256，创建普通服务账号并安装面板、特权辅助程序、精确的 sudoers 规则及 systemd 服务。首次安装交互选择 SSL 证书并设置管理员密码（12–72 字节），检测本机 LNMP / Redis 服务，并启动面板。面板仅提供 HTTPS，监听 `0.0.0.0` 上由系统随机分配的空闲端口；安装完成后显示监听地址和端口，需在安全组及防火墙中放行该 TCP 端口。运行时无需 Go、Node.js 或 OpenSSL。
 

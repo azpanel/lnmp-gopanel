@@ -52,7 +52,7 @@ Usage: sudo bash install.sh [options]
   --password-stdin       Read a new administrator password from stdin
   --no-start             Install without enabling or restarting the panel service
   --check                Download and validate the package without installing
-  --with-screenshots     Ensure Chromium is installed (automatic install: Debian 12/13)
+  --with-screenshots     Install/check Chromium (Debian 12/13, Ubuntu 22.04/24.04/26.04)
   --tls-mode MODE        self-signed or existing (otherwise prompt when TLS is needed)
   --certificate-dir DIR  Use a certificate directory under /usr/local/nginx/conf/ssl
   -h, --help             Show this help
@@ -302,11 +302,84 @@ check_panel_privileges() {
   no_new_privs="$(awk '$1 == "NoNewPrivs:" { print $2 }' "/proc/$panel_pid/status")"
   [[ "$no_new_privs" == 0 ]] || die "Panel process has NoNewPrivs=$no_new_privs; sudo cannot elevate. Check systemctl cat lnmp-gopanel and overrides for implicit NoNewPrivileges restrictions"
 }
+configure_ubuntu_chromium_repository() {
+  local codename="$1" destination
+  local fingerprint=5301FA4FD93244FBC6F6149982BB6851C64F6880
+  local keyring=/etc/apt/keyrings/lnmp-gopanel-chromium.asc
+  local source=/etc/apt/sources.list.d/lnmp-gopanel-chromium.sources
+  local preferences=/etc/apt/preferences.d/lnmp-gopanel-chromium
+  command -v curl >/dev/null || die "Missing command: curl"
+  for destination in /etc/apt /etc/apt/keyrings /etc/apt/sources.list.d /etc/apt/preferences.d "$keyring" "$source" "$preferences"; do
+    [[ ! -L "$destination" ]] || die "Refusing a symlink Chromium repository destination: $destination"
+  done
+  printf 'Installing native Chromium from the third-party XtraDeb PPA (Snap is incompatible with the screenshot account and profile directory).\n'
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates
+  curl --proto '=https' --tlsv1.2 -fsSL --retry 3 --connect-timeout 15 --max-time 60 \
+    "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x$fingerprint" -o "$work_dir/chromium-key.asc"
+  cat > "$work_dir/chromium.sources" <<EOF
+Types: deb
+URIs: https://ppa.launchpadcontent.net/xtradeb/apps/ubuntu
+Suites: $codename
+Components: main
+Architectures: $target_arch
+Signed-By: $keyring $fingerprint
+EOF
+  # Only Chromium packages may come from this PPA; keep other system packages
+  # on their existing repositories. APT also verifies the full signing fingerprint.
+  cat > "$work_dir/chromium.preferences" <<'EOF'
+Package: chromium*
+Pin: release o=LP-PPA-xtradeb-apps
+Pin-Priority: 700
+
+Package: *
+Pin: release o=LP-PPA-xtradeb-apps
+Pin-Priority: -1
+EOF
+  install -d -o root -g root -m 0755 /etc/apt/keyrings /etc/apt/sources.list.d /etc/apt/preferences.d
+  atomic_install "$work_dir/chromium-key.asc" "$keyring" 0644
+  atomic_install "$work_dir/chromium.preferences" "$preferences" 0644
+  atomic_install "$work_dir/chromium.sources" "$source" 0644
+}
+configure_chromium_apparmor() {
+  local profile=/etc/apparmor.d/lnmp-gopanel-chromium
+  # Ubuntu 24.04+ can restrict user namespaces even for an unsandboxed
+  # AppArmor label. Grant userns only to the native Chromium executable.
+  [[ -x /usr/lib/chromium/chromium ]] || return 0
+  [[ -r /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]] || return 0
+  [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" == 1 ]] || return 0
+  if ! command -v apparmor_parser >/dev/null; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends apparmor
+  fi
+  if [[ -f /etc/apparmor.d/chromium ]]; then
+    apparmor_parser -r /etc/apparmor.d/chromium
+    return
+  fi
+  [[ ! -L /etc/apparmor.d && ! -L "$profile" ]] || die "Refusing a symlink Chromium AppArmor destination"
+  cat > "$work_dir/chromium.apparmor" <<'EOF'
+abi <abi/4.0>,
+include <tunables/global>
+
+profile lnmp-gopanel-chromium /usr/lib/chromium/chromium flags=(unconfined) {
+  userns,
+}
+EOF
+  install -d -o root -g root -m 0755 /etc/apparmor.d
+  atomic_install "$work_dir/chromium.apparmor" "$profile" 0644
+  apparmor_parser -r "$profile"
+}
 install_screenshot_dependencies() {
-  local browser distro_id distro_version
+  local browser browser_path distro_id distro_version codename
   for browser in chromium chromium-browser google-chrome google-chrome-stable; do
-    if command -v "$browser" >/dev/null; then
+    if browser_path="$(command -v "$browser")"; then
+      # Ubuntu's /usr/bin/chromium-browser can be a wrapper for the Snap.
+      # Install native Chromium so runtime detection selects /usr/bin/chromium.
+      if [[ "$browser_path" == /snap/* ]] || grep -aqE '(/snap/|snap[[:space:]]+run[[:space:]]+chromium)' "$browser_path"; then
+        printf 'Skipping Snap screenshot browser: %s\n' "$browser_path"
+        break
+      fi
       printf 'Using installed screenshot browser: %s\n' "$browser"
+      if [[ "$browser" == chromium ]]; then configure_chromium_apparmor; fi
       return
     fi
   done
@@ -316,11 +389,19 @@ install_screenshot_dependencies() {
   distro_id="$(. /etc/os-release && printf '%s' "${ID:-}")"
   # shellcheck disable=SC1091
   distro_version="$(. /etc/os-release && printf '%s' "${VERSION_ID:-}")"
-  [[ "$distro_id" == debian && ( "$distro_version" == 12 || "$distro_version" == 13 ) ]] || die "--with-screenshots automatic browser installation supports Debian 12/13. Install Chromium manually and configure screenshots.browser on other systems"
+  case "$distro_id:$distro_version" in
+    debian:12|debian:13) ;;
+    ubuntu:22.04) codename=jammy ;;
+    ubuntu:24.04) codename=noble ;;
+    ubuntu:26.04) codename=resolute ;;
+    *) die "--with-screenshots automatic browser installation supports Debian 12/13 and Ubuntu 22.04/24.04/26.04. Install native Chromium manually and configure screenshots.browser on other systems" ;;
+  esac
   command -v apt-get >/dev/null || die "Missing command: apt-get"
+  if [[ "$distro_id" == ubuntu ]]; then configure_ubuntu_chromium_repository "$codename"; fi
   printf 'Installing optional Chromium screenshot dependencies...\n'
   apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends chromium chromium-sandbox fonts-noto-cjk ca-certificates
+  configure_chromium_apparmor
 }
 cleanup() {
   local status=$?
@@ -481,7 +562,7 @@ if "$with_screenshots"; then
     die "Screenshot component check failed; verify Chromium, sandbox and screenshots.state_dir permissions"
   fi
 else
-  printf 'Screenshot browser is optional; use --with-screenshots on Debian 12/13 to install and check it.\n'
+  printf 'Screenshot browser is optional; use --with-screenshots on Debian 12/13 or Ubuntu 22.04/24.04/26.04 to install and check it.\n'
 fi
 systemctl daemon-reload
 if "$start_service"; then
