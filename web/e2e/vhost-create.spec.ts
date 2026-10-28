@@ -53,6 +53,7 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   let submitted: VhostCreateInput | null = null;
   let retryBody: { name: string; ssl: { mode: string } } | null = null;
   let submissions = 0;
+  let failNextCreation = true;
   await page.route("**/api/v1/vhosts/count", (route) =>
     route.fulfill({ json: { count: 0 } }),
   );
@@ -101,6 +102,13 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   }
   await page.route("**/api/v1/vhosts", (route) => {
     if (route.request().method() === "POST") {
+      if (failNextCreation) {
+        failNextCreation = false;
+        return route.fulfill({
+          status: 400,
+          json: { error: "测试：请检查站点配置后重试" },
+        });
+      }
       submitted = route.request().postDataJSON() as VhostCreateInput;
       expect(route.request().headers()["x-csrf-token"]).toBeTruthy();
       submissions++;
@@ -159,12 +167,86 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   await page.getByRole("button", { name: "登录面板" }).click();
   await page.getByRole("button", { name: "添加站点", exact: true }).click();
   const dialog = page.getByRole("dialog");
+  const createButton = dialog.getByRole("button", {
+    name: "创建站点",
+    exact: true,
+  });
+  await expect(createButton).toBeEnabled();
+  await expect(
+    dialog.getByRole("group", { name: "基础信息", exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("group", { name: "运行环境", exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("heading", { name: "可选配置", exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("switch", { name: "创建数据库", exact: true }),
+  ).not.toBeChecked();
+  await expect(dialog.getByRole("combobox", { name: "证书来源" })).toHaveText(
+    "不启用 SSL",
+  );
+  const footerBox = (await createButton.boundingBox())!;
+  await dialog.locator(".create-form-body").evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  expect((await createButton.boundingBox())!.y).toBe(footerBox.y);
+  await expect(createButton).toBeInViewport();
+  await expect(
+    dialog.getByRole("heading", { name: "添加站点", exact: true }),
+  ).toBeInViewport();
+  await dialog.locator(".create-form-body").evaluate((element) => {
+    element.scrollTop = 0;
+  });
   await page.screenshot({
     path: testInfo.outputPath("create-site-sections.png"),
     fullPage: true,
   });
   await dialog.getByLabel("主域名", { exact: true }).fill("app.example.com");
+  const root = dialog.getByLabel("站点目录", { exact: true });
+  await expect(root).toHaveValue("/home/wwwroot/app.example.com");
+  await root.fill("/srv/custom-site");
+  await dialog.getByLabel("主域名", { exact: true }).fill("other.example.com");
+  await expect(root).toHaveValue("/srv/custom-site");
+  await expect(dialog.getByText("自动生成", { exact: true })).toHaveCount(0);
+  await root.clear();
+  await expect(root).toHaveValue("/home/wwwroot/other.example.com");
+  await dialog.getByLabel("主域名", { exact: true }).fill("app.example.com");
+  await expect(root).toHaveValue("/home/wwwroot/app.example.com");
   await dialog.getByLabel("附加域名", { exact: true }).fill("www.example.com");
+  await dialog.getByLabel("附加域名", { exact: true }).press("Enter");
+  await expect(dialog.locator(".create-alias-tag")).toHaveCount(1);
+  await dialog.getByLabel("附加域名", { exact: true }).fill("www.example.com");
+  await dialog.getByLabel("附加域名", { exact: true }).press("Enter");
+  await expect(dialog.locator(".create-alias-tag")).toHaveCount(1);
+  await dialog
+    .getByLabel("附加域名", { exact: true })
+    .fill("remove.example.com");
+  await dialog.getByLabel("附加域名", { exact: true }).press("Enter");
+  await dialog
+    .getByRole("button", {
+      name: "移除附加域名 remove.example.com",
+      exact: true,
+    })
+    .click();
+  await expect(dialog.locator(".create-alias-tag")).toHaveCount(1);
+  await page.screenshot({
+    path: testInfo.outputPath("create-site-design.png"),
+    fullPage: true,
+  });
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
+  await expect(page.locator("body")).toHaveCSS("color", "rgb(232, 233, 235)");
+  await page.screenshot({
+    path: testInfo.outputPath("create-site-dark.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.evaluate(() => document.documentElement.classList.remove("dark"));
+  await expect(page.locator("body")).toHaveCSS("color", "rgb(32, 38, 43)");
+  // Keep one alias unconfirmed to exercise DNS, certificate coverage and submission.
+  await dialog.getByLabel("附加域名", { exact: true }).fill("api.example.com");
+  expect(submissions).toBe(0);
   const domainBox = (await dialog
     .getByLabel("主域名", { exact: true })
     .boundingBox())!;
@@ -174,11 +256,11 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   const dnsBox = (await dialog
     .getByRole("button", { name: "校验解析", exact: true })
     .boundingBox())!;
-  expect(Math.abs(domainBox.y - aliasesBox.y)).toBeLessThan(2);
+  expect(aliasesBox.y).toBeGreaterThan(domainBox.y + domainBox.height);
   expect(
     Math.abs(domainBox.y + domainBox.height / 2 - dnsBox.y - dnsBox.height / 2),
   ).toBeLessThan(2);
-  expect(dnsBox.x).toBeGreaterThanOrEqual(aliasesBox.x + aliasesBox.width);
+  expect(dnsBox.x).toBeGreaterThanOrEqual(domainBox.x + domainBox.width);
   const help = dialog.getByRole("button", {
     name: "解析校验说明",
     exact: true,
@@ -193,7 +275,7 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "校验解析" }).click();
   await expect(dialog.getByText("未解析到本机", { exact: true })).toHaveCount(
-    2,
+    3,
   );
   await expect(dialog.locator(".create-dns")).not.toContainText(
     "部分公网 IP 无法探测",
@@ -207,6 +289,10 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   );
   await page.keyboard.press("Escape");
   await expect(dialog).toBeVisible();
+  const advanced = dialog.getByRole("button", { name: /高级设置/ });
+  await expect(advanced).toHaveAttribute("aria-expanded", "false");
+  await expect(dialog.getByLabel("记录访问日志", { exact: true })).toBeHidden();
+  await advanced.click();
   await dialog.getByLabel("记录访问日志", { exact: true }).check();
   await expect(
     dialog.getByText("保存在 /home/wwwlogs/ 下", { exact: true }),
@@ -217,6 +303,11 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   await dialog
     .getByLabel("访问日志文件名", { exact: true })
     .fill("site-access.log");
+  await advanced.click();
+  await advanced.click();
+  await expect(
+    dialog.getByLabel("访问日志文件名", { exact: true }),
+  ).toHaveValue("site-access.log");
   await expect(dialog.getByText("创建 ftp", { exact: false })).toHaveCount(0);
   await dialog.getByRole("combobox", { name: "证书来源" }).click();
   await page.getByRole("option", { name: "指定 cert / key 文件" }).click();
@@ -226,6 +317,15 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   await dialog.getByLabel("key 文件绝对路径").fill("/ssl/key.pem");
   await dialog.getByRole("combobox", { name: "证书来源" }).click();
   await page.getByRole("option", { name: /已有通配符证书/ }).click();
+  await dialog.getByLabel("附加域名", { exact: true }).fill("outside.invalid");
+  await dialog
+    .getByRole("combobox", { name: "通配符证书", exact: true })
+    .click();
+  await expect(
+    page.getByRole("option", { name: /\*\.example.com/ }),
+  ).toHaveAttribute("data-disabled", "");
+  await page.keyboard.press("Escape");
+  await dialog.getByLabel("附加域名", { exact: true }).fill("api.example.com");
   await dialog
     .getByRole("combobox", { name: "通配符证书", exact: true })
     .click();
@@ -247,7 +347,8 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   await dialog.getByRole("combobox", { name: "证书来源" }).click();
   await page.getByRole("option", { name: "申请 ZeroSSL" }).click();
   await dialog.getByLabel("联系邮箱").fill("admin@example.com");
-  await dialog.getByLabel("创建数据库及同名本机用户").check();
+  await expect(dialog.getByLabel("数据库／用户名")).toHaveCount(0);
+  await dialog.getByRole("switch", { name: "创建数据库", exact: true }).check();
   await dialog.getByLabel("数据库／用户名").fill("site_database");
   const password = dialog.getByLabel("数据库密码", { exact: true });
   const generate = dialog.getByRole("button", {
@@ -279,6 +380,17 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
     path: testInfo.outputPath("create-site-database.png"),
     fullPage: true,
   });
+  await createButton.click();
+  await expect(dialog.getByRole("alert")).toHaveText(
+    "测试：请检查站点配置后重试",
+  );
+  await expect(dialog.getByRole("alert")).toBeInViewport();
+  await expect(createButton).toBeEnabled();
+  await expect(password).toHaveValue(generated);
+  await page.screenshot({
+    path: testInfo.outputPath("create-site-error.png"),
+    fullPage: true,
+  });
   await dialog.getByRole("button", { name: "创建站点", exact: true }).click();
   await expect(dialog.getByLabel("建站实时输出")).toContainText(
     "acme.sh: validating app.example.com",
@@ -287,7 +399,7 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   expect(submissions).toBe(1);
   expect(submitted).toMatchObject({
     domain: "app.example.com",
-    aliases: ["www.example.com"],
+    aliases: ["www.example.com", "api.example.com"],
     access_log: true,
     log_name: "site-access.log",
     ssl: { mode: "zerossl", redirect: true },

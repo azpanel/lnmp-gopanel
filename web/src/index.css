@@ -3237,12 +3237,29 @@ a {
 }
 
 .vhost-create-dialog {
-  width: min(780px, calc(100vw - 2rem));
-  max-width: 780px;
-  max-height: 90dvh;
+  width: min(960px, calc(100vw - 2rem));
+  max-width: 960px;
+  max-height: calc(100dvh - 2rem);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  gap: 0;
+  padding: 0;
+  background: var(--card);
+}
+.vhost-create-dialog > [data-slot="dialog-header"] {
+  flex-shrink: 0;
+  padding: 20px 60px 16px 30px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.vhost-create-dialog [data-slot="dialog-title"] {
+  font-size: 25px;
+  line-height: 1.3;
+}
+.vhost-create-dialog > [data-slot="dialog-close"] {
+  top: 25px;
+  right: 28px;
 }
 .vhost-create-dialog form {
   display: flex;
@@ -3252,35 +3269,36 @@ a {
 .create-form-body {
   overflow-y: auto;
   min-height: 0;
-  padding: 0 0.25rem;
+  padding: 20px 30px 12px;
 }
 .vhost-create-dialog .create-form-body,
 .vhost-create-dialog .create-task,
 .vhost-create-dialog .create-task-log {
-  scrollbar-width: none;
-}
-.vhost-create-dialog .create-form-body::-webkit-scrollbar,
-.vhost-create-dialog .create-task::-webkit-scrollbar,
-.vhost-create-dialog .create-task-log::-webkit-scrollbar {
-  display: none;
+  scrollbar-width: thin;
 }
 .create-section {
-  --create-section-accent: var(--primary);
   min-width: 0;
   display: grid;
-  gap: 0.85rem;
-  margin-bottom: 1rem;
-  padding: 1rem;
-  border: 1px solid
-    color-mix(in srgb, var(--create-section-accent) 22%, var(--border));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--create-section-accent) 6%, var(--card));
+  gap: 12px;
+  margin: 0 0 22px;
+  padding: 0;
+  border: 0;
 }
-.create-section-database {
-  --create-section-accent: var(--violet);
+.create-section-title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
 }
-.create-section-ssl {
-  --create-section-accent: #4f91d8;
+.create-section-title::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--border);
 }
 .create-field-label {
   display: flex;
@@ -3288,20 +3306,206 @@ a {
   gap: 6px;
 }
 .create-field-label svg {
-  flex-shrink: 0;
-  color: var(--muted-foreground);
+  display: none;
 }
 .create-domain-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 12px;
 }
 .create-dns-actions {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding-bottom: 2px;
+}
+.vhost-create-dialog input,
+.vhost-create-dialog [data-slot="select-trigger"],
+.create-dns-actions > button:first-child {
+  height: 44px;
+}
+.create-dns-actions > button:first-child {
+  padding-inline: 16px;
+}
+.create-dns-actions .create-help-button {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 3px);
+}
+.create-required {
+  color: var(--danger);
+}
+.create-alias-heading,
+.create-domain-label,
+.create-root-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.create-root-heading {
+  justify-content: space-between;
+}
+.create-domain-label {
+  gap: 6px;
+}
+.create-auto-badge {
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+.create-alias-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 46px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.create-alias-input:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+.vhost-create-dialog .create-alias-input input {
+  flex: 1;
+  width: 0;
+  min-width: min(230px, 100%);
+  height: 32px;
+  padding: 0 6px;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.create-alias-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--secondary);
+  font-size: 16px;
+}
+.create-alias-tag > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.create-alias-tag button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  color: var(--muted-foreground);
+}
+.create-alias-tag button:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.create-root-input {
+  position: relative;
+}
+.create-root-input input {
+  padding-right: 52px;
+}
+.create-root-input > span {
+  position: absolute;
+  inset: 1px 1px 1px auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  border-left: 1px solid var(--border);
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+.create-advanced {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--secondary) 45%, var(--card));
+}
+.create-advanced-trigger {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 16px;
+}
+.create-advanced-trigger > svg {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  transition: transform var(--motion-feedback);
+}
+.create-advanced-trigger[aria-expanded="true"] > svg {
+  transform: rotate(90deg);
+}
+.create-advanced-body:not([hidden]) {
+  display: grid;
+  gap: 16px;
+  padding: 4px 16px 16px;
+}
+.create-options-card {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 0 10px;
+}
+.create-options-card .create-section {
+  gap: 16px;
+  margin: 0;
+  padding: 14px 12px;
+}
+.create-options-card .create-section + .create-section {
+  border-top: 1px solid var(--border);
+}
+.create-option-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.create-option-row > svg {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+.create-option-description {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+}
+.create-option-description > strong {
+  font-size: 16px;
+  font-weight: 500;
+}
+.create-ssl-heading > .create-field {
+  width: 230px;
+  max-width: 100%;
+}
+.create-ssl-heading .create-field-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.create-rescan {
+  justify-self: end;
+  height: auto;
+  padding: 0;
+  color: var(--muted-foreground);
+  font-size: 14px;
 }
 .create-help-button,
 .log-location-help {
@@ -3338,7 +3542,7 @@ a {
 .create-field {
   display: grid;
   align-content: start;
-  gap: 0.5rem;
+  gap: 6px;
   min-width: 0;
 }
 .create-database-grid {
@@ -3379,9 +3583,17 @@ a {
   gap: 1rem;
 }
 .create-form-footer {
+  flex-shrink: 0;
   justify-content: flex-end;
-  padding-top: 1rem;
+  padding: 14px 30px;
   border-top: 1px solid var(--border);
+}
+.create-form-footer > button {
+  height: 44px;
+  padding-inline: 24px;
+}
+.create-required-note {
+  margin-right: auto;
 }
 .create-dns,
 .create-certificate-info {
@@ -3418,6 +3630,7 @@ a {
   gap: 0.85rem;
   min-height: 0;
   overflow-y: auto;
+  padding: 24px 30px;
 }
 .create-task-heading,
 .create-result-grid {
@@ -3448,36 +3661,57 @@ a {
 }
 @media (max-width: 600px) {
   .vhost-create-dialog {
-    padding: 1rem;
+    width: calc(100vw - 1rem);
+    max-height: 94dvh;
   }
-  .create-grid {
+  .vhost-create-dialog > [data-slot="dialog-header"] {
+    padding: 20px 48px 16px 18px;
+  }
+  .vhost-create-dialog > [data-slot="dialog-close"] {
+    top: 22px;
+    right: 18px;
+  }
+  .vhost-create-dialog .create-form-body,
+  .vhost-create-dialog .create-task {
+    padding: 18px;
+  }
+  .vhost-create-dialog .create-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  .create-section {
-    padding: 0.75rem;
-  }
   .create-domain-row {
-    gap: 6px;
-  }
-  .create-domain-row .create-field-label {
-    gap: 4px;
-    font-size: 12px;
-    white-space: nowrap;
-  }
-  .create-domain-row .create-field-label svg {
-    width: 12px;
-    height: 12px;
-  }
-  .create-domain-row input {
-    padding-inline: 6px;
-    font-size: 13px;
-  }
-  .create-dns-actions {
-    gap: 2px;
+    gap: 8px;
   }
   .create-dns-actions > button:first-child {
-    gap: 4px;
+    gap: 6px;
+    padding-inline: 10px;
+    font-size: 14px;
+  }
+  .create-advanced-trigger {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .create-advanced-trigger > .small-note {
+    width: 100%;
+    margin-left: 26px;
+  }
+  .create-option-row {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .create-ssl-heading > .create-field {
+    width: 100%;
+  }
+  .create-options-card .create-section {
     padding-inline: 6px;
+  }
+  .create-form-footer {
+    gap: 8px;
+    padding: 12px 18px;
+  }
+  .create-form-footer > button {
+    padding-inline: 16px;
+  }
+  .create-required-note {
     font-size: 12px;
   }
 }

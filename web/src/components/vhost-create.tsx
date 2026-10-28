@@ -4,6 +4,7 @@ import {
   ArrowRightLeft,
   BadgeCheck,
   Check,
+  ChevronRight,
   CircleHelp,
   Code2,
   Database,
@@ -15,7 +16,6 @@ import {
   FolderOpen,
   Globe,
   KeyRound,
-  Link,
   Loader2,
   LockKeyhole,
   Mail,
@@ -30,6 +30,7 @@ import {
   Terminal,
   UserRoundCog,
   UserRound,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { Tooltip } from "radix-ui";
@@ -38,6 +39,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -214,6 +216,8 @@ export function VhostCreate() {
   const [error, setError] = useState("");
   const [dns, setDNS] = useState<DNSCheck | null>(null);
   const [showDatabasePassword, setShowDatabasePassword] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const errorRef = useRef<HTMLParagraphElement>(null);
   const logsRef = useRef<HTMLPreElement>(null);
   const followLogs = useRef(true);
   const completed = useRef(new Set<string>());
@@ -238,9 +242,14 @@ export function VhostCreate() {
   });
   const running = task.data?.status === "running";
   const data = options.data;
-  const domains = [input.domain.trim(), ...splitDomains(aliases)].filter(
-    Boolean,
-  );
+  const allAliases = splitDomains([...input.aliases, aliases].join(" "));
+  const domains = [
+    ...new Set([input.domain.trim(), ...allAliases].filter(Boolean)),
+  ];
+  const domainsKey = JSON.stringify(domains);
+  const generatedRoot = input.domain.trim()
+    ? `/home/wwwroot/${input.domain.trim()}`
+    : "";
   const autoSSL =
     input.ssl.mode === "letsencrypt" || input.ssl.mode === "zerossl";
   const selectedCertificate = data?.certificates.find(
@@ -266,7 +275,10 @@ export function VhostCreate() {
   };
   useEffect(() => {
     setDNS(null);
-  }, [input.domain, aliases]);
+  }, [domainsKey]);
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: "nearest" });
+  }, [error]);
   useEffect(() => {
     if (!open || !selected || !running) return;
     const source = new EventSource(
@@ -402,6 +414,7 @@ export function VhostCreate() {
     setRetryName(null);
     setDNS(null);
     setShowDatabasePassword(false);
+    setAdvancedOpen(false);
     setError("");
     setOpen(true);
   }
@@ -451,7 +464,7 @@ export function VhostCreate() {
                 ? "关闭窗口后任务继续执行，可重新打开查看进度。面板重启后请刷新站点确认实际状态。"
                 : retryName
                   ? `为 ${retryName} 申请证书，保留网站和数据库。`
-                  : "填写网站配置，可选创建数据库及配置 SSL 证书。"}
+                  : "配置域名与运行环境，按需添加数据库和 SSL 证书"}
             </DialogDescription>
           </DialogHeader>
           {selected ? (
@@ -591,7 +604,7 @@ export function VhostCreate() {
                 submit.mutate({
                   ...input,
                   domain: input.domain.trim(),
-                  aliases: splitDomains(aliases),
+                  aliases: allAliases,
                 });
               }}
             >
@@ -626,12 +639,20 @@ export function VhostCreate() {
                       disabled={submit.isPending}
                       className="create-section create-section-website"
                     >
-                      <legend className="sr-only">网站配置</legend>
+                      <legend className="create-section-title">基础信息</legend>
                       <div className="create-domain-row">
                         <div className="create-field">
-                          <FieldLabel htmlFor="site-domain" icon={Globe}>
-                            主域名
-                          </FieldLabel>
+                          <div className="create-domain-label">
+                            <FieldLabel htmlFor="site-domain" icon={Globe}>
+                              主域名
+                            </FieldLabel>
+                            <span
+                              className="create-required"
+                              aria-hidden="true"
+                            >
+                              *
+                            </span>
+                          </div>
                           <Input
                             id="site-domain"
                             required
@@ -639,17 +660,6 @@ export function VhostCreate() {
                             onChange={(e) => set("domain", e.target.value)}
                             placeholder="example.com"
                             autoCapitalize="none"
-                          />
-                        </div>
-                        <div className="create-field">
-                          <FieldLabel htmlFor="site-aliases" icon={Link}>
-                            附加域名
-                          </FieldLabel>
-                          <Input
-                            id="site-aliases"
-                            value={aliases}
-                            onChange={(e) => setAliases(e.target.value)}
-                            placeholder="www.example.com，多个域名用空格分隔"
                           />
                         </div>
                         <div className="create-dns-actions">
@@ -668,6 +678,50 @@ export function VhostCreate() {
                             校验解析
                           </Button>
                           <DNSHelp warnings={dns?.warnings ?? []} />
+                        </div>
+                      </div>
+                      <div className="create-field">
+                        <div className="create-alias-heading">
+                          <Label htmlFor="site-aliases">附加域名</Label>
+                          <span className="small-note">选填</span>
+                        </div>
+                        <div className="create-alias-input">
+                          {input.aliases.map((domain) => (
+                            <span className="create-alias-tag" key={domain}>
+                              <span>{domain}</span>
+                              <button
+                                type="button"
+                                aria-label={`移除附加域名 ${domain}`}
+                                onClick={() =>
+                                  set(
+                                    "aliases",
+                                    input.aliases.filter(
+                                      (name) => name !== domain,
+                                    ),
+                                  )
+                                }
+                              >
+                                <X size={14} aria-hidden="true" />
+                              </button>
+                            </span>
+                          ))}
+                          <Input
+                            id="site-aliases"
+                            value={aliases}
+                            onChange={(e) => setAliases(e.target.value)}
+                            onKeyDown={(event) => {
+                              if (
+                                event.key === "Enter" &&
+                                !event.nativeEvent.isComposing
+                              ) {
+                                event.preventDefault();
+                                set("aliases", allAliases);
+                                setAliases("");
+                              }
+                            }}
+                            placeholder="输入域名后按回车添加"
+                            autoCapitalize="none"
+                          />
                         </div>
                       </div>
                       {dns && (
@@ -701,16 +755,34 @@ export function VhostCreate() {
                         </div>
                       )}
                       <div className="create-field">
-                        <FieldLabel htmlFor="site-root" icon={FolderOpen}>
-                          站点目录（绝对路径）
-                        </FieldLabel>
-                        <Input
-                          id="site-root"
-                          value={input.root}
-                          onChange={(e) => set("root", e.target.value)}
-                          placeholder={`/home/wwwroot/${input.domain || "example.com"}`}
-                        />
+                        <div className="create-root-heading">
+                          <Label htmlFor="site-root">站点目录</Label>
+                          {!input.root && (
+                            <span className="create-auto-badge">自动生成</span>
+                          )}
+                        </div>
+                        <div className="create-root-input">
+                          <Input
+                            id="site-root"
+                            value={input.root || generatedRoot}
+                            onChange={(e) => set("root", e.target.value)}
+                            placeholder="/home/wwwroot/example.com"
+                            aria-describedby="site-root-help"
+                          />
+                          <span aria-hidden="true">
+                            <FolderOpen size={18} />
+                          </span>
+                        </div>
+                        <span id="site-root-help" className="small-note">
+                          根据主域名生成，可自行修改绝对路径
+                        </span>
                       </div>
+                    </fieldset>
+                    <fieldset
+                      disabled={submit.isPending}
+                      className="create-section create-section-runtime"
+                    >
+                      <legend className="create-section-title">运行环境</legend>
                       <div className="create-grid">
                         <Choice
                           id="site-php"
@@ -745,65 +817,109 @@ export function VhostCreate() {
                           ))}
                         </Choice>
                       </div>
-                      <div className="create-toggles">
-                        <Toggle
-                          id="site-pathinfo"
-                          label="启用 Pathinfo"
-                          icon={Route}
-                          checked={input.path_info}
-                          onChange={(value) => set("path_info", value)}
-                          disabled={
-                            !data?.php.find((php) => php.id === input.php)
-                              ?.path_info_available
-                          }
-                        />
-                        <Toggle
-                          id="site-ipv6"
-                          label="启用 IPv6"
-                          icon={Network}
-                          checked={input.ipv6}
-                          onChange={(value) => set("ipv6", value)}
-                        />
-                        <Toggle
-                          id="site-log"
-                          label="记录访问日志"
-                          icon={ScrollText}
-                          checked={input.access_log}
-                          onChange={(value) => set("access_log", value)}
-                        />
-                      </div>
-                      {input.access_log && (
-                        <div className="create-field">
-                          <FieldLabel htmlFor="site-log-name" icon={FileText}>
-                            访问日志文件名
-                          </FieldLabel>
-                          <Input
-                            id="site-log-name"
-                            value={input.log_name}
-                            onChange={(e) => set("log_name", e.target.value)}
-                            placeholder={`${input.domain || "example.com"}.log`}
-                          />
+                      <div className="create-advanced">
+                        <button
+                          type="button"
+                          className="create-advanced-trigger"
+                          aria-expanded={advancedOpen}
+                          aria-controls="site-advanced-settings"
+                          onClick={() => setAdvancedOpen((old) => !old)}
+                        >
+                          <ChevronRight size={18} aria-hidden="true" />
+                          <strong>高级设置</strong>
                           <span className="small-note">
-                            保存在 /home/wwwlogs/ 下
+                            Pathinfo、IPv6、访问日志
                           </span>
+                        </button>
+                        <div
+                          id="site-advanced-settings"
+                          className="create-advanced-body"
+                          hidden={!advancedOpen}
+                        >
+                          <div className="create-toggles">
+                            <Toggle
+                              id="site-pathinfo"
+                              label="启用 Pathinfo"
+                              icon={Route}
+                              checked={input.path_info}
+                              onChange={(value) => set("path_info", value)}
+                              disabled={
+                                !data?.php.find((php) => php.id === input.php)
+                                  ?.path_info_available
+                              }
+                            />
+                            <Toggle
+                              id="site-ipv6"
+                              label="启用 IPv6"
+                              icon={Network}
+                              checked={input.ipv6}
+                              onChange={(value) => set("ipv6", value)}
+                            />
+                            <Toggle
+                              id="site-log"
+                              label="记录访问日志"
+                              icon={ScrollText}
+                              checked={input.access_log}
+                              onChange={(value) => set("access_log", value)}
+                            />
+                          </div>
+                          {input.access_log && (
+                            <div className="create-field">
+                              <FieldLabel
+                                htmlFor="site-log-name"
+                                icon={FileText}
+                              >
+                                访问日志文件名
+                              </FieldLabel>
+                              <Input
+                                id="site-log-name"
+                                value={input.log_name}
+                                onChange={(e) =>
+                                  set("log_name", e.target.value)
+                                }
+                                placeholder={`${input.domain || "example.com"}.log`}
+                              />
+                              <span className="small-note">
+                                保存在 /home/wwwlogs/ 下
+                              </span>
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </fieldset>
+                  </>
+                )}
+                {!retryName && (
+                  <h3 className="create-section-title">可选配置</h3>
+                )}
+                <div className="create-options-card">
+                  {!retryName && (
                     <fieldset
                       disabled={submit.isPending}
                       className="create-section create-section-database"
                     >
                       <legend className="sr-only">数据库</legend>
-                      <Toggle
-                        id="site-db"
-                        label="创建数据库及同名本机用户"
-                        icon={Database}
-                        checked={input.database.enabled}
-                        onChange={(value) =>
-                          set("database", { ...input.database, enabled: value })
-                        }
-                        disabled={!data?.database_available}
-                      />
+                      <div className="create-option-row">
+                        <Database size={25} aria-hidden="true" />
+                        <div className="create-option-description">
+                          <Label htmlFor="site-db">创建数据库</Label>
+                          <span id="site-db-help" className="small-note">
+                            同时创建同名本机用户
+                          </span>
+                        </div>
+                        <Switch
+                          id="site-db"
+                          checked={input.database.enabled}
+                          onCheckedChange={(value) =>
+                            set("database", {
+                              ...input.database,
+                              enabled: value,
+                            })
+                          }
+                          disabled={!data?.database_available}
+                          aria-describedby="site-db-help"
+                        />
+                      </div>
                       {input.database.enabled && (
                         <>
                           <div className="create-grid create-database-grid">
@@ -926,222 +1042,235 @@ export function VhostCreate() {
                         </>
                       )}
                     </fieldset>
-                  </>
-                )}
-                <fieldset
-                  disabled={submit.isPending}
-                  className="create-section create-section-ssl"
-                >
-                  <legend className="sr-only">SSL 证书</legend>
-                  <Choice
-                    id="site-ssl"
-                    label="证书来源"
-                    icon={ShieldCheck}
-                    value={input.ssl.mode}
-                    onChange={(value) =>
-                      set("ssl", {
-                        ...input.ssl,
-                        mode: value as VhostCreateInput["ssl"]["mode"],
-                      })
-                    }
+                  )}
+                  <fieldset
+                    disabled={submit.isPending}
+                    className="create-section create-section-ssl"
                   >
-                    {!retryName && (
-                      <SelectItem value="none">不启用 SSL</SelectItem>
-                    )}
-                    <SelectItem
-                      value="letsencrypt"
-                      disabled={!data?.acme_available}
-                    >
-                      申请 Let's Encrypt
-                    </SelectItem>
-                    <SelectItem
-                      value="zerossl"
-                      disabled={!data?.acme_available}
-                    >
-                      申请 ZeroSSL
-                    </SelectItem>
-                    {!retryName && (
-                      <>
-                        <SelectItem value="files">
-                          指定 cert / key 文件
-                        </SelectItem>
-                        <SelectItem
-                          value="existing"
-                          disabled={!data?.certificates.length}
-                        >
-                          已有通配符证书
-                          {data ? `（${data.certificates.length} 张）` : ""}
-                        </SelectItem>
-                      </>
-                    )}
-                  </Choice>
-                  {autoSSL && (
-                    <>
-                      <div className="create-field">
-                        <FieldLabel htmlFor="site-ssl-email" icon={Mail}>
-                          联系邮箱
-                        </FieldLabel>
-                        <Input
-                          id="site-ssl-email"
-                          type="email"
-                          required
-                          value={input.ssl.email}
-                          onChange={(e) =>
-                            set("ssl", {
-                              ...input.ssl,
-                              email: e.target.value.trim(),
-                            })
-                          }
-                          placeholder="admin@example.com"
-                        />
+                    <legend className="sr-only">SSL 证书</legend>
+                    <div className="create-option-row create-ssl-heading">
+                      <ShieldCheck size={25} aria-hidden="true" />
+                      <div className="create-option-description">
+                        <strong>SSL 证书</strong>
+                        <span className="small-note">为站点配置 HTTPS</span>
                       </div>
-                      <p className="small-note">
-                        使用 HTTP 验证，全部域名需能从公网 80
-                        端口访问本站。新证书自动续期；申请失败保留 HTTP 站点。
-                      </p>
-                    </>
-                  )}
-                  {input.ssl.mode === "files" && (
-                    <>
-                      <div className="create-field">
-                        <FieldLabel htmlFor="site-cert" icon={FileBadge}>
-                          cert 文件绝对路径（完整证书链）
-                        </FieldLabel>
-                        <Input
-                          id="site-cert"
-                          required
-                          value={input.ssl.cert_file}
-                          onChange={(e) =>
-                            set("ssl", {
-                              ...input.ssl,
-                              cert_file: e.target.value,
-                            })
-                          }
-                          placeholder="/path/to/fullchain.pem"
-                        />
-                      </div>
-                      <div className="create-field">
-                        <FieldLabel htmlFor="site-key" icon={FileKey2}>
-                          key 文件绝对路径
-                        </FieldLabel>
-                        <Input
-                          id="site-key"
-                          required
-                          value={input.ssl.key_file}
-                          onChange={(e) =>
-                            set("ssl", {
-                              ...input.ssl,
-                              key_file: e.target.value,
-                            })
-                          }
-                          placeholder="/path/to/privkey.pem"
-                        />
-                      </div>
-                    </>
-                  )}
-                  {input.ssl.mode === "existing" && (
-                    <>
                       <Choice
-                        id="site-existing-cert"
-                        label="通配符证书"
-                        icon={BadgeCheck}
-                        value={input.ssl.certificate_id}
+                        id="site-ssl"
+                        label="证书来源"
+                        icon={ShieldCheck}
+                        value={input.ssl.mode}
                         onChange={(value) =>
-                          set("ssl", { ...input.ssl, certificate_id: value })
+                          set("ssl", {
+                            ...input.ssl,
+                            mode: value as VhostCreateInput["ssl"]["mode"],
+                          })
                         }
                       >
-                        {data?.certificates.map((cert) => (
-                          <SelectItem
-                            key={cert.id}
-                            value={cert.id}
-                            disabled={
-                              !cert.usable ||
-                              !certificateCovers(
-                                cert.certificate.dns_names,
-                                domains,
-                              )
-                            }
-                          >
-                            {cert.certificate.dns_names.join("、")} ·{" "}
-                            {cert.certificate.not_after
-                              ? new Date(
-                                  cert.certificate.not_after,
-                                ).toLocaleDateString("zh-CN")
-                              : "未知到期时间"}
-                            {!cert.usable
-                              ? ` · ${cert.error}`
-                              : !certificateCovers(
-                                    cert.certificate.dns_names,
-                                    domains,
-                                  )
-                                ? " · 未覆盖全部域名"
-                                : ""}
-                          </SelectItem>
-                        ))}
+                        {!retryName && (
+                          <SelectItem value="none">不启用 SSL</SelectItem>
+                        )}
+                        <SelectItem
+                          value="letsencrypt"
+                          disabled={!data?.acme_available}
+                        >
+                          申请 Let's Encrypt
+                        </SelectItem>
+                        <SelectItem
+                          value="zerossl"
+                          disabled={!data?.acme_available}
+                        >
+                          申请 ZeroSSL
+                        </SelectItem>
+                        {!retryName && (
+                          <>
+                            <SelectItem value="files">
+                              指定 cert / key 文件
+                            </SelectItem>
+                            <SelectItem
+                              value="existing"
+                              disabled={!data?.certificates.length}
+                            >
+                              已有通配符证书
+                              {data ? `（${data.certificates.length} 张）` : ""}
+                            </SelectItem>
+                          </>
+                        )}
                       </Choice>
-                      {selectedCertificate && (
-                        <div className="create-certificate-info">
-                          <p>{selectedCertificate.certificate.issuer}</p>
-                          <p>
-                            {selectedCertificate.certificate.dns_names.join(
-                              "、",
-                            )}
-                          </p>
-                          <p>
-                            到期时间：
-                            {selectedCertificate.certificate.not_after
-                              ? new Date(
-                                  selectedCertificate.certificate.not_after,
-                                ).toLocaleString("zh-CN", { hour12: false })
-                              : "未知"}
-                          </p>
-                          <code>{selectedCertificate.cert_file}</code>
-                          <code>{selectedCertificate.key_file}</code>
-                          {!covered && (
-                            <p className="site-detail-error">
-                              此证书无效或未覆盖全部域名，请重新选择。
-                            </p>
-                          )}
+                    </div>
+                    {autoSSL && (
+                      <>
+                        <div className="create-field">
+                          <FieldLabel htmlFor="site-ssl-email" icon={Mail}>
+                            联系邮箱
+                          </FieldLabel>
+                          <Input
+                            id="site-ssl-email"
+                            type="email"
+                            required
+                            value={input.ssl.email}
+                            onChange={(e) =>
+                              set("ssl", {
+                                ...input.ssl,
+                                email: e.target.value.trim(),
+                              })
+                            }
+                            placeholder="admin@example.com"
+                          />
                         </div>
-                      )}
-                      <p className="small-note">
-                        扫描 /root/.acme.sh/ 和 /usr/local/acme.sh/
-                        下的通配符证书，沿用其原有续期和加载设置。
-                      </p>
-                    </>
-                  )}
-                  {input.ssl.mode !== "none" && (
-                    <Toggle
-                      id="site-redirect"
-                      label="强制 HTTPS（保留 HTTP 证书验证路径）"
-                      icon={LockKeyhole}
-                      checked={input.ssl.redirect}
-                      onChange={(value) =>
-                        set("ssl", { ...input.ssl, redirect: value })
-                      }
-                    />
-                  )}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={options.isFetching}
-                    onClick={() => void options.refetch()}
-                  >
-                    <RefreshCw
-                      size={13}
-                      className={options.isFetching ? "animate-spin" : ""}
-                    />
-                    重新扫描配置与证书
-                  </Button>
-                </fieldset>
+                        <p className="small-note">
+                          使用 HTTP 验证，全部域名需能从公网 80
+                          端口访问本站。新证书自动续期；申请失败保留 HTTP 站点。
+                        </p>
+                      </>
+                    )}
+                    {input.ssl.mode === "files" && (
+                      <>
+                        <div className="create-field">
+                          <FieldLabel htmlFor="site-cert" icon={FileBadge}>
+                            cert 文件绝对路径（完整证书链）
+                          </FieldLabel>
+                          <Input
+                            id="site-cert"
+                            required
+                            value={input.ssl.cert_file}
+                            onChange={(e) =>
+                              set("ssl", {
+                                ...input.ssl,
+                                cert_file: e.target.value,
+                              })
+                            }
+                            placeholder="/path/to/fullchain.pem"
+                          />
+                        </div>
+                        <div className="create-field">
+                          <FieldLabel htmlFor="site-key" icon={FileKey2}>
+                            key 文件绝对路径
+                          </FieldLabel>
+                          <Input
+                            id="site-key"
+                            required
+                            value={input.ssl.key_file}
+                            onChange={(e) =>
+                              set("ssl", {
+                                ...input.ssl,
+                                key_file: e.target.value,
+                              })
+                            }
+                            placeholder="/path/to/privkey.pem"
+                          />
+                        </div>
+                      </>
+                    )}
+                    {input.ssl.mode === "existing" && (
+                      <>
+                        <Choice
+                          id="site-existing-cert"
+                          label="通配符证书"
+                          icon={BadgeCheck}
+                          value={input.ssl.certificate_id}
+                          onChange={(value) =>
+                            set("ssl", { ...input.ssl, certificate_id: value })
+                          }
+                        >
+                          {data?.certificates.map((cert) => (
+                            <SelectItem
+                              key={cert.id}
+                              value={cert.id}
+                              disabled={
+                                !cert.usable ||
+                                !certificateCovers(
+                                  cert.certificate.dns_names,
+                                  domains,
+                                )
+                              }
+                            >
+                              {cert.certificate.dns_names.join("、")} ·{" "}
+                              {cert.certificate.not_after
+                                ? new Date(
+                                    cert.certificate.not_after,
+                                  ).toLocaleDateString("zh-CN")
+                                : "未知到期时间"}
+                              {!cert.usable
+                                ? ` · ${cert.error}`
+                                : !certificateCovers(
+                                      cert.certificate.dns_names,
+                                      domains,
+                                    )
+                                  ? " · 未覆盖全部域名"
+                                  : ""}
+                            </SelectItem>
+                          ))}
+                        </Choice>
+                        {selectedCertificate && (
+                          <div className="create-certificate-info">
+                            <p>{selectedCertificate.certificate.issuer}</p>
+                            <p>
+                              {selectedCertificate.certificate.dns_names.join(
+                                "、",
+                              )}
+                            </p>
+                            <p>
+                              到期时间：
+                              {selectedCertificate.certificate.not_after
+                                ? new Date(
+                                    selectedCertificate.certificate.not_after,
+                                  ).toLocaleString("zh-CN", { hour12: false })
+                                : "未知"}
+                            </p>
+                            <code>{selectedCertificate.cert_file}</code>
+                            <code>{selectedCertificate.key_file}</code>
+                            {!covered && (
+                              <p className="site-detail-error">
+                                此证书无效或未覆盖全部域名，请重新选择。
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        <p className="small-note">
+                          扫描 /root/.acme.sh/ 和 /usr/local/acme.sh/
+                          下的通配符证书，沿用其原有续期和加载设置。
+                        </p>
+                      </>
+                    )}
+                    {input.ssl.mode !== "none" && (
+                      <Toggle
+                        id="site-redirect"
+                        label="强制 HTTPS（保留 HTTP 证书验证路径）"
+                        icon={LockKeyhole}
+                        checked={input.ssl.redirect}
+                        onChange={(value) =>
+                          set("ssl", { ...input.ssl, redirect: value })
+                        }
+                      />
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="create-rescan"
+                      disabled={options.isFetching}
+                      onClick={() => void options.refetch()}
+                    >
+                      <RefreshCw
+                        size={13}
+                        className={options.isFetching ? "animate-spin" : ""}
+                      />
+                      重新扫描配置与证书
+                    </Button>
+                  </fieldset>
+                </div>
                 {error && (
-                  <p className="site-detail-error" role="alert">
+                  <p ref={errorRef} className="site-detail-error" role="alert">
                     {error}
                   </p>
                 )}
               </div>
               <div className="create-form-footer">
+                {!retryName && (
+                  <span className="small-note create-required-note">
+                    带 <span className="create-required">*</span> 为必填项
+                  </span>
+                )}
                 <Button
                   type="button"
                   variant="outline"
