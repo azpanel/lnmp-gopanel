@@ -78,13 +78,43 @@ func TestBasicAuthNginxIntegration(t *testing.T) {
 		return err
 	}
 	p.check = func(ctx context.Context) error { return run(ctx, "-t") }
-	p.reload = func(ctx context.Context) error { return run(ctx, "-s", "reload") }
+	masterPID := 0
+	p.reload = func(ctx context.Context) error {
+		children, err := os.ReadFile(fmt.Sprintf("/proc/%d/task/%d/children", masterPID, masterPID))
+		if err != nil {
+			return err
+		}
+		if err := run(ctx, "-s", "reload"); err != nil {
+			return err
+		}
+		// Reload only sends a signal. Old workers can still accept connections
+		// briefly, so wait for this fixture's old generation before HTTP checks.
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			pending := false
+			for _, pid := range strings.Fields(string(children)) {
+				if _, err := os.Stat("/proc/" + pid); !os.IsNotExist(err) {
+					pending = true
+				}
+			}
+			if !pending {
+				return nil
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+		return fmt.Errorf("fixture nginx old workers did not exit after reload")
+	}
 	p.global = func(context.Context) (string, error) { return main, nil }
 	cmd := exec.Command(binary, "-p", dir+"/", "-c", config)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err = cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	masterPID = cmd.Process.Pid
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	t.Cleanup(func() {

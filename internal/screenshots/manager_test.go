@@ -59,11 +59,27 @@ func newTestManager(t *testing.T, dir string, f Renderer) *Manager {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	m, err := NewManager(ctx, dir, f)
 	if err != nil {
+		cancel()
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		cancel()
+		// Cancellation wakes the renderer; finish still persists its result.
+		// Wait for that write before testing removes the temporary directory.
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			m.mu.Lock()
+			running := m.runningName
+			m.mu.Unlock()
+			if running == "" {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+		t.Error("screenshot worker did not finish before fixture cleanup")
+	})
 	return m
 }
 func waitStatus(t *testing.T, m *Manager, name, status string) View {
