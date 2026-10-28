@@ -253,7 +253,13 @@ export function useWebsiteScreenshots(enabled: boolean) {
       return;
     }
     const item = query.data?.items[target.name];
-    setURL(item?.url || "");
+    const domain = target.domains[0];
+    const scheme = target.listens.some((listen) =>
+      listen.split(/\s+/).includes("ssl"),
+    )
+      ? "https"
+      : "http";
+    setURL(item?.url || (domain ? `${scheme}://${domain}/` : ""));
     const width = item?.viewport_width || 1440;
     const height = item?.viewport_height || 900;
     setViewportWidth(String(width));
