@@ -928,7 +928,7 @@ export function VhostCreate() {
                                 htmlFor="site-db-name"
                                 icon={UserRound}
                               >
-                                数据库／用户名
+                                数据库名与用户名
                               </FieldLabel>
                               <Input
                                 id="site-db-name"

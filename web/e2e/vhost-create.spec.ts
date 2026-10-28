@@ -347,9 +347,9 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   await dialog.getByRole("combobox", { name: "证书来源" }).click();
   await page.getByRole("option", { name: "申请 ZeroSSL" }).click();
   await dialog.getByLabel("联系邮箱").fill("admin@example.com");
-  await expect(dialog.getByLabel("数据库／用户名")).toHaveCount(0);
+  await expect(dialog.getByLabel("数据库名与用户名")).toHaveCount(0);
   await dialog.getByRole("switch", { name: "创建数据库", exact: true }).check();
-  await dialog.getByLabel("数据库／用户名").fill("site_database");
+  await dialog.getByLabel("数据库名与用户名").fill("site_database");
   const password = dialog.getByLabel("数据库密码", { exact: true });
   const generate = dialog.getByRole("button", {
     name: "随机生成强密码",

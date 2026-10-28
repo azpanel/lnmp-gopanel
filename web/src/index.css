@@ -3308,6 +3308,11 @@ a {
 .create-field-label svg {
   display: none;
 }
+.create-section-database .create-field-label svg {
+  display: block;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
 .create-domain-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
