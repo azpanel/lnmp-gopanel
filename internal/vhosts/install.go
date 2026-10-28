@@ -18,6 +18,10 @@ var ErrInstallUncertain = errors.New("站点配置恢复结果无法确认")
 // previous bytes on failure. Callers hold the shared Nginx lock throughout.
 // expected == nil means create-only; existing disabled files also conflict.
 func (s Store) Install(ctx context.Context, name string, content, expected []byte, check, reload func(context.Context) error) error {
+	return s.install(ctx, name, content, expected, check, reload, false)
+}
+
+func (s Store) install(ctx context.Context, name string, content, expected []byte, check, reload func(context.Context) error, allowDisabled bool) error {
 	if !ValidName(name) || len(content) > MaxConfig {
 		return errors.New("站点配置无效")
 	}
@@ -34,9 +38,10 @@ func (s Store) Install(ctx context.Context, name string, content, expected []byt
 		}
 	} else {
 		path, enabled, err := s.file(name)
-		if err != nil || !enabled {
+		if err != nil || !enabled && !allowDisabled {
 			return errors.New("站点不存在或已停用，请刷新后重试")
 		}
+		target = path
 		info, err := os.Stat(path)
 		if err != nil {
 			return errors.New("站点配置不可读取")

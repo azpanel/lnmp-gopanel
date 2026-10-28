@@ -57,6 +57,7 @@ type Site struct {
 type ConfigView struct {
 	Filename string `json:"filename"`
 	Content  string `json:"content"`
+	Revision string `json:"revision"`
 }
 type Store struct {
 	Directory string
@@ -115,7 +116,9 @@ func (s Store) Read(name string) (ConfigView, error) {
 	if e != nil {
 		return ConfigView{}, errors.New("配置读取失败或超出 1 MiB 限制")
 	}
-	return ConfigView{Filename: filepath.Base(path), Content: string(b)}, nil
+	view := ConfigView{Filename: filepath.Base(path), Content: string(b)}
+	view.Revision = ConfigRevision(view)
+	return view, nil
 }
 func (s Store) List(ctx context.Context) ([]Site, error) {
 	entries, e := os.ReadDir(s.Directory)

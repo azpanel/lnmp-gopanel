@@ -59,7 +59,7 @@ Ubuntu 24.04 及更新版本若启用了 AppArmor 用户命名空间限制，脚
 
 证书和私钥安装到 `/etc/lnmp-gopanel/tls/`，目录权限 `0750`、文件权限 `0640`、所有者 `root:lnmp-panel`。借用的证书不会自动跟随原证书续期；续期后重新执行 `sudo bash install.sh --certificate-dir /usr/local/nginx/conf/ssl/域名`，同步证书并重启面板，已有 HTTPS 端口保持不变。自签名证书可通过 `--tls-mode self-signed` 重新生成。
 
-安装时会以 `lnmp-panel` 账号检查服务状态、Docker 查询、文件扫描、定时任务、日志读取及虚拟主机全部十一项操作的精确 sudo 授权，并实际免密调用只读 `docker snapshot`、`components snapshot` 辅助程序（无需安装或启动 Docker，不触发全盘扫描或服务启停）。虚拟主机只检查 `list/config/usage/toggle/options/create/ssl-renew-preview/ssl-renew/basic-auth-get/basic-auth-set/basic-auth-disable` 授权，不读取站点或证书账号、不创建站点或申请证书。启动面板后读取实际进程的 `/proc/<MainPID>/status`，确认 `NoNewPrivs: 0`，避免 systemd 隐式限制使所有辅助功能不可用；检查失败会报错并回滚。`--no-start` 只执行辅助程序检查，进程限制需在自行启动后验证。
+安装时会以 `lnmp-panel` 账号检查服务状态、Docker 查询、文件扫描、定时任务、日志读取及虚拟主机全部十二项操作的精确 sudo 授权，并实际免密调用只读 `docker snapshot`、`components snapshot` 辅助程序（无需安装或启动 Docker，不触发全盘扫描或服务启停）。虚拟主机只检查 `list/config/format/usage/toggle/options/create/ssl-renew-preview/ssl-renew/basic-auth-get/basic-auth-set/basic-auth-disable` 授权，不读取站点或证书账号、不创建站点或申请证书。启动面板后读取实际进程的 `/proc/<MainPID>/status`，确认 `NoNewPrivs: 0`，避免 systemd 隐式限制使所有辅助功能不可用；检查失败会报错并回滚。`--no-start` 只执行辅助程序检查，进程限制需在自行启动后验证。
 
 在菜单选择更新或执行 `sudo bash install.sh --update` 即可从 GitHub Release 升级；带安装参数再次执行也可覆盖升级。已有 HTTPS 配置、端口、证书、管理员密码和 `services.yaml` 会保留。旧版 HTTP 安装升级时会询问证书来源、迁移为随机端口的 HTTPS，并保留管理员凭据及服务配置；原 HTTP 端口不再使用，需调整安全组或反向代理。升级只重启面板服务，不重启 Nginx、PHP、数据库、Redis 或 Docker；已有面板会话需重新登录。替换前的文件保存在 `/var/backups/lnmp-gopanel/`，替换或启动失败时自动恢复旧文件，包含原配置及证书。
 
@@ -95,7 +95,7 @@ bash scripts/package.sh arm64 v0.1.0
 
 包内包含 `bin/lnmp-gopanel`、`bin/lnmp-gopanel-control`、`deploy/`、`install.sh`、`README.md` 和 `VERSION`；本机配置、账号密码、依赖目录、测试截图和构建缓存不会提交或打包。
 
-从当前源码升级本机时，先构建前端，再运行上述打包命令，最后使用项目中的安装脚本执行 `sudo bash install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz`（arm64 使用对应文件名）。这样两个二进制、systemd 单元及 sudoers 会一起更新，并使用相同的备份、授权检查及失败回滚流程。定时任务、日志与虚拟主机仅检查 `cron list`、`logs list/read`、`vhosts list/config/usage/toggle/options/create/ssl-renew-preview/ssl-renew/basic-auth-get/basic-auth-set/basic-auth-disable` 的精确授权，不读取业务内容、不创建站点或申请证书；缺少可选组件或业务文件不会阻止安装。旧版 HTTP 安装非交互升级时需追加 `--tls-mode self-signed`，或指定现有证书。
+从当前源码升级本机时，先构建前端，再运行上述打包命令，最后使用项目中的安装脚本执行 `sudo bash install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz`（arm64 使用对应文件名）。这样两个二进制、systemd 单元及 sudoers 会一起更新，并使用相同的备份、授权检查及失败回滚流程。定时任务、日志与虚拟主机仅检查 `cron list`、`logs list/read`、`vhosts list/config/format/usage/toggle/options/create/ssl-renew-preview/ssl-renew/basic-auth-get/basic-auth-set/basic-auth-disable` 的精确授权，不读取业务内容、不创建站点或申请证书；缺少可选组件或业务文件不会阻止安装。旧版 HTTP 安装非交互升级时需追加 `--tls-mode self-signed`，或指定现有证书。
 
 ## 构建
 
@@ -294,7 +294,7 @@ Redis 只显示状态和版本，不提供启停按钮，辅助程序也拒绝 R
 
 ## 虚拟主机
 
-“虚拟主机”页面按 `/usr/local/nginx/conf/vhost` 中的配置文件展示站点：域名、监听地址、反向代理目标、目录占用、SSL 证书签发者、主体、域名、有效期、剩余天数、序列号及 SHA-256 指纹。可只读查看原始配置。`.conf` 表示启用，`.conf.disabled` 表示停用；同文件的多个 server 块作为一项配置一起管理。
+“虚拟主机”页面按 `/usr/local/nginx/conf/vhost` 中的配置文件展示站点：域名、监听地址、反向代理目标、目录占用、SSL 证书签发者、主体、域名、有效期、剩余天数、序列号及 SHA-256 指纹。可查看原始配置，并手动格式化缩进后保存。`.conf` 表示启用，`.conf.disabled` 表示停用；同文件的多个 server 块作为一项配置一起管理。
 
 侧栏“虚拟主机”显示配置总数，包含已启用及已停用的站点，和“LNMP 服务”使用相同数量角标。登录后通过需鉴权的 `GET /api/v1/vhosts/count` 查询，每 30 秒刷新，读取失败时显示“—”或上次成功结果，不误报为零。统计只读取站点元数据、不触发目录占用扫描，多浏览器共享 30 秒缓存；站点列表刷新成功后立即同步角标，搜索筛选不改变总数。
 
@@ -304,7 +304,7 @@ Redis 只显示状态和版本，不提供启停按钮，辅助程序也拒绝 R
 
 启停时只对普通配置文件原地重命名，保留原文件内容与权限；拒绝目录穿越、符号链接、同名文件冲突及覆盖目标。重命名后执行 `nginx -t`，通过才发出 `nginx -s reload`。检查失败恢复原文件名；重载失败恢复原文件名并尝试重新加载原配置，失败结果明确提示。所有面板触发的 Nginx 修改与站点启停共享进程间锁。
 
-新增接口：`GET /api/v1/vhosts`、`POST /api/v1/vhosts/refresh`（202，异步刷新）、`GET /api/v1/vhosts/config?name=example.conf`、`POST /api/v1/vhosts/toggle`（JSON `{"name":"example.conf","enabled":false}`）。全部需要登录，POST 需要 CSRF。特权操作仅开放固定参数 `vhosts list/config/usage/toggle`，文件名通过有界 JSON stdin 传递；辅助程序重新验证文件名与目录权限。升级时同步安装两个二进制和 sudoers 模板。
+新增接口：`GET /api/v1/vhosts`、`POST /api/v1/vhosts/refresh`（202，异步刷新）、`GET /api/v1/vhosts/config?name=example.conf`、`POST /api/v1/vhosts/toggle`（JSON `{"name":"example.conf","enabled":false}`）。全部需要登录，POST 需要 CSRF。特权操作仅开放固定参数 `vhosts list/config/format/usage/toggle`，文件名通过有界 JSON stdin 传递；辅助程序重新验证文件名与目录权限。升级时同步安装两个二进制和 sudoers 模板。
 
 虚拟主机卡片和表格的“访问认证”可开启、读取、关闭 Basic Auth 或替换用户名及密码。每个 vhost 一组凭证，同文件全部 server 共用；证书验证路径 `/.well-known/acme-challenge/` 免认证，SSL 重试会保留认证。停用站点只显示保存的配置状态，启用后才能修改。已有手写认证、共享 include 中的认证或 `satisfy any` 显示“外部配置”，不覆盖；动态 include、Lua 执行指令、提前返回成功响应的 `return 2xx`、异常管理标记、凭证缺失或无法确认继承关系时显示“无法确认”，禁止修改。状态来自磁盘配置检查，不代表已对公网地址执行认证探测。
 
@@ -393,3 +393,9 @@ IP 地址位置数据由[纯真 CZ88](https://www.cz88.net/) 提供支持，使�
 新增需登录接口 `GET /api/v1/logs` 和 `POST /api/v1/logs/read`，POST 需要 CSRF。读取 JSON 包含 `path`、`mode`（`tail`、`before`、`after`、`range`）、不透明的 `start` / `end` 游标和 `rules`；每条规则包含 `kind`（`keyword` / `regex`）、`action`（`show` / `hide`）、`pattern`、`ignore_case`、`enabled`。响应提供匹配行及字节偏移、源文件范围、前后游标和文件状态，Nginx 日志行可包含 `ip_location` 属地显示文本；409 表示文件已变化。属地由普通面板进程补充，不增加辅助程序权限。游标始终按原始范围推进，筛选全部隐藏也不会反复读取同一批。规则在 Go 后端执行，读取有超时和全局并发限制。
 
 升级时同步安装两个二进制和 sudoers 模板，新增固定授权 `/usr/local/libexec/lnmp-gopanel-control logs list`、`/usr/local/libexec/lnmp-gopanel-control logs read`，验证 sudoers 并重启面板。文件、游标和规则通过有界 JSON stdin 传递，辅助程序重新校验白名单、文件类型和路径，禁止跟随任意路径组件中的符号链接。安装脚本仅检查这两项的 sudo 授权，不实际读取或输出日志内容。
+
+## 站点配置格式化
+
+在虚拟主机的“查看配置”弹窗中，点击“格式化缩进并保存”可按 4 空格整理当前站点配置；停用站点保持停用。该操作保留配置指令、字符串、注释和面板管理的访问认证，不修改共享 include 文件，也不重载 Nginx。配置文件已被其他操作修改时需点击“重新读取”后再执行；不支持安全解析的配置会保留原文件并显示原因。写入使用原子替换并保留权限，Nginx 检查失败时恢复原文件。
+
+新增 `POST /api/v1/vhosts/config/format`，请求为 `{ "name": "example.com.conf", "revision": "读取配置返回的版本" }`，需要登录和 CSRF。`GET /api/v1/vhosts/config` 额外返回 `revision`；格式化接口返回新的配置内容、版本、`changed` 和提示信息。升级须同步安装面板、辅助程序和 sudoers，安装脚本会检查新增的 `vhosts format` 精确授权，不会在安装时执行格式化。

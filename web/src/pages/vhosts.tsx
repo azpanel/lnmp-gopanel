@@ -363,6 +363,24 @@ export function Vhosts() {
     enabled: Boolean(configSite),
     staleTime: 0,
   });
+  const formatConfiguration = useMutation({
+    mutationFn: (input: { name: string; revision: string }) =>
+      api<VhostConfig & { changed: boolean; message: string }>(
+        "/vhosts/config/format",
+        { method: "POST", body: JSON.stringify(input) },
+      ),
+    onMutate: (input) =>
+      client.cancelQueries({ queryKey: ["vhost-config", input.name] }),
+    onSuccess: (result, input) => {
+      client.setQueryData(["vhost-config", input.name], result);
+      void client.invalidateQueries({ queryKey: ["vhosts"] });
+      toast.success(result.message);
+    },
+  });
+  const resetFormatConfiguration = formatConfiguration.reset;
+  useEffect(() => {
+    resetFormatConfiguration();
+  }, [configSite?.name, resetFormatConfiguration]);
   const toggle = useMutation({
     mutationFn: (site: Vhost) =>
       api<{ message: string }>("/vhosts/toggle", {
@@ -811,15 +829,26 @@ export function Vhosts() {
       <Dialog
         open={configSite !== null}
         onOpenChange={(open) => {
-          if (!open) setConfigSite(null);
+          if (!open && !formatConfiguration.isPending) setConfigSite(null);
         }}
       >
-        <DialogContent className="vhost-config-dialog">
+        <DialogContent
+          className="vhost-config-dialog"
+          showCloseButton={!formatConfiguration.isPending}
+          onEscapeKeyDown={(event) => {
+            if (formatConfiguration.isPending) event.preventDefault();
+          }}
+          onInteractOutside={(event) => {
+            if (formatConfiguration.isPending) event.preventDefault();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>
               站点配置 · {configuration.data?.filename || configSite?.filename}
             </DialogTitle>
-            <DialogDescription>只读查看当前配置文件内容。</DialogDescription>
+            <DialogDescription>
+              查看当前配置，可按 4 空格整理并保存缩进，保留指令和注释。
+            </DialogDescription>
           </DialogHeader>
           {configuration.isPending ? (
             <div className="config-loading">
@@ -835,6 +864,56 @@ export function Vhosts() {
               <code>{configuration.data?.content}</code>
             </pre>
           )}
+          {formatConfiguration.error && (
+            <p className="site-detail-error" role="alert">
+              {formatConfiguration.error.message}
+            </p>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={
+                configuration.isFetching || formatConfiguration.isPending
+              }
+              onClick={() => {
+                formatConfiguration.reset();
+                void configuration.refetch();
+              }}
+            >
+              <RefreshCw
+                size={15}
+                className={configuration.isFetching ? "animate-spin" : ""}
+              />
+              重新读取
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                !configuration.data?.revision ||
+                Boolean(configuration.error) ||
+                configuration.isFetching ||
+                formatConfiguration.isPending
+              }
+              onClick={() => {
+                if (configSite && configuration.data) {
+                  formatConfiguration.mutate({
+                    name: configSite.name,
+                    revision: configuration.data.revision,
+                  });
+                }
+              }}
+            >
+              {formatConfiguration.isPending ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <Code2 size={15} />
+              )}
+              {formatConfiguration.isPending
+                ? "正在格式化…"
+                : "格式化缩进并保存"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog

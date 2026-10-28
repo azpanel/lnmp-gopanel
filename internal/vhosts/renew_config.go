@@ -37,8 +37,10 @@ func applyConfigEdits(content string, edits []configEdit) string {
 	}
 	return content
 }
-func challengeLocation() string {
-	return "\n    location ^~ /.well-known/acme-challenge/ { alias " + NginxQuote(ChallengeDirectory+"/.well-known/acme-challenge/") + "; default_type text/plain; auth_basic off; allow all; }\n"
+func challengeLocation(indent string) string {
+	return nginxLocation(indent, "^~ "+authChallenge,
+		"alias "+NginxQuote(ChallengeDirectory+"/.well-known/acme-challenge/")+";",
+		"default_type text/plain;", "auth_basic off;", "allow all;")
 }
 
 // PlanRenewal changes only direct certificate directives and the challenge route.
@@ -217,6 +219,7 @@ func (s Store) PlanRenewal(name string, trust func(string) error) (RenewalPlan, 
 			httpNames = unique(httpNames, name)
 		}
 		found := false
+		indent := nginxServerIndent(base, server)
 		hasRootLocation := false
 		for _, n := range server.Children {
 			if n.Name == "location" && len(n.Args) == 1 && n.Args[0] == "/" {
@@ -231,7 +234,7 @@ func (s Store) PlanRenewal(name string, trust func(string) error) (RenewalPlan, 
 				if len(n.Args) != 2 || (n.Args[0] != "301" && n.Args[0] != "302" && n.Args[0] != "308") || hasRootLocation {
 					return p, errors.New("HTTP server 跳转无法安全调整")
 				}
-				edits = append(edits, configEdit{n.Start, n.End, "location / { " + base[n.Start:n.End] + " }"})
+				edits = append(edits, nginxBlockEdit(base, n.Start, n.End, indent, nginxLocation(indent, "/", base[n.Start:n.End])))
 				hasRootLocation = true
 			}
 			if n.Name == "location" && strings.Contains(strings.Join(n.Args, " "), "acme-challenge") {
@@ -246,11 +249,11 @@ func (s Store) PlanRenewal(name string, trust func(string) error) (RenewalPlan, 
 					}
 				}
 				found = true
-				edits = append(edits, configEdit{n.Start, n.End, challengeLocation()})
+				edits = append(edits, nginxBlockEdit(base, n.Start, n.End, indent, challengeLocation(indent)))
 			}
 		}
 		if !found {
-			edits = append(edits, configEdit{server.Open + 1, server.Open + 1, challengeLocation()})
+			edits = append(edits, nginxBlockEdit(base, server.Open+1, server.Open+1, indent, challengeLocation(indent)))
 		}
 	}
 	if p.CertPath == "" {
@@ -296,7 +299,7 @@ func (s Store) PlanRenewal(name string, trust func(string) error) (RenewalPlan, 
 		}
 	}
 	if len(missingHTTP) > 0 {
-		p.Base += "\n# LNMP GoPanel HTTP certificate validation\nserver { listen 80; listen [::]:80; server_name " + strings.Join(missingHTTP, " ") + ";" + challengeLocation() + " location / { return 404; }\n}\n"
+		p.Base += "\n# LNMP GoPanel HTTP certificate validation\nserver {\n    listen 80;\n    listen [::]:80;\n    server_name " + strings.Join(missingHTTP, " ") + ";\n" + challengeLocation("    ") + "\n" + nginxLocation("    ", "/", "return 404;") + "\n}\n"
 	}
 	return p, nil
 }

@@ -160,6 +160,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	s.registerVhostCreation(private)
 	s.registerVhostBasicAuth(private)
+	s.registerVhostFormat(private)
 	private.GET("/vhosts/count", func(c *gin.Context) {
 		if s.Vhosts == nil {
 			fail(c, 503, "站点管理未配置")

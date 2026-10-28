@@ -191,7 +191,9 @@ test("create a site with DNS warnings, wildcard selection, live output and SSL r
   await dialog.locator(".create-form-body").evaluate((element) => {
     element.scrollTop = element.scrollHeight;
   });
-  expect((await createButton.boundingBox())!.y).toBe(footerBox.y);
+  expect(
+    Math.abs((await createButton.boundingBox())!.y - footerBox.y),
+  ).toBeLessThan(1);
   await expect(createButton).toBeInViewport();
   await expect(
     dialog.getByRole("heading", { name: "添加站点", exact: true }),

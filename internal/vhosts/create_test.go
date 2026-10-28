@@ -68,7 +68,7 @@ func TestCreateValidationAndEscapedConfig(t *testing.T) {
 	r.SSL = SSLInput{Mode: "files", CertFile: "/ssl/fullchain.pem", KeyFile: "/ssl/key.pem", Redirect: true}
 	r.IPv6 = true
 	content = RenderSite(r, PHPRuntime{}, r.SSL.CertFile, r.SSL.KeyFile)
-	if !strings.Contains(content, "listen [::]:443 ssl;") || !strings.Contains(content, "location / { return 301 https://example.com$request_uri; }") || strings.Count(content, "location ^~ /.well-known/acme-challenge/") != 2 {
+	if !strings.Contains(content, "listen [::]:443 ssl;") || !strings.Contains(content, "location / {\n        return 301 https://example.com$request_uri;\n    }") || strings.Count(content, "location ^~ /.well-known/acme-challenge/") != 2 {
 		t.Fatal(content)
 	}
 }
@@ -211,7 +211,11 @@ func TestGeneratedNginxConfiguration(t *testing.T) {
 				r.Rewrite = "wordpress"
 				php.PathInfoInclude = "php.conf"
 			}
-			put(t, filepath.Join(dir, "site.conf"), RenderSite(r, php, cert, key))
+			formatted, err := FormatNginx(RenderSite(r, php, cert, key))
+			if err != nil {
+				t.Fatal(err)
+			}
+			put(t, filepath.Join(dir, "site.conf"), formatted)
 			main := filepath.Join(dir, "nginx.conf")
 			put(t, main, "pid "+NginxQuote(filepath.Join(dir, "nginx.pid"))+";\nerror_log stderr;\nevents {}\nhttp { include site.conf; }\n")
 			cmd := exec.Command(binary, "-t", "-e", "stderr", "-p", dir+"/", "-c", main)

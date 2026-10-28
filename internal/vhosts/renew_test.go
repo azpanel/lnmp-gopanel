@@ -58,7 +58,7 @@ func TestRenewalPreservesConfigAndAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, part := range []string{"# keep this comment", "root /home/wwwroot/custom;", "proxy_pass http://127.0.0.1:3000;", "ssl_certificate " + NginxQuote(newCert) + ";", `location / { return 301 https://$host$request_uri; }`, "auth_basic off;", ChallengeDirectory} {
+	for _, part := range []string{"# keep this comment", "root /home/wwwroot/custom;", "proxy_pass http://127.0.0.1:3000;", "ssl_certificate " + NginxQuote(newCert) + ";", "location / {\n        return 301 https://$host$request_uri;\n    }", "auth_basic off;", ChallengeDirectory} {
 		if !strings.Contains(content, part) {
 			t.Fatalf("missing %q in %s", part, content)
 		}
@@ -72,6 +72,70 @@ func TestRenewalPreservesConfigAndAuthentication(t *testing.T) {
 		t.Fatal("cannot renew a second time", err)
 	}
 }
+
+func TestRenewalPreservesIndentationAndIsStable(t *testing.T) {
+	for _, tc := range []struct {
+		name, header, indent, closing, newline string
+		legacyChallenge                        bool
+	}{
+		{"spaces", "server {", "    ", "}", "\n", false},
+		{"opening comment", "server { # keep this server comment", "    ", "}", "\n", false},
+		{"lnmp", "server\n    {", "        ", "    }", "\n", false},
+		{"legacy challenge", "server\n    {", "        ", "    }", "\n", true},
+		{"tabs", "server {", "\t", "}", "\n", false},
+		{"crlf", "server\r\n    {", "        ", "    }", "\r\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, original := renewalFixture(t)
+			oldHTTP := "server { listen 80; server_name example.com www.example.com; return 301 https://$host$request_uri; }\n"
+			prefix := tc.header + tc.newline
+			tail := strings.Join([]string{
+				tc.indent + "# preserve this comment and the original spacing",
+				tc.indent + "listen   80;",
+				tc.indent + "server_name example.com www.example.com;",
+			}, tc.newline) + tc.newline
+			redirect := tc.indent + "return 301 https://$host$request_uri; # keep this too" + tc.newline
+			legacy := ""
+			if tc.legacyChallenge {
+				legacy = "    location ^~ /.well-known/acme-challenge/ { alias " + NginxQuote(ChallengeDirectory+"/.well-known/acme-challenge/") + "; default_type text/plain; auth_basic off; allow all; }" + tc.newline
+			}
+			http := prefix + legacy + tail + redirect + tc.closing + tc.newline
+			original = strings.Replace(original, oldHTTP, http, 1)
+			put(t, filepath.Join(s.Directory, "site.conf"), original)
+			plan, err := s.PlanRenewal("site.conf", func(string) error { return nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			step := "    "
+			if tc.indent == "\t" {
+				step = "\t"
+			}
+			challenge := strings.Join([]string{
+				tc.indent + "location ^~ /.well-known/acme-challenge/ {",
+				tc.indent + step + "alias " + NginxQuote(ChallengeDirectory+"/.well-known/acme-challenge/") + ";",
+				tc.indent + step + "default_type text/plain;",
+				tc.indent + step + "auth_basic off;",
+				tc.indent + step + "allow all;",
+				tc.indent + "}",
+			}, tc.newline) + tc.newline
+			redirect = strings.Join([]string{
+				tc.indent + "location / {",
+				tc.indent + step + "return 301 https://$host$request_uri;",
+				tc.indent + "} # keep this too",
+			}, tc.newline) + tc.newline
+			want := strings.Replace(original, http, prefix+challenge+tail+redirect+tc.closing+tc.newline, 1)
+			if plan.Base != want {
+				t.Fatalf("unrelated content or indentation changed:\nwant:\n%s\ngot:\n%s", want, plan.Base)
+			}
+			put(t, filepath.Join(s.Directory, "site.conf"), plan.Base)
+			again, err := s.PlanRenewal("site.conf", func(string) error { return nil })
+			if err != nil || again.Base != plan.Base {
+				t.Fatalf("repeated renewal changed formatting: %v\n%s", err, again.Base)
+			}
+		})
+	}
+}
+
 func TestRenewalRejectsUnsupportedConfigurations(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -244,8 +308,8 @@ func TestRenewedConfigurationAcceptedByNginx(t *testing.T) {
 func TestRenewalChallengeAuthExemptionIsNarrow(t *testing.T) {
 	s := testStore(t)
 	for _, content := range []string{
-		"server {" + strings.Replace(challengeLocation(), "auth_basic off;", "auth_basic off; satisfy any;", 1) + "}",
-		"server {" + strings.Replace(challengeLocation(), ChallengeDirectory, "/website", 1) + "}",
+		"server {" + strings.Replace(challengeLocation("    "), "auth_basic off;", "auth_basic off; satisfy any;", 1) + "}",
+		"server {" + strings.Replace(challengeLocation("    "), ChallengeDirectory, "/website", 1) + "}",
 		"server { location / { auth_basic off; } }",
 	} {
 		if conflict, err := s.InspectAuthDirectives(context.Background(), content, false, func(string) (string, error) { return "", nil }); err == nil && conflict == "" {
@@ -269,7 +333,7 @@ func TestRenewalDenseServerWithReturnFirst(t *testing.T) {
 	if _, err := ParseAuthConfig(content); err != nil {
 		t.Fatal("overlapping insert and replacement corrupted config", err)
 	}
-	if !strings.Contains(content, "location / { return 301 https://$host$request_uri; }") {
+	if !strings.Contains(content, "location / {\n        return 301 https://$host$request_uri;\n    }") {
 		t.Fatal("redirect changed", content)
 	}
 }

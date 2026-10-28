@@ -27,6 +27,7 @@ Cmnd_Alias LNMP_PANEL = /usr/local/libexec/lnmp-gopanel-control nginx status, \
  /usr/local/libexec/lnmp-gopanel-control storage scan, \
  /usr/local/libexec/lnmp-gopanel-control vhosts list, \
  /usr/local/libexec/lnmp-gopanel-control vhosts config, \
+ /usr/local/libexec/lnmp-gopanel-control vhosts format, \
  /usr/local/libexec/lnmp-gopanel-control vhosts usage, \
  /usr/local/libexec/lnmp-gopanel-control vhosts toggle, \
  /usr/local/libexec/lnmp-gopanel-control vhosts options, \

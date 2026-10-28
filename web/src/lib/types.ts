@@ -129,7 +129,11 @@ export type VhostSnapshot = {
   updated_at: string | null;
   error?: string;
 };
-export type VhostConfig = { filename: string; content: string };
+export type VhostConfig = {
+  filename: string;
+  content: string;
+  revision: string;
+};
 
 export type WebsiteScreenshot = {
   name: string;

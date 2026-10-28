@@ -137,15 +137,51 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   await page.route("**/api/v1/vhosts", (route) =>
     route.fulfill({ json: state }),
   );
+  let configContent =
+    "# original configuration\nserver { root /home/wwwroot/example/public; }\n";
+  const formattedConfig =
+    "# original configuration\nserver {\n    root /home/wwwroot/example/public;\n}\n";
+  let configRevision = "a".repeat(64);
+  let formatCalls = 0;
   await page.route("**/api/v1/vhosts/config?*", (route) =>
     route.fulfill({
       json: {
         filename: site.filename,
-        content:
-          "# original configuration\nserver { root /home/wwwroot/example/public; }\n",
+        content: configContent,
+        revision: configRevision,
       },
     }),
   );
+  await page.route("**/api/v1/vhosts/config/format", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().headers()["x-csrf-token"]).toBeTruthy();
+    expect(route.request().postDataJSON()).toEqual({
+      name: site.name,
+      revision: configRevision,
+    });
+    formatCalls++;
+    if (formatCalls === 1) {
+      return route.fulfill({
+        status: 502,
+        json: { error: "配置已被修改，请重新读取后再格式化" },
+      });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const changed = formatCalls === 2;
+    configContent = formattedConfig;
+    configRevision = "b".repeat(64);
+    return route.fulfill({
+      json: {
+        filename: site.filename,
+        content: configContent,
+        revision: configRevision,
+        changed,
+        message: changed
+          ? "配置缩进已格式化并保存"
+          : "配置缩进已规范，无需修改",
+      },
+    });
+  });
   await page.route("**/api/v1/vhosts/toggle", (route) => {
     calls++;
     if (calls === 2)
@@ -200,6 +236,38 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   await expect(page.locator(".vhost-config-source")).toContainText(
     "# original configuration",
   );
+  const configDialog = page.getByRole("dialog");
+  const formatButton = configDialog.getByRole("button", {
+    name: "格式化缩进并保存",
+    exact: true,
+  });
+  await expect(formatButton).toBeEnabled();
+  await formatButton.click();
+  await expect(configDialog.getByRole("alert")).toContainText("配置已被修改");
+  await expect(page.locator(".vhost-config-source")).toContainText(
+    "server { root",
+  );
+  await configDialog
+    .getByRole("button", { name: "重新读取", exact: true })
+    .click();
+  await expect(configDialog.getByRole("alert")).toHaveCount(0);
+  await formatButton.click();
+  await expect(
+    configDialog.getByRole("button", { name: "正在格式化…", exact: true }),
+  ).toBeDisabled();
+  await expect(page.locator(".vhost-config-source")).toHaveText(
+    formattedConfig,
+  );
+  await expect(formatButton).toBeEnabled();
+  await formatButton.click();
+  await expect(
+    page.getByText("配置缩进已规范，无需修改", { exact: true }),
+  ).toBeVisible();
+  expect(formatCalls).toBe(3);
+  await page.screenshot({
+    path: testInfo.outputPath("vhost-config-formatted.png"),
+    fullPage: true,
+  });
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "截图设置", exact: true }).click();
   const resolution = page.getByRole("combobox", { name: "截图分辨率" });

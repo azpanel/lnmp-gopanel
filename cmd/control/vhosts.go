@@ -39,6 +39,9 @@ func vhostResponse(data any, err error) error {
 	return json.NewEncoder(os.Stdout).Encode(map[string]any{"data": data})
 }
 func handleVhosts(action string) error {
+	if action == "format" {
+		return handleVhostFormat()
+	}
 	if action == "basic-auth-get" || action == "basic-auth-set" || action == "basic-auth-disable" {
 		return handleVhostBasicAuth(action)
 	}

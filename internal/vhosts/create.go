@@ -218,14 +218,14 @@ func RenderSite(r CreateRequest, php PHPRuntime, cert, key string) string {
 		}
 		return s
 	}
-	challenge := "    location ^~ /.well-known/acme-challenge/ { alias " + NginxQuote(ChallengeDirectory+"/.well-known/acme-challenge/") + "; default_type text/plain; }\n"
+	challenge := nginxLocation("    ", "^~ "+authChallenge, "alias "+NginxQuote(ChallengeDirectory+"/.well-known/acme-challenge/")+";", "default_type text/plain;") + "\n"
 	accessLog := "    access_log off;\n"
 	if r.AccessLog {
 		accessLog = "    access_log " + NginxQuote(AccessLogDirectory+"/"+r.LogName) + ";\n"
 	}
 	secure := cert != ""
 	if secure && r.SSL.Redirect {
-		out.WriteString("server {\n" + listen(80, false) + "    server_name " + names + ";\n" + challenge + accessLog + "    location / { return 301 https://" + r.Domain + "$request_uri; }\n}\n")
+		out.WriteString("server {\n" + listen(80, false) + "    server_name " + names + ";\n" + challenge + accessLog + nginxLocation("    ", "/", "return 301 https://"+r.Domain+"$request_uri;") + "\n}\n")
 	}
 	out.WriteString("# Managed by LNMP GoPanel\nserver {\n")
 	if !secure || !r.SSL.Redirect {
@@ -246,7 +246,7 @@ func RenderSite(r CreateRequest, php PHPRuntime, cert, key string) string {
 		}
 		out.WriteString("    include " + NginxQuote(include) + ";\n")
 	}
-	out.WriteString("    location ~ /\\. { deny all; }\n    location ~* \\.(gif|jpg|jpeg|png|bmp|swf)$ { expires 30d; }\n    location ~* \\.(js|css)$ { expires 12h; }\n")
+	out.WriteString(nginxLocation("    ", `~ /\.`, "deny all;") + "\n" + nginxLocation("    ", `~* \.(gif|jpg|jpeg|png|bmp|swf)$`, "expires 30d;") + "\n" + nginxLocation("    ", `~* \.(js|css)$`, "expires 12h;") + "\n")
 	out.WriteString(accessLog)
 	out.WriteString("}\n")
 	return out.String()
