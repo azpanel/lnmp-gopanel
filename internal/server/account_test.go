@@ -188,7 +188,7 @@ func TestSecurityAuthenticationValidationAndLimits(t *testing.T) {
 	}
 }
 func TestFailedAuthPersistenceDoesNotCreateSession(t *testing.T) {
-	s, _ := testServer(t)
+	s := serverWithLoginLog(t)
 	dir := filepath.Join(t.TempDir(), "auth")
 	account, err := auth.OpenAccount(dir, s.Config.Username, s.Config.PasswordHash)
 	if err != nil {
@@ -218,6 +218,10 @@ func TestFailedAuthPersistenceDoesNotCreateSession(t *testing.T) {
 	w = authRequest(h, "POST", "/auth/login/totp", map[string]string{"challenge_token": challenge.Token, "recovery_code": codes[0]}, nil, "")
 	if w.Code != 503 {
 		t.Fatal("failed save granted login", w.Code, w.Body.String())
+	}
+	events := loginEvents(t, s)
+	if len(events) != 1 || events[0].Result != "failure" || events[0].Reason != "authentication_unavailable" || events[0].Password != nil {
+		t.Fatal("incorrect authentication storage failure audit", events)
 	}
 	for _, cookie := range w.Result().Cookies() {
 		if cookie.Value != "" {

@@ -34,6 +34,7 @@ var ErrInvalid = errors.New("日志请求无效")
 var ErrChanged = errors.New("日志已轮转或截断，请回到最新日志")
 
 type File struct {
+	Name      string    `json:"name,omitempty"`
 	Path      string    `json:"path"`
 	Size      int64     `json:"size"`
 	Modified  time.Time `json:"modified"`
@@ -126,6 +127,10 @@ func Validate(r Request) error {
 	if err := ValidatePath(r.Path); err != nil {
 		return err
 	}
+	return validateWindow(r)
+}
+
+func validateWindow(r Request) error {
 	if r.Mode != "tail" && r.Mode != "before" && r.Mode != "after" && r.Mode != "range" && r.Mode != "stat" {
 		return ErrInvalid
 	}
@@ -221,8 +226,17 @@ func checkCursor(f *os.File, raw, identity string, size int64) (int64, error) {
 // ReadFile bounds the data read by BatchBytes + 2*LineBytes + 2 bytes. Lookaround repairs
 // line boundaries across pages; offsets let clients replace a growing EOF line.
 func ReadFile(ctx context.Context, f *os.File, req Request) (Window, error) {
-	out := Window{Lines: []Line{}}
 	if err := Validate(req); err != nil {
+		return Window{}, err
+	}
+	return readFile(ctx, f, req)
+}
+
+// readFile is also used for the single private login log, after validating its
+// exact path and opening it without the general-purpose path policy.
+func readFile(ctx context.Context, f *os.File, req Request) (Window, error) {
+	out := Window{Lines: []Line{}}
+	if err := validateWindow(req); err != nil {
 		return out, err
 	}
 	rules, _ := compile(req.Rules)

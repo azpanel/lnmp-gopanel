@@ -62,6 +62,9 @@ test("custom logs validate paths, survive refresh and can be removed from the ca
     .getByLabel("密码", { exact: true })
     .fill("Test-Only-Panel-Password-2026");
   await page.getByRole("button", { name: "登录面板" }).click();
+  await expect(
+    page.getByRole("combobox", { name: "选择日志", exact: true }),
+  ).toBeVisible();
   await expect(page.locator(".log-line")).toContainText(builtin);
   await expect(
     page.getByRole("button", { name: "回到最新" }).locator("svg"),

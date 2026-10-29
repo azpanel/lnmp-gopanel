@@ -24,7 +24,7 @@ func (s *Server) logSlot(c *gin.Context) bool {
 	}
 }
 func (s *Server) logList(c *gin.Context) {
-	if s.Logs == nil {
+	if s.Logs == nil && s.LoginLog == nil {
 		fail(c, 503, "日志读取未配置")
 		return
 	}
@@ -34,16 +34,50 @@ func (s *Server) logList(c *gin.Context) {
 	defer func() { <-s.logReads }()
 	ctx, cancel := context.WithTimeout(c.Request.Context(), logs.Timeout)
 	defer cancel()
-	out, err := s.Logs.List(ctx)
-	if err != nil {
-		fail(c, 503, err.Error())
-		return
+	// Read local metadata first so a slow helper cannot exhaust its deadline
+	// and incorrectly mark the independently readable login log unavailable.
+	var loginFile *logs.File
+	if s.LoginLog != nil {
+		file := s.LoginLog.File(ctx)
+		loginFile = &file
+	}
+	out := logs.Catalog{Files: []logs.File{}, Warnings: []string{}}
+	if s.Logs != nil {
+		var err error
+		out, err = s.Logs.List(ctx)
+		if err != nil {
+			if s.LoginLog == nil {
+				fail(c, 503, err.Error())
+				return
+			}
+			out = logs.Catalog{Files: []logs.File{}, Warnings: []string{err.Error()}}
+		}
+	} else {
+		out.Warnings = append(out.Warnings, "系统日志读取未配置")
+	}
+	if loginFile != nil {
+		file := *loginFile
+		// The local file remains built-in even if it was previously registered
+		// or happens to reside in a helper-discovered directory.
+		files := out.Files[:0]
+		for _, existing := range out.Files {
+			if existing.Path != file.Path {
+				files = append(files, existing)
+			}
+		}
+		out.Files = append(files, file)
+		if file.Error != "" {
+			out.Warnings = append(out.Warnings, file.Error)
+		}
 	}
 	if s.CustomLogsError != "" {
 		out.Warnings = append(out.Warnings, s.CustomLogsError)
 	}
 	if s.CustomLogs != nil {
 		for _, path := range s.CustomLogs.Paths() {
+			if s.isLoginLog(path) {
+				continue
+			}
 			file, err := s.logFileInfo(ctx, path)
 			file.Custom = true
 			if err != nil {
@@ -68,6 +102,9 @@ func (s *Server) logFileInfo(ctx context.Context, path string) (logs.File, error
 	file := logs.File{Path: path}
 	if err := ctx.Err(); err != nil {
 		return file, err
+	}
+	if s.Logs == nil {
+		return file, errors.New("系统日志读取未配置")
 	}
 	out, err := s.Logs.Read(ctx, logs.Request{Path: path, Mode: "stat"})
 	if err != nil {
@@ -97,6 +134,10 @@ func (s *Server) logAdd(c *gin.Context) {
 	path, err := customLogPath(c)
 	if err != nil {
 		fail(c, 400, err.Error())
+		return
+	}
+	if s.isLoginLog(path) {
+		fail(c, 400, "登录日志是内置日志，无需添加")
 		return
 	}
 	if s.CustomLogs == nil || s.Logs == nil {
@@ -155,15 +196,18 @@ func (s *Server) logRead(c *gin.Context) {
 		fail(c, 400, "日志请求无效")
 		return
 	}
-	if err := logs.Validate(req); err != nil {
-		fail(c, 400, err.Error())
-		return
+	local := s.isLoginLog(req.Path)
+	if !local {
+		if err := logs.Validate(req); err != nil {
+			fail(c, 400, err.Error())
+			return
+		}
+		if !logs.BuiltinPath(req.Path) && !s.CustomLogs.Contains(req.Path) {
+			fail(c, 400, "请先添加此自定义日志文件")
+			return
+		}
 	}
-	if !logs.BuiltinPath(req.Path) && !s.CustomLogs.Contains(req.Path) {
-		fail(c, 400, "请先添加此自定义日志文件")
-		return
-	}
-	if s.Logs == nil {
+	if !local && s.Logs == nil {
 		fail(c, 503, "日志读取未配置")
 		return
 	}
@@ -173,7 +217,13 @@ func (s *Server) logRead(c *gin.Context) {
 	defer func() { <-s.logReads }()
 	ctx, cancel := context.WithTimeout(c.Request.Context(), logs.Timeout)
 	defer cancel()
-	out, err := s.Logs.Read(ctx, req)
+	var out logs.Window
+	var err error
+	if local {
+		out, err = s.LoginLog.Read(ctx, req)
+	} else {
+		out, err = s.Logs.Read(ctx, req)
+	}
 	if err != nil {
 		status := 503
 		if errors.Is(err, logs.ErrInvalid) {

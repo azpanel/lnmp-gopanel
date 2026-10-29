@@ -91,6 +91,10 @@ func run() error {
 	go manager.Run(ctx)
 	app := server.New(c, collector, manager, web.Assets())
 	app.Account = account
+	app.LoginLog, err = logs.OpenLoginLog(c.Logs.StateDir)
+	if err != nil {
+		slog.Warn("登录日志初始化失败", "error", err)
+	}
 	app.CustomLogs, err = logs.OpenRegistry(c.Logs.StateDir)
 	if err != nil {
 		app.CustomLogsError = "自定义日志列表不可用，请检查状态目录及文件"

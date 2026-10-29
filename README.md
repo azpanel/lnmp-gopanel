@@ -9,7 +9,7 @@
 - 显示服务已安装版本，异步查询官方最新稳定版本及 changelog。
 - Docker 只读概览：运行中容器的基础信息、可写层与虚拟大小，以及镜像、容器、数据卷和构建缓存的空间占用。
 - 定时任务只读查看 root crontab，展示执行周期、命令和原文，支持刷新。
-- 日志读取支持网站、MariaDB 慢查询及 PHP 错误日志，按需加载大文件、实时追踪和多条关键词／正则筛选。
+- 日志读取支持登录日志、网站、MariaDB 慢查询及 PHP 错误日志，按需加载大文件、实时追踪和多条关键词／正则筛选。
 - 单管理员、bcrypt 密码、TOTP 双重验证、内存 Session、CSRF 校验；独立特权辅助程序和精确 sudoers 规则。
 - 中文、默认亮色、深浅主题切换、移动端导航。登录页、工作区及通知使用一致的主题。主题偏好及每个日志文件的筛选规则写入 localStorage，日志内容不保存到浏览器持久存储。
 - 登录页每 5 秒同步轮换标语和资源趋势、服务状态、磁盘空间、网络吞吐、日志速览五组演示，支持圆点切换和暂停。演示使用本地示例数据，手机端只展示标语；悬停、焦点进入展示区或页面进入后台时临时暂停，系统启用减少动态效果时默认暂停并关闭过渡。
@@ -228,11 +228,11 @@ sudo systemctl start lnmp-gopanel
 
 命令使用与面板相同的独占文件锁，运行中的面板会阻止离线修改。自定义部署以状态目录所属的服务账号执行，指定实际配置文件路径。此命令用于验证器丢失，不重置忘记的登录密码。
 
-账户安全端到端测试使用独立实例，避免修改凭据及真实登录限流影响其他测试。构建面板后，在 `web/` 执行 `npm run test:e2e:account`；原有浏览器测试继续使用 `npm run test:e2e`。
+账户安全和登录日志端到端测试使用独立实例，避免修改凭据及真实登录限流影响其他测试。构建面板后，在 `web/` 分别执行 `npm run test:e2e:account` 和 `npm run test:e2e:login-logs`；原有浏览器测试继续使用 `npm run test:e2e`。
 
 账户安全接口均位于 `/api/v1`。`GET /auth/security` 只返回 TOTP 状态、剩余恢复码数和密码规则；`POST /auth/password` 接收 `current_password`、`new_password`，启用 TOTP 后再提供 `code` 或 `recovery_code`，成功返回 204 并撤销会话。`POST /auth/totp/setup` 接收 `current_password`，返回 `setup_id`、`secret`、本地二维码 `qr_code` 和 `expires_at`；`POST /auth/totp/confirm` 接收 `setup_id`、`code`，确认启用；`DELETE /auth/totp/setup` 取消未完成的绑定。`DELETE /auth/totp` 和 `POST /auth/totp/recovery-codes` 接收当前密码及二次验证凭据。启用、关闭和重新生成响应包含更新后的 `session`，生成恢复码时额外返回仅此一次的 `recovery_codes`。这些接口需要有效会话，写操作要求 CSRF 和同源校验，参数错误返回 400，重新确认身份失败返回 403，状态过期或冲突返回 409，存储错误返回 503。
 
-`POST /auth/login` 未开启 TOTP 时保留原有响应；开启时返回 `totp_required`、`challenge_token`、`expires_in`，不签发 Cookie。随后向 `POST /auth/login/totp` 发送 `challenge_token` 及 `code` 或 `recovery_code` 完成登录。登录两步无需已有会话及 CSRF，但均校验来源并限流。密码、TOTP 密钥、二维码、验证码和恢复码不会写入日志或浏览器持久存储。
+`POST /auth/login` 未开启 TOTP 时保留原有响应；开启时返回 `totp_required`、`challenge_token`、`expires_in`，不签发 Cookie。随后向 `POST /auth/login/totp` 发送 `challenge_token` 及 `code` 或 `recovery_code` 完成登录。登录两步无需已有会话及 CSRF，但均校验来源并限流。仅密码校验失败时，原始输入的密码会写入专用登录日志；成功验证的密码、TOTP 密钥、二维码、验证码和恢复码不会写入日志，认证凭据不写入浏览器持久存储。
 
 ## API
 
@@ -408,6 +408,10 @@ screenshots:
 ### 日志读取
 
 左侧“日志读取”页面自动列出 `/home/wwwlogs`、`/usr/local/nginx/logs/gopanel` 直属目录中的 `.log` 普通文件，以及 `/var/log/mysql/mariadb-slow.log`、`/usr/local/php/var/log/php_errors.log`。在“日志内容”卡片顶部选择日志，卡片显示路径、大小和修改时间；不递归发现子目录，不自动列出轮转归档，不跟随符号链接，不提供编辑、清空和下载功能。文件不存在不影响安装。
+
+文件列表还会自动列出“登录日志”，实际文件为 `logs.state_dir/login.log`（标准安装为 `/var/lib/lnmp-gopanel/login.log`），不可从列表移除。每行是一个 JSON 对象，包含带时区的时间 `time`、客户端 IP `ip`、User-Agent `ua`、用户名 `username`、结果 `result`（`success` / `failure`）、阶段 `stage`（`password` / `totp`）及原因 `reason`。成功与失败均记录；仅在密码校验失败时额外保存原始输入的 `password`（包括空密码），用户名错误但密码正确、二步验证失败和成功登录均不保存密码，验证码、恢复码及挑战令牌也不会写入。启用二步验证后，完成验证并创建会话才记录成功，进入待验证状态不记为成功。二步验证事件使用当前唯一管理员用户名；参数无效、限流及认证存储错误仅记录可获得的元信息，无法取得的用户名为空，请求来源校验拒绝不写入此文件。IP 沿用直接连接地址，不信任未经配置的代理请求头。
+
+登录日志由面板账号直接读写，目录权限为 `0700`、文件为 `0600`，拒绝符号链接、硬链接和特殊文件。页面复用原文、筛选、历史加载和实时追踪；文件元数据可包含 `name` 显示名称。仅这一指定文件由专用入口读取，其他状态文件仍禁止读取，不增加 sudo 授权。系统日志辅助程序不可用时仍可读取登录日志，并显示其他日志的读取错误。初始化或写入失败会提示错误，不改变认证结果；重启保留记录，本功能不自动轮转日志。
 
 点击“添加日志”，输入服务器上已有普通文本日志的绝对路径，例如 `/var/log/syslog`、`/opt/app/logs/server.log`；不要求 `.log` 扩展名，也可显式添加轮转后的普通文本文件。添加前由辅助程序检查文件，成功后自动选中读取。最多保存 64 个自定义路径，刷新、重新登录和面板重启后保留；文件暂时消失或不可读时保留条目并显示错误。“移除日志”只移除自定义列表条目，不删除或修改原文件，内置日志不能移除。
 

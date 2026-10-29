@@ -35,6 +35,7 @@ type Server struct {
 	Services        *control.Manager
 	Components      *components.Manager
 	Docker          *docker.Manager
+	LoginLog        *logs.LoginLog
 	Logs            logs.Reader
 	CustomLogs      *logs.Registry
 	CustomLogsError string
@@ -356,6 +357,8 @@ func (s *Server) cookie(c *gin.Context, id string, age int) {
 func (s *Server) login(c *gin.Context) {
 	s.authMu.Lock()
 	defer s.authMu.Unlock()
+	event := logs.LoginEvent{Stage: "password"}
+	defer s.auditLoginFailure(c, &event)
 	if !s.limiter.Allow() {
 		c.Header("Retry-After", "60")
 		fail(c, 429, "尝试次数过多，请稍后再试")
@@ -369,12 +372,17 @@ func (s *Server) login(c *gin.Context) {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || len(req.Password) > 72 || len(req.Username) > 128 {
+	err := c.ShouldBindJSON(&req)
+	event.Username = req.Username
+	if err != nil || len(req.Password) > 72 || len(req.Username) > 128 {
 		fail(c, 400, "登录参数无效")
 		return
 	}
 	// Verify the password even for an incorrect username to avoid a timing oracle.
 	challenge, err := s.account().StartLogin(req.Password)
+	if errors.Is(err, auth.ErrProof) {
+		event.Password = &req.Password
+	}
 	if !auth.Equal(req.Username, s.Config.Username) || errors.Is(err, auth.ErrProof) {
 		fail(c, 401, "用户名或密码错误")
 		return
@@ -396,6 +404,11 @@ func (s *Server) loginSession(c *gin.Context) {
 	id, v := s.Sessions.Create()
 	s.cookie(c, id, int(auth.TTL.Seconds()))
 	c.JSON(200, gin.H{"username": s.Config.Username, "csrf_token": v.CSRF, "expires_at": v.Expires})
+	stage := "password"
+	if c.Request.URL.Path == "/api/v1/auth/login/totp" {
+		stage = "totp"
+	}
+	s.writeLoginEvent(c, logs.LoginEvent{Username: s.Config.Username, Stage: stage, Result: "success", Reason: "authenticated"})
 	slog.Info("administrator logged in")
 }
 func (s *Server) action(c *gin.Context) {

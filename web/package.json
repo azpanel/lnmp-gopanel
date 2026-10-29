@@ -9,9 +9,10 @@
     "test": "vitest run src",
     "preview": "vite preview --host 127.0.0.1",
     "test:e2e": "playwright test",
-    "format": "prettier --write src vite.config.ts playwright.config.ts playwright.account.config.ts e2e scripts public index.html",
-    "format:check": "prettier --check src vite.config.ts playwright.config.ts playwright.account.config.ts e2e scripts public index.html",
-    "test:e2e:account": "playwright test --config playwright.account.config.ts"
+    "format": "prettier --write src vite.config.ts playwright.config.ts playwright.account.config.ts playwright.login-logs.config.ts e2e scripts public index.html",
+    "format:check": "prettier --check src vite.config.ts playwright.config.ts playwright.account.config.ts playwright.login-logs.config.ts e2e scripts public index.html",
+    "test:e2e:account": "playwright test --config playwright.account.config.ts",
+    "test:e2e:login-logs": "playwright test --config playwright.login-logs.config.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.0",

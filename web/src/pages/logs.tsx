@@ -289,7 +289,7 @@ export function Logs() {
                 )}
                 {files.map((file) => (
                   <SelectItem key={file.path} value={file.path}>
-                    {file.path}
+                    {file.name ? `${file.name}（${file.path}）` : file.path}
                     {!file.available ? "（不可读取）" : ""}
                   </SelectItem>
                 ))}

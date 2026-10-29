@@ -6,6 +6,7 @@ export type LogRule = {
   enabled: boolean;
 };
 export type LogFile = {
+  name?: string;
   path: string;
   size: number;
   modified: string;

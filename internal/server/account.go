@@ -10,6 +10,7 @@ import (
 	"log/slog"
 
 	"github.com/azpanel/lnmp-gopanel/internal/auth"
+	"github.com/azpanel/lnmp-gopanel/internal/logs"
 	"github.com/gin-gonic/gin"
 	"github.com/pquerna/otp"
 )
@@ -73,6 +74,8 @@ func (s *Server) limited(c *gin.Context, l *auth.Limiter) bool {
 func (s *Server) loginTOTP(c *gin.Context) {
 	s.authMu.Lock()
 	defer s.authMu.Unlock()
+	event := logs.LoginEvent{Username: s.Config.Username, Stage: "totp"}
+	defer s.auditLoginFailure(c, &event)
 	if s.limited(c, &s.limiter) {
 		return
 	}

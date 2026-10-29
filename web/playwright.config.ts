@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
-  testIgnore: "account-security.spec.ts",
+  testIgnore: ["account-security.spec.ts", "login-logs.spec.ts"],
   fullyParallel: false,
   workers: 1,
   timeout: 30000,
