@@ -1,3 +1,4 @@
+export type BuildInfo = { version: string; built_at: string };
 export type Memory = { used: number; total: number; percent: number };
 export type Rates = { read: number; write: number };
 export type Disk = {

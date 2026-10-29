@@ -66,6 +66,7 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             build_version="$GITHUB_REF_NAME"
           fi
+          export BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           for arch in amd64 arm64; do
             bash scripts/package.sh "$arch" "$build_version"
           done

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/auth"
+	"github.com/azpanel/lnmp-gopanel/internal/buildinfo"
 	"github.com/azpanel/lnmp-gopanel/internal/components"
 	"github.com/azpanel/lnmp-gopanel/internal/config"
 	"github.com/azpanel/lnmp-gopanel/internal/control"
@@ -86,6 +87,7 @@ func (s *Server) Handler() http.Handler {
 	api.POST("/auth/login", s.origin, s.login)
 	private := api.Group("")
 	private.Use(s.requireAuth)
+	private.GET("/build", func(c *gin.Context) { c.JSON(200, buildinfo.Current()) })
 	private.GET("/auth/session", func(c *gin.Context) {
 		v, _ := s.session(c)
 		c.JSON(200, gin.H{"username": s.Config.Username, "csrf_token": v.CSRF, "expires_at": v.Expires})

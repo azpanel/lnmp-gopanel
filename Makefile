@@ -1,8 +1,12 @@
 .PHONY: build web test check dev clean
 
+VERSION ?= dev-$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+BUILD_TIME ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+BUILD_LDFLAGS := -s -w -X github.com/azpanel/lnmp-gopanel/internal/buildinfo.Version=$(VERSION) -X github.com/azpanel/lnmp-gopanel/internal/buildinfo.BuiltAt=$(BUILD_TIME)
+
 build: web
 	mkdir -p bin
-	CGO_ENABLED=0 go build -trimpath -tags embed -ldflags='-s -w' -o bin/lnmp-gopanel ./cmd/panel
+	CGO_ENABLED=0 go build -trimpath -tags embed -ldflags='$(BUILD_LDFLAGS)' -o bin/lnmp-gopanel ./cmd/panel
 	CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o bin/lnmp-gopanel-control ./cmd/control
 
 web:

@@ -9,9 +9,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
-  ArrowUpRight,
   ChevronRight,
-  CircleHelp,
   Clock3,
   Container,
   LayoutDashboard,
@@ -44,7 +42,8 @@ import { Docker } from "@/pages/docker";
 import { Cron } from "@/pages/cron";
 import { Logs } from "@/pages/logs";
 import { api, fetchSession, logout } from "@/lib/api";
-import type { Host, Service, Session } from "@/lib/types";
+import type { BuildInfo, Host, Service, Session } from "@/lib/types";
+import { formatBuildTime } from "@/lib/build-info";
 import { useMonitor } from "@/lib/use-monitor";
 import { cn } from "@/lib/utils";
 
@@ -151,6 +150,19 @@ function Workspace({
     return () => media.removeEventListener("change", change);
   }, []);
   const sidebarVisible = mobileViewport ? mobileOpen : !sidebarHidden;
+  const build = useQuery({
+    queryKey: ["build"],
+    queryFn: () => api<BuildInfo>("/build"),
+    staleTime: Infinity,
+    retry: 1,
+  });
+  const buildVersion =
+    build.data?.version || (build.isError ? "暂不可用" : "读取中…");
+  const buildTime = build.data
+    ? formatBuildTime(build.data.built_at)
+    : build.isError
+      ? "暂不可用"
+      : "读取中…";
   const host = useQuery({
     queryKey: ["host"],
     queryFn: () => api<Host>("/host"),
@@ -234,7 +246,6 @@ function Workspace({
             </span>
           </div>
         </div>
-        <div className="nav-group-title">工作空间</div>
         <nav>
           {[
             { to: "/", label: "系统概览", icon: LayoutDashboard },
@@ -270,16 +281,16 @@ function Workspace({
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <a
-            className="nav-item help-link"
-            href="https://lnmp.org/faq.html"
-            target="_blank"
-            rel="noreferrer"
-          >
-            <CircleHelp size={17} />
-            <span>LNMP 文档</span>
-            <ArrowUpRight size={14} />
-          </a>
+          <dl className="sidebar-build" aria-label="构建信息">
+            <div>
+              <dt>版本</dt>
+              <dd className="build-version">{buildVersion}</dd>
+            </div>
+            <div>
+              <dt>构建时间</dt>
+              <dd className="build-time">{buildTime}</dd>
+            </div>
+          </dl>
           <div className="sidebar-profile">
             <div className="avatar">
               {session.username.slice(0, 1).toUpperCase()}
@@ -407,7 +418,7 @@ function Workspace({
         </main>
         <footer className="main-footer">
           <span>
-            LNMP GoPanel <span className="version">v0.1.0</span>
+            LNMP GoPanel <span className="version">{buildVersion}</span>
           </span>
           <span>
             <ShieldCheck size={13} />
