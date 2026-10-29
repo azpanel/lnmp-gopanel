@@ -437,41 +437,77 @@ export function useWebsiteScreenshots(enabled: boolean) {
                     onChange={(e) => setURL(e.target.value)}
                   />
                 </div>
-                <div className="form-field">
-                  <ScreenshotFieldLabel
-                    htmlFor="screenshot-resolution"
-                    help="设置浏览器视口大小，手机和平板尺寸不切换浏览器身份。"
-                  >
-                    截图分辨率
-                  </ScreenshotFieldLabel>
-                  <Select
-                    value={resolution}
-                    disabled={busy}
-                    onValueChange={(value) => {
-                      setResolution(value);
-                      const preset = resolutions.find((r) => r.value === value);
-                      if (preset) {
-                        setViewportWidth(String(preset.width));
-                        setViewportHeight(String(preset.height));
-                      }
-                    }}
-                  >
-                    <SelectTrigger
-                      id="screenshot-resolution"
-                      className="w-full"
-                      aria-describedby="screenshot-resolution-help"
+                <div className="screenshot-settings-row">
+                  <div className="form-field">
+                    <ScreenshotFieldLabel
+                      htmlFor="screenshot-resolution"
+                      help="设置浏览器视口大小，手机和平板尺寸不切换浏览器身份。"
                     >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {resolutions.map((preset) => (
-                        <SelectItem key={preset.value} value={preset.value}>
-                          {preset.label}
-                        </SelectItem>
-                      ))}
-                      <SelectItem value="custom">自定义</SelectItem>
-                    </SelectContent>
-                  </Select>
+                      截图分辨率
+                    </ScreenshotFieldLabel>
+                    <Select
+                      value={resolution}
+                      disabled={busy}
+                      onValueChange={(value) => {
+                        setResolution(value);
+                        const preset = resolutions.find(
+                          (r) => r.value === value,
+                        );
+                        if (preset) {
+                          setViewportWidth(String(preset.width));
+                          setViewportHeight(String(preset.height));
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        id="screenshot-resolution"
+                        className="w-full"
+                        aria-describedby="screenshot-resolution-help"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {resolutions.map((preset) => (
+                          <SelectItem key={preset.value} value={preset.value}>
+                            {preset.label}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="custom">自定义</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="form-field">
+                    <ScreenshotFieldLabel
+                      htmlFor="screenshot-zoom"
+                      help="缩小比例可显示更多内容，输出图片尺寸保持所选分辨率。"
+                    >
+                      网页缩放
+                    </ScreenshotFieldLabel>
+                    <Select
+                      value={zoomPreset}
+                      disabled={busy}
+                      onValueChange={(value) => {
+                        setZoomPreset(value);
+                        if (value !== "custom") setZoomPercent(value);
+                      }}
+                    >
+                      <SelectTrigger
+                        id="screenshot-zoom"
+                        className="w-full"
+                        aria-describedby="screenshot-zoom-help"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {zoomPresets.map((percent) => (
+                          <SelectItem key={percent} value={String(percent)}>
+                            {percent}%{percent === 100 ? "（默认）" : ""}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="custom">自定义</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 {resolution === "custom" && (
                   <div className="screenshot-dimensions">
@@ -505,38 +541,6 @@ export function useWebsiteScreenshots(enabled: boolean) {
                     </div>
                   </div>
                 )}
-                <div className="form-field">
-                  <ScreenshotFieldLabel
-                    htmlFor="screenshot-zoom"
-                    help="缩小比例可显示更多内容，输出图片尺寸保持所选分辨率。"
-                  >
-                    网页缩放
-                  </ScreenshotFieldLabel>
-                  <Select
-                    value={zoomPreset}
-                    disabled={busy}
-                    onValueChange={(value) => {
-                      setZoomPreset(value);
-                      if (value !== "custom") setZoomPercent(value);
-                    }}
-                  >
-                    <SelectTrigger
-                      id="screenshot-zoom"
-                      className="w-full"
-                      aria-describedby="screenshot-zoom-help"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {zoomPresets.map((percent) => (
-                        <SelectItem key={percent} value={String(percent)}>
-                          {percent}%{percent === 100 ? "（默认）" : ""}
-                        </SelectItem>
-                      ))}
-                      <SelectItem value="custom">自定义</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
                 {zoomPreset === "custom" && (
                   <div className="form-field">
                     <Label htmlFor="screenshot-zoom-percent">
@@ -555,42 +559,44 @@ export function useWebsiteScreenshots(enabled: boolean) {
                     />
                   </div>
                 )}
-                <div className="form-field">
-                  <ScreenshotFieldLabel
-                    htmlFor="screenshot-language"
-                    help="例如 zh-CN（简体中文）、en-US（英语），用于网站语言及日期、数字格式。"
-                  >
-                    浏览器语言
-                  </ScreenshotFieldLabel>
-                  <Input
-                    id="screenshot-language"
-                    required
-                    maxLength={64}
-                    pattern="[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*"
-                    placeholder="zh-CN"
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value)}
-                    aria-describedby="screenshot-language-help"
-                  />
-                </div>
-                <div className="form-field">
-                  <ScreenshotFieldLabel
-                    htmlFor="screenshot-timeout"
-                    help="默认 30 秒，可设为 5–300 秒。等待 CSS、图片和字体等资源加载稳定后截图；加载较慢时可适当增加，超时保留上次成功截图。"
-                  >
-                    最长加载时间（秒）
-                  </ScreenshotFieldLabel>
-                  <Input
-                    id="screenshot-timeout"
-                    type="number"
-                    required
-                    min={5}
-                    max={300}
-                    step={1}
-                    value={loadTimeoutSeconds}
-                    onChange={(e) => setLoadTimeoutSeconds(e.target.value)}
-                    aria-describedby="screenshot-timeout-help"
-                  />
+                <div className="screenshot-settings-row">
+                  <div className="form-field">
+                    <ScreenshotFieldLabel
+                      htmlFor="screenshot-language"
+                      help="例如 zh-CN（简体中文）、en-US（英语），用于网站语言及日期、数字格式。"
+                    >
+                      浏览器语言
+                    </ScreenshotFieldLabel>
+                    <Input
+                      id="screenshot-language"
+                      required
+                      maxLength={64}
+                      pattern="[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*"
+                      placeholder="zh-CN"
+                      value={language}
+                      onChange={(e) => setLanguage(e.target.value)}
+                      aria-describedby="screenshot-language-help"
+                    />
+                  </div>
+                  <div className="form-field">
+                    <ScreenshotFieldLabel
+                      htmlFor="screenshot-timeout"
+                      help="默认 30 秒，可设为 5–300 秒。等待 CSS、图片和字体等资源加载稳定后截图；加载较慢时可适当增加，超时保留上次成功截图。"
+                    >
+                      最长加载时间（秒）
+                    </ScreenshotFieldLabel>
+                    <Input
+                      id="screenshot-timeout"
+                      type="number"
+                      required
+                      min={5}
+                      max={300}
+                      step={1}
+                      value={loadTimeoutSeconds}
+                      onChange={(e) => setLoadTimeoutSeconds(e.target.value)}
+                      aria-describedby="screenshot-timeout-help"
+                    />
+                  </div>
                 </div>
                 <div className="form-field">
                   <ScreenshotFieldLabel
@@ -602,7 +608,7 @@ export function useWebsiteScreenshots(enabled: boolean) {
                   <textarea
                     id="screenshot-javascript"
                     className="screenshot-script"
-                    rows={6}
+                    rows={3}
                     maxLength={16384}
                     spellCheck={false}
                     autoCapitalize="off"

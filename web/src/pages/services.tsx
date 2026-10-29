@@ -197,7 +197,6 @@ export function Services({
                   版本读取失败：{service.version_error}
                 </p>
               )}
-              {service.name === "nginx" && <NginxBuildInfo service={service} />}
               <div className="service-message">
                 <span
                   className={
@@ -214,7 +213,7 @@ export function Services({
                 </span>
                 {service.message || "等待状态更新"}
               </div>
-              {service.actions.length > 0 && (
+              {(service.actions.length > 0 || service.name === "nginx") && (
                 <div className="service-actions">
                   {service.actions.map((action) => {
                     const item = actions[action as Action];
@@ -244,6 +243,9 @@ export function Services({
                       </Button>
                     );
                   })}
+                  {service.name === "nginx" && (
+                    <NginxBuildInfo service={service} />
+                  )}
                 </div>
               )}
               {service.name === "nginx" && service.state === "unmanaged" && (

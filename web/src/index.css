@@ -933,7 +933,7 @@ a {
   line-height: 1.8;
 }
 .nginx-build-trigger {
-  margin-top: 12px;
+  margin-left: auto;
 }
 .nginx-build-dialog {
   width: min(850px, calc(100vw - 2rem));
@@ -2539,15 +2539,19 @@ a {
 .screenshot-field-label {
   min-height: 28px;
 }
+.screenshot-settings-row,
 .screenshot-dimensions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
+.screenshot-settings-row > .form-field {
+  min-width: 0;
+  justify-content: space-between;
+}
 .screenshot-script {
   display: block;
   width: 100%;
-  min-height: 130px;
   resize: vertical;
   border: 1px solid var(--border);
   border-radius: 6px;
