@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DiskTable, Meter } from "./dashboard";
 import type { Host, Snapshot } from "@/lib/types";
 import { bytes, uptime } from "@/lib/format";
+import { hostBrands } from "@/lib/host-brands";
 
 export function System({
   host,
@@ -23,16 +24,35 @@ export function System({
   snapshot?: Snapshot;
   error?: string;
 }) {
+  const brands = hostBrands(host);
   const fields = [
     { label: "主机名称", value: host?.hostname, icon: Server },
     {
       label: "操作系统",
-      value: host ? `${host.platform} ${host.version}` : undefined,
+      value: host
+        ? [host.platform.trim(), host.version.trim()].filter(Boolean).join(" ")
+        : undefined,
       icon: Monitor,
+      brand: brands.platform,
     },
-    { label: "内核版本", value: host?.kernel, icon: Settings2 },
-    { label: "系统架构", value: host?.arch, icon: CircuitBoard },
-    { label: "CPU 型号", value: host?.cpu_model, icon: Cpu },
+    {
+      label: "内核版本",
+      value: host?.kernel,
+      icon: Settings2,
+      brand: brands.kernel,
+    },
+    {
+      label: "系统架构",
+      value: host?.arch,
+      icon: CircuitBoard,
+      brand: brands.arch,
+    },
+    {
+      label: "CPU 型号",
+      value: host?.cpu_model,
+      icon: Cpu,
+      brand: brands.cpu_model,
+    },
     {
       label: "逻辑核心",
       value: host?.cores ? `${host.cores} 核心` : undefined,
@@ -60,13 +80,29 @@ export function System({
           </CardHeader>
           <CardContent>
             <dl className="host-fields">
-              {fields.map(({ label, value, icon: Icon }) => (
+              {fields.map(({ label, value, icon: Icon, brand }) => (
                 <div key={label}>
                   <dt>
                     <Icon size={15} aria-hidden="true" />
                     {label}
                   </dt>
-                  <dd>{value || "—"}</dd>
+                  <dd>
+                    {brand && value?.trim() && (
+                      <img
+                        key={brand}
+                        className="host-brand-icon"
+                        src={`/brands/${brand}.svg`}
+                        alt=""
+                        aria-hidden="true"
+                        width={24}
+                        height={24}
+                        onError={(event) => {
+                          event.currentTarget.style.display = "none";
+                        }}
+                      />
+                    )}
+                    <span>{value?.trim() || "—"}</span>
+                  </dd>
                 </div>
               ))}
             </dl>

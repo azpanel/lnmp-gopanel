@@ -997,8 +997,24 @@ a {
   flex-shrink: 0;
 }
 .host-fields dd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   overflow-wrap: anywhere;
   font-family: var(--font-mono);
+}
+.host-fields dd > span {
+  min-width: 0;
+}
+.host-brand-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 3px;
+  border-radius: 4px;
+  background: #fff;
+  object-fit: contain;
 }
 .system-right {
   display: flex;
