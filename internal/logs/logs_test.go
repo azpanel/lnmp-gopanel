@@ -154,8 +154,36 @@ func TestSparseFileBoundedRead(t *testing.T) {
 		t.Fatal("failed sparse tail")
 	}
 	from, _ := strconv.ParseInt(out.From, 10, 64)
-	if size-from > BatchBytes {
+	if size-from > TailBytes {
 		t.Fatal("unbounded window")
+	}
+}
+
+func TestTailWindowKeepsLargerHistoryAndIncrementalBatches(t *testing.T) {
+	line := strings.Repeat("x", 127) + "\n"
+	f := fixture(t, strings.Repeat(line, int(BatchBytes)*2/len(line)))
+	tail := read(t, f, Request{Mode: "tail"})
+	from, _ := strconv.ParseInt(tail.From, 10, 64)
+	to, _ := strconv.ParseInt(tail.To, 10, 64)
+	if to-from != TailBytes || !tail.HasBefore || tail.HasAfter {
+		t.Fatalf("tail should read 64 KiB: %s..%s", tail.From, tail.To)
+	}
+	history := read(t, f, Request{Mode: "before", Start: tail.Start})
+	historyFrom, _ := strconv.ParseInt(history.From, 10, 64)
+	if history.To != tail.From || from-historyFrom != BatchBytes {
+		t.Fatalf("history should read 256 KiB without a gap: %s..%s", history.From, history.To)
+	}
+	replayed := read(t, f, Request{Mode: "range", Start: history.Start, End: history.End})
+	if replayed.From != history.From || replayed.To != history.To || len(replayed.Lines) != len(history.Lines) {
+		t.Fatal("refiltering changed the history window")
+	}
+	if _, err := f.WriteString(strings.Repeat(line, int(BatchBytes)*2/len(line))); err != nil {
+		t.Fatal(err)
+	}
+	next := read(t, f, Request{Mode: "after", End: tail.End})
+	nextTo, _ := strconv.ParseInt(next.To, 10, 64)
+	if next.From != tail.To || nextTo-to != BatchBytes || !next.HasAfter {
+		t.Fatalf("incremental reads should retain 256 KiB: %s..%s", next.From, next.To)
 	}
 }
 func TestRotationTruncationAndInvalidCursors(t *testing.T) {

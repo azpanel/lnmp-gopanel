@@ -48,6 +48,7 @@ import { bytes } from "@/lib/format";
 import { loadLogRules, logLines, validateLogRules } from "@/lib/logs";
 import type { LogCatalog, LogFile, LogRule } from "@/lib/logs";
 import { useLogReader } from "@/lib/use-log-reader";
+import { recordLogRender } from "@/lib/log-performance";
 import { parseLoginLog } from "@/lib/login-log";
 import {
   httpStatusGroups,
@@ -171,6 +172,7 @@ export function Logs() {
     setStatusFilters([]);
   }, [path]);
   const lines = useMemo(() => logLines(reader.pages), [reader.pages]);
+  useEffect(() => recordLogRender(reader.pages), [reader.pages]);
   const login = file?.format === "login";
   const nginx = !login && isNginxLog(path);
   const formatted = table && (nginx || login);

@@ -80,6 +80,10 @@ test("access log table filters loaded rows, combines rules and resets per file",
             ),
         );
     return route.fulfill({
+      headers: {
+        "X-Log-Request-ID": "log-timing-test",
+        "Server-Timing": "read;dur=2.000, geo;dur=1.000",
+      },
       json: {
         lines,
         from: after ? "6000" : "0",
@@ -102,6 +106,24 @@ test("access log table filters loaded rows, combines rules and resets per file",
   await page.getByRole("button", { name: "登录面板" }).click();
   await expect(page.locator(".log-line")).toHaveCount(6);
   await page.getByRole("button", { name: "暂停追踪" }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const entries = performance.getEntriesByName(
+          "log-read",
+          "measure",
+        ) as PerformanceMeasure[];
+        return entries.some(
+          (entry) =>
+            entry.detail.requestId === "log-timing-test" &&
+            entry.detail.mode === "tail" &&
+            entry.detail.renderMs >= 0 &&
+            entry.detail.totalMs >= entry.detail.renderMs &&
+            entry.detail.serverTiming.includes("read;dur=2.000"),
+        );
+      }),
+    )
+    .toBe(true);
   const initialReads = reads;
   const format = page.getByRole("checkbox", { name: "格式化为表格" });
   const follow = page.getByRole("checkbox", { name: "自动滚动" });

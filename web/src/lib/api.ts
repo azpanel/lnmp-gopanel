@@ -11,6 +11,7 @@ export class APIError extends Error {
 export async function api<T>(
   path: string,
   options: RequestInit = {},
+  observeResponse?: (response: Response) => void,
 ): Promise<T> {
   const response = await fetch(`/api/v1${path}`, {
     ...options,
@@ -22,6 +23,7 @@ export async function api<T>(
       ...options.headers,
     },
   });
+  observeResponse?.(response);
   if (!response.ok) {
     if (
       response.status === 401 &&

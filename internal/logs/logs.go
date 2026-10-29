@@ -25,6 +25,7 @@ const (
 	MySQL                  = "/var/log/mysql/mariadb-slow.log"
 	PHP                    = "/usr/local/php/var/log/php_errors.log"
 	BatchBytes       int64 = 256 * 1024
+	TailBytes        int64 = 64 * 1024
 	LineBytes        int64 = 64 * 1024
 	MaxFiles               = 4096
 	Timeout                = 8 * time.Second
@@ -259,7 +260,7 @@ func readFile(ctx context.Context, f *os.File, req Request) (Window, error) {
 		out.From, out.To, out.ReplaceFrom = "0", "0", "0"
 		return out, nil
 	}
-	start, end := max(int64(0), size-BatchBytes), size
+	start, end := max(int64(0), size-TailBytes), size
 	switch req.Mode {
 	case "before":
 		end, err = checkCursor(f, req.Start, identity, size)

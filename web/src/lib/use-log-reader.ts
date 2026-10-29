@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { api, APIError } from "./api";
+import { APIError } from "./api";
+import { readLogWindow } from "./log-performance";
 import { loadLogRules, mergeLogWindow, saveLogRules } from "./logs";
 import type { LogRequest, LogRule, LogWindow } from "./logs";
 
@@ -45,7 +46,7 @@ export function useLogReader(path: string) {
             "规则与游标组成的请求超过 4 KiB，请缩短规则内容或减少规则数量",
           ),
         );
-      return api<LogWindow>("/logs/read", {
+      return readLogWindow(request.mode, {
         method: "POST",
         signal: controller.signal,
         body,

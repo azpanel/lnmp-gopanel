@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/ipgeo"
 	"github.com/azpanel/lnmp-gopanel/internal/logs"
@@ -219,11 +220,15 @@ func (s *Server) logRead(c *gin.Context) {
 	defer cancel()
 	var out logs.Window
 	var err error
+	timing := newLogReadTiming()
+	defer timing.record(c, req.Mode)
+	started := time.Now()
 	if local {
 		out, err = s.LoginLog.Read(ctx, req)
 	} else {
 		out, err = s.Logs.Read(ctx, req)
 	}
+	timing.read = time.Since(started)
 	if err != nil {
 		status := 503
 		if errors.Is(err, logs.ErrInvalid) {
@@ -232,15 +237,18 @@ func (s *Server) logRead(c *gin.Context) {
 		if errors.Is(err, logs.ErrChanged) {
 			status = 409
 		}
+		timing.headers(c)
 		fail(c, status, err.Error())
 		return
 	}
+	started = time.Now()
 	if local {
 		enrichLoginLogLocations(out.Lines)
 	} else {
 		enrichLogLocations(req.Path, out.Lines)
 	}
-	c.JSON(200, out)
+	timing.geo = time.Since(started)
+	writeLogWindow(c, out, timing)
 }
 
 func enrichLogLocations(path string, lines []logs.Line) {

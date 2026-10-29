@@ -32,6 +32,25 @@ test("login log reads real events without the system log helper", async ({
     expect(text).not.toContain('"password":');
     expect(text).not.toContain("Test-Only-Panel-Password-2026");
   }
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (
+          performance.getEntriesByName(
+            "log-read",
+            "measure",
+          ) as PerformanceMeasure[]
+        ).some(
+          ({ detail }) =>
+            detail.mode === "tail" &&
+            detail.requestId &&
+            detail.encodedBytes > 0 &&
+            detail.decodedBytes > detail.encodedBytes &&
+            detail.serverTiming.includes("read;dur="),
+        ),
+      ),
+    )
+    .toBe(true);
 
   const format = page.getByRole("checkbox", { name: "格式化为表格" });
   await expect(format).not.toBeChecked();
