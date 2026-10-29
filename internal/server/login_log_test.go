@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -11,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/azpanel/lnmp-gopanel/internal/auth"
+	"github.com/azpanel/lnmp-gopanel/internal/ipgeo"
 	"github.com/azpanel/lnmp-gopanel/internal/logs"
 	"github.com/pquerna/otp/totp"
 )
@@ -176,7 +179,7 @@ func TestLoginLogEndpointsWithoutHelper(t *testing.T) {
 	cookie, csrf := sessionFrom(t, authRequest(h, "POST", "/auth/login", map[string]string{"username": "admin", "password": "test-password-123"}, nil, ""))
 	w := request(h, "GET", "/api/v1/logs", "", cookie, "", "")
 	var catalog logs.Catalog
-	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &catalog) != nil || len(catalog.Files) != 1 || len(catalog.Warnings) != 1 || catalog.Files[0].Name != "登录日志" || catalog.Files[0].Custom || !catalog.Files[0].Available {
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &catalog) != nil || len(catalog.Files) != 1 || len(catalog.Warnings) != 1 || catalog.Files[0].Name != "登录日志" || catalog.Files[0].Format != "login" || catalog.Files[0].Custom || !catalog.Files[0].Available {
 		t.Fatal("local catalog unavailable", w.Code, w.Body.String())
 	}
 	body, _ := json.Marshal(logs.Request{Path: s.LoginLog.Path(), Mode: "tail", Rules: []logs.Rule{}})
@@ -238,5 +241,50 @@ func TestLoginLogEndpointsWithoutHelper(t *testing.T) {
 	// Existing sessions and origin protection remain the source of access control.
 	if w := request(h, "POST", "/api/v1/logs/read", string(body), cookie, csrf, "https://evil.example"); w.Code != 403 {
 		t.Fatal("origin bypass", w.Code)
+	}
+}
+
+func TestLoginLogLocations(t *testing.T) {
+	s := serverWithLoginLog(t)
+	addresses := []string{"114.114.114.114", "114.114.114.114", "2001:db8::1", "::ffff:114.114.114.114", "invalid-ip", "", "fe80::1%eth0"}
+	for _, ip := range addresses {
+		if err := s.LoginLog.Append(logs.LoginEvent{IP: ip, Result: "success", Username: "admin", Stage: "password", Reason: "authenticated", UA: "test"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f, err := os.OpenFile(s.LoginLog.Path(), os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("broken JSON\n{\"ip\":42}\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.ReadFile(s.LoginLog.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, session := s.Sessions.Create()
+	cookie := &http.Cookie{Name: auth.CookieName, Value: id}
+	body, _ := json.Marshal(logs.Request{Path: s.LoginLog.Path(), Mode: "tail"})
+	w := request(s.Handler(), "POST", "/api/v1/logs/read", string(body), cookie, session.CSRF, "")
+	var window logs.Window
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &window) != nil || len(window.Lines) != len(addresses)+2 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	text := strings.Split(strings.TrimSuffix(string(original), "\n"), "\n")
+	for i, line := range window.Lines {
+		want := ""
+		if i < len(addresses) {
+			want = ipgeo.Lookup(addresses[i])
+		}
+		if line.IPLocation != want || line.Text != text[i] {
+			t.Fatalf("line %d: location=%q, want=%q; original text preserved=%v", i, line.IPLocation, want, line.Text == text[i])
+		}
+	}
+	if after, err := os.ReadFile(s.LoginLog.Path()); err != nil || string(after) != string(original) {
+		t.Fatal("location enrichment rewrote the file", err)
 	}
 }

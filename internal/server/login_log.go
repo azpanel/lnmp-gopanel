@@ -1,11 +1,31 @@
 package server
 
 import (
+	"encoding/json"
 	"log/slog"
 
+	"github.com/azpanel/lnmp-gopanel/internal/ipgeo"
 	"github.com/azpanel/lnmp-gopanel/internal/logs"
 	"github.com/gin-gonic/gin"
 )
+
+func enrichLoginLogLocations(lines []logs.Line) {
+	locations := make(map[string]string)
+	for i := range lines {
+		var event struct {
+			IP string `json:"ip"`
+		}
+		if json.Unmarshal([]byte(lines[i].Text), &event) != nil {
+			continue
+		}
+		location, ok := locations[event.IP]
+		if !ok {
+			location = ipgeo.Lookup(event.IP)
+			locations[event.IP] = location
+		}
+		lines[i].IPLocation = location
+	}
+}
 
 func (s *Server) isLoginLog(path string) bool {
 	return s.LoginLog != nil && s.LoginLog.Path() == path

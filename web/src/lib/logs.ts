@@ -7,6 +7,7 @@ export type LogRule = {
 };
 export type LogFile = {
   name?: string;
+  format?: "login";
   path: string;
   size: number;
   modified: string;

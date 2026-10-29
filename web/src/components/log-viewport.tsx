@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { LogLine } from "@/lib/logs";
 import type { NginxAccessEntry } from "@/lib/nginx-access";
+import { loginLogLabel, type LoginLogEntry } from "@/lib/login-log";
 import { UserAgentIcon } from "@/components/user-agent-icon";
 
 const rowHeight = 30;
@@ -44,6 +45,52 @@ const accessHeaders = [
   "User-Agent",
 ];
 
+const loginHeaders = [
+  "字节偏移",
+  "时间",
+  "客户端 IP",
+  "IP 属地",
+  "用户名",
+  "结果",
+  "验证阶段",
+  "原因",
+  "失败密码",
+  "User-Agent",
+];
+
+function LoginCells({ entry, line }: { entry: LoginLogEntry; line: LogLine }) {
+  return (
+    <>
+      <span role="cell" title={entry.time}>
+        {new Date(entry.time).toLocaleString("zh-CN")}
+      </span>
+      <span role="cell">{entry.ip || "—"}</span>
+      <span role="cell">{line.ip_location || "未知"}</span>
+      <span role="cell">{entry.username || "—"}</span>
+      <span role="cell" className="log-login-result" data-result={entry.result}>
+        {loginLogLabel("result", entry.result)}
+      </span>
+      <span role="cell">{loginLogLabel("stage", entry.stage)}</span>
+      <span role="cell">
+        {loginLogLabel("reason", entry.reason)}
+        {line.truncated && <span className="log-mark"> [已截断]</span>}
+        {line.partial && <span className="log-mark"> [尚未换行]</span>}
+      </span>
+      <span role="cell">
+        {entry.password === undefined
+          ? "—"
+          : entry.password === ""
+            ? "（空密码）"
+            : entry.password}
+      </span>
+      <span role="cell">
+        <UserAgentIcon userAgent={entry.ua} />
+        {entry.ua || "—"}
+      </span>
+    </>
+  );
+}
+
 // Find the row containing a pixel offset in the variable-height layout.
 function rowAt(starts: number[], y: number) {
   let low = 0,
@@ -61,14 +108,18 @@ export function LogViewport({
   follow,
   onFollow,
   accessEntries,
+  loginEntries,
   formatted = false,
 }: {
   lines: LogLine[];
   follow: boolean;
   onFollow: (value: boolean) => void;
   accessEntries?: ReadonlyMap<string, NginxAccessEntry | null>;
+  loginEntries?: ReadonlyMap<string, LoginLogEntry | null>;
   formatted?: boolean;
 }) {
+  const login = loginEntries !== undefined;
+  const headers = login ? loginHeaders : accessHeaders;
   const viewport = useRef<HTMLDivElement>(null);
   const rows = useRef(new Map<string, HTMLDivElement>());
   const measurements = useRef(new Map<string, Measurement>());
@@ -178,7 +229,7 @@ export function LogViewport({
         <div className="log-empty" role={formatted ? "row" : undefined}>
           <div
             role={formatted ? "cell" : undefined}
-            aria-colspan={formatted ? accessHeaders.length : undefined}
+            aria-colspan={formatted ? headers.length : undefined}
           >
             当前范围没有可显示的日志行
           </div>
@@ -187,6 +238,7 @@ export function LogViewport({
         <div className="log-virtual" style={{ height: total }}>
           {lines.slice(first, last).map((line, i) => {
             const entry = accessEntries?.get(line.offset);
+            const loginEntry = loginEntries?.get(line.offset);
             return (
               <div
                 className={`log-line${formatted ? " log-access-row" : ""}`}
@@ -208,7 +260,9 @@ export function LogViewport({
                   {line.offset}
                 </span>
                 {formatted ? (
-                  entry ? (
+                  loginEntry ? (
+                    <LoginCells entry={loginEntry} line={line} />
+                  ) : entry ? (
                     <>
                       <span role="cell">{entry.client}</span>
                       <span role="cell">{line.ip_location || "未知"}</span>
@@ -240,7 +294,7 @@ export function LogViewport({
                     <span
                       className="log-access-unparsed log-text"
                       role="cell"
-                      aria-colspan={accessHeaders.length - 1}
+                      aria-colspan={headers.length - 1}
                     >
                       <span className="log-mark">[无法解析] </span>
                       <LogText line={line} />
@@ -265,14 +319,14 @@ export function LogViewport({
     <div
       className="log-table-scroll"
       tabIndex={0}
-      aria-label="访问日志表格横向滚动"
+      aria-label={login ? "登录日志表格横向滚动" : "访问日志表格横向滚动"}
     >
       <div
-        className="log-access-table"
+        className={`log-access-table${login ? " log-login-table" : ""}`}
         role="table"
-        aria-label="Nginx 访问日志"
+        aria-label={login ? "登录日志" : "Nginx 访问日志"}
         aria-rowcount={lines.length + 1}
-        aria-colcount={accessHeaders.length}
+        aria-colcount={headers.length}
       >
         <div role="rowgroup">
           <div
@@ -281,7 +335,7 @@ export function LogViewport({
             aria-rowindex={1}
             style={{ paddingRight: size.gutter }}
           >
-            {accessHeaders.map((name) => (
+            {headers.map((name) => (
               <span role="columnheader" key={name}>
                 {name}
               </span>

@@ -42,6 +42,7 @@ import { bytes } from "@/lib/format";
 import { loadLogRules, logLines, validateLogRules } from "@/lib/logs";
 import type { LogCatalog, LogFile, LogRule } from "@/lib/logs";
 import { useLogReader } from "@/lib/use-log-reader";
+import { parseLoginLog } from "@/lib/login-log";
 import {
   httpStatusGroups,
   isNginxLog,
@@ -164,8 +165,16 @@ export function Logs() {
     setStatusFilters([]);
   }, [path]);
   const lines = useMemo(() => logLines(reader.pages), [reader.pages]);
-  const nginx = isNginxLog(path);
-  const formatted = table && nginx;
+  const login = file?.format === "login";
+  const nginx = !login && isNginxLog(path);
+  const formatted = table && (nginx || login);
+  const loginEntries = useMemo(
+    () =>
+      login
+        ? new Map(lines.map((line) => [line.offset, parseLoginLog(line.text)]))
+        : undefined,
+    [login, lines],
+  );
   const accessEntries = useMemo(
     () =>
       nginx
@@ -189,12 +198,12 @@ export function Logs() {
   );
   const visibleLines = useMemo(
     () =>
-      formatted
+      formatted && nginx
         ? lines.filter((line) =>
             matchesHTTPStatus(accessEntries?.get(line.offset), statusFilters),
           )
         : lines,
-    [formatted, lines, accessEntries, statusFilters],
+    [formatted, nginx, lines, accessEntries, statusFilters],
   );
   const first = reader.pages[0],
     last = reader.pages.at(-1);
@@ -452,7 +461,7 @@ export function Logs() {
                 />
                 自动滚动
               </label>
-              {isNginxLog(path) && (
+              {(nginx || login) && (
                 <div className="log-format-controls">
                   <label className="log-check">
                     <Checkbox
@@ -472,7 +481,7 @@ export function Logs() {
           <span className="log-reader-status" role="status">
             {status}
           </span>
-          {formatted && (
+          {formatted && nginx && (
             <fieldset className="log-http-filters">
               <legend>HTTP 状态码</legend>
               <div className="log-http-options">
@@ -512,6 +521,7 @@ export function Logs() {
             follow={reader.follow}
             onFollow={reader.setFollow}
             accessEntries={accessEntries}
+            loginEntries={loginEntries}
             formatted={formatted}
           />
           <p className="small-note log-meta">

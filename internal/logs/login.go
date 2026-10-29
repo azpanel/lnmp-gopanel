@@ -100,7 +100,7 @@ func (l *LoginLog) Read(ctx context.Context, req Request) (Window, error) {
 }
 
 func (l *LoginLog) File(ctx context.Context) File {
-	file := File{Path: l.path, Name: "登录日志"}
+	file := File{Path: l.path, Name: "登录日志", Format: "login"}
 	window, err := l.Read(ctx, Request{Path: l.path, Mode: "stat"})
 	if err != nil {
 		file.Error = "登录日志不可读取，请检查状态目录及文件权限"

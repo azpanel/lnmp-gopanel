@@ -3422,6 +3422,14 @@ a {
   --log-access-columns: 100px 160px minmax(220px, 1fr) 220px minmax(240px, 2fr)
     110px 110px minmax(160px, 1fr) minmax(220px, 1fr);
 }
+.log-login-table {
+  min-width: 1750px;
+  --log-access-columns: 100px 200px 160px minmax(220px, 1fr) 140px 80px 120px
+    minmax(200px, 1fr) minmax(180px, 1fr) minmax(280px, 2fr);
+}
+.log-login-result[data-result="failure"] {
+  color: var(--danger);
+}
 .log-access-table .log-viewport {
   border: 0;
   border-radius: 0;

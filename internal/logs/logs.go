@@ -35,6 +35,7 @@ var ErrChanged = errors.New("日志已轮转或截断，请回到最新日志")
 
 type File struct {
 	Name      string    `json:"name,omitempty"`
+	Format    string    `json:"format,omitempty"`
 	Path      string    `json:"path"`
 	Size      int64     `json:"size"`
 	Modified  time.Time `json:"modified"`

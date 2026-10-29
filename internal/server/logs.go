@@ -235,7 +235,11 @@ func (s *Server) logRead(c *gin.Context) {
 		fail(c, status, err.Error())
 		return
 	}
-	enrichLogLocations(req.Path, out.Lines)
+	if local {
+		enrichLoginLogLocations(out.Lines)
+	} else {
+		enrichLogLocations(req.Path, out.Lines)
+	}
 	c.JSON(200, out)
 }
 
