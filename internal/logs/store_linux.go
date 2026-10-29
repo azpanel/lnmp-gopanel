@@ -3,9 +3,11 @@
 package logs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,7 +66,35 @@ func (Store) Read(ctx context.Context, req Request) (Window, error) {
 		return Window{}, errors.New("日志不存在、权限不足或路径包含符号链接")
 	}
 	defer f.Close()
+	if err := checkLogFile(f, true); err != nil {
+		return Window{}, err
+	}
 	return ReadFile(ctx, f, req)
+}
+
+func checkLogFile(f *os.File, inspect bool) error {
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || stat.Nlink > 1 {
+		return fmt.Errorf("%w：不允许读取硬链接文件", ErrInvalid)
+	}
+	if !inspect {
+		return nil
+	}
+	// Inspect only a bounded prefix. This is a format check, not a scan or a
+	// promise that application logs cannot themselves contain sensitive data.
+	prefix := make([]byte, 4096)
+	n, err := f.ReadAt(prefix, 0)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	prefix = prefix[:n]
+	if bytes.ContainsRune(prefix, 0) || bytes.Contains(prefix, []byte("PRIVATE KEY-----")) {
+		return fmt.Errorf("%w：不允许读取二进制文件或私钥内容", ErrInvalid)
+	}
+	return nil
 }
 func (Store) List(ctx context.Context) (Catalog, error) {
 	out := Catalog{Files: []File{}, Warnings: []string{}}
@@ -111,7 +141,17 @@ func (Store) List(ctx context.Context) (Catalog, error) {
 			return out, err
 		}
 		item := File{Path: path}
-		f, err := openRegular(path)
+		var f *os.File
+		err := ValidatePath(path)
+		if err == nil {
+			f, err = openRegular(path)
+		}
+		if err == nil {
+			err = checkLogFile(f, false)
+			if err != nil {
+				f.Close()
+			}
+		}
 		if err != nil {
 			item.Error = "文件不存在、权限不足或不是普通文件"
 		} else {

@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/logs"
@@ -61,7 +63,7 @@ func (h Helper) logCommand(parent context.Context, action string, input any, out
 		case "changed":
 			return logs.ErrChanged
 		case "invalid":
-			return logs.ErrInvalid
+			return fmt.Errorf("%w：%s", logs.ErrInvalid, strings.TrimPrefix(envelope.Message, logs.ErrInvalid.Error()+"："))
 		default:
 			return errors.New(envelope.Message)
 		}

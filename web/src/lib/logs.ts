@@ -10,6 +10,7 @@ export type LogFile = {
   size: number;
   modified: string;
   available: boolean;
+  custom?: boolean;
   error?: string;
 };
 export type LogCatalog = { files: LogFile[]; warnings: string[] };

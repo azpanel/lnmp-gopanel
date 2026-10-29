@@ -2896,6 +2896,22 @@ a {
   flex-wrap: wrap;
   gap: 8px;
 }
+.custom-log-form,
+.custom-log-input {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.custom-log-input {
+  margin: 20px 0;
+  gap: 10px;
+}
+.custom-log-input .notice {
+  margin: 0;
+}
+.custom-log-input .small-note {
+  line-height: 1.8;
+}
 .log-rules-drawer [data-variant] {
   font-size: 14px;
 }

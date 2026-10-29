@@ -105,3 +105,31 @@ func TestHTTPSRequired(t *testing.T) {
 		}
 	}
 }
+
+func TestLogStateConfig(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("test-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "config.yaml")
+	for _, state := range []string{"", "/var/lib/lnmp-gopanel", "relative", "/var/lib/../state"} {
+		c := Config{Username: "admin", PasswordHash: string(hash), TLS: TLSConfig{CertFile: "/tls/panel.crt", KeyFile: "/tls/panel.key"}, Logs: LogConfig{StateDir: state}}
+		data, _ := yaml.Marshal(c)
+		if err := os.WriteFile(file, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		loaded, err := Load(file)
+		if state == "relative" || state == "/var/lib/../state" {
+			if err == nil {
+				t.Fatal("unsafe log state path accepted")
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state == "" && loaded.Logs.StateDir != filepath.Join(filepath.Dir(file), "logs-state") {
+			t.Fatal("local log state not isolated", loaded.Logs.StateDir)
+		}
+	}
+}

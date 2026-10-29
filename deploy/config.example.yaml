@@ -10,6 +10,9 @@ tls:
 # Optional fixed HTTPS origin, including the port when using a non-default port.
 public_origin: ""
 helper: /usr/local/libexec/lnmp-gopanel-control
+# Custom log paths are stored as custom-logs.json; this directory is private to the panel account.
+logs:
+  state_dir: /var/lib/lnmp-gopanel
 # Optional NAT/public IPs used as additional references for domain DNS checks.
 vhosts:
   public_ips: []

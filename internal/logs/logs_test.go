@@ -189,12 +189,12 @@ func TestRotationTruncationAndInvalidCursors(t *testing.T) {
 }
 func TestAllowlist(t *testing.T) {
 	for _, path := range []string{Directory + "/a.log", MySQL, PHP} {
-		if !ValidPath(path) {
+		if !BuiltinPath(path) {
 			t.Fatal(path)
 		}
 	}
 	for _, path := range []string{"/etc/shadow", Directory + "/../shadow.log", Directory + "/nested/a.log", Directory + "/a.log.1", Directory + "//a.log", Directory + "/a\x00.log"} {
-		if ValidPath(path) {
+		if BuiltinPath(path) {
 			t.Fatal(path)
 		}
 	}
@@ -232,10 +232,12 @@ func TestAllPhysicalLinesAcrossPages(t *testing.T) {
 	}
 }
 func TestPathIsNotDerivedFromTempFile(t *testing.T) {
-	// Production validates the allowlist before touching disk, even if the
-	// requested arbitrary path actually exists and is readable.
-	f := fixture(t, "private")
-	if _, err := (Store{}).Read(context.Background(), Request{Path: filepath.Clean(f.Name()), Mode: "tail"}); !errors.Is(err, ErrInvalid) {
+	// Even an existing regular text file cannot bypass the sensitive-name policy.
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("TOKEN=private"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Store{}).Read(context.Background(), Request{Path: path, Mode: "tail"}); !errors.Is(err, ErrInvalid) {
 		t.Fatal(err)
 	}
 }

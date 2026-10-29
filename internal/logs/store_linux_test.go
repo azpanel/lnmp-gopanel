@@ -3,6 +3,8 @@
 package logs
 
 import (
+	"context"
+	"errors"
 	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
@@ -37,5 +39,47 @@ func TestOpenRegularRejectsSymlinksAndSpecialFiles(t *testing.T) {
 			f.Close()
 			t.Fatalf("unsafe file opened: %s", path)
 		}
+	}
+}
+
+func TestCustomStoreReadsAndRejectsUnsafeFiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server log")
+	if err := os.WriteFile(path, []byte("hello\nworld\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store := Store{}
+	info, err := store.Read(context.Background(), Request{Path: path, Mode: "stat"})
+	if err != nil || info.Size != 12 || len(info.Lines) != 0 || info.Start == "" {
+		t.Fatalf("stat: %+v, %v", info, err)
+	}
+	window, err := store.Read(context.Background(), Request{Path: path, Mode: "tail"})
+	if err != nil || len(window.Lines) != 2 || window.Lines[0].Text != "hello" {
+		t.Fatalf("read: %+v, %v", window, err)
+	}
+	for _, content := range [][]byte{[]byte("binary\x00content"), []byte("-----BEGIN RSA PRIVATE KEY-----\nsecret")} {
+		if err := os.WriteFile(path, content, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Read(context.Background(), Request{Path: path, Mode: "stat"}); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("unsafe content accepted: %v", err)
+		}
+	}
+	if err := os.WriteFile(path, []byte("ordinary log\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(dir, "alias.log")
+	if err := os.Link(path, alias); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Read(context.Background(), Request{Path: alias, Mode: "tail"}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("hardlink accepted: %v", err)
+	}
+	link := filepath.Join(dir, "link.log")
+	if err := os.Symlink(path, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Read(context.Background(), Request{Path: link, Mode: "stat"}); err == nil {
+		t.Fatal("symlink accepted")
 	}
 }

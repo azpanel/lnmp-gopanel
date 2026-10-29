@@ -22,6 +22,7 @@ type Config struct {
 	TLS          TLSConfig        `yaml:"tls"`
 	Helper       string           `yaml:"helper"`
 	Screenshots  ScreenshotConfig `yaml:"screenshots"`
+	Logs         LogConfig        `yaml:"logs"`
 	Vhosts       VhostConfig      `yaml:"vhosts"`
 }
 type VhostConfig struct {
@@ -33,6 +34,9 @@ type TLSConfig struct {
 }
 type ScreenshotConfig struct {
 	Browser  string `yaml:"browser"`
+	StateDir string `yaml:"state_dir"`
+}
+type LogConfig struct {
 	StateDir string `yaml:"state_dir"`
 }
 
@@ -107,6 +111,20 @@ func Load(path string) (Config, error) {
 	}
 	if !filepath.IsAbs(c.Screenshots.StateDir) {
 		return c, errors.New("screenshots.state_dir must be an absolute path")
+	}
+	if c.Logs.StateDir == "" {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return c, err
+		}
+		if filepath.Dir(absolute) == "/etc/lnmp-gopanel" {
+			c.Logs.StateDir = "/var/lib/lnmp-gopanel"
+		} else {
+			c.Logs.StateDir = filepath.Join(filepath.Dir(absolute), "logs-state")
+		}
+	}
+	if !filepath.IsAbs(c.Logs.StateDir) || filepath.Clean(c.Logs.StateDir) != c.Logs.StateDir {
+		return c, errors.New("logs.state_dir must be a clean absolute path")
 	}
 	if c.PublicOrigin != "" {
 		parsed, err := url.Parse(c.PublicOrigin)

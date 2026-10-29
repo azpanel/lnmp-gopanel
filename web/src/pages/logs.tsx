@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   FileText,
   CircleHelp,
@@ -16,6 +16,7 @@ import { Tooltip } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { LogViewport } from "@/components/log-viewport";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -30,6 +31,7 @@ import {
   DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -37,7 +39,7 @@ import {
 import { api } from "@/lib/api";
 import { bytes } from "@/lib/format";
 import { loadLogRules, logLines, validateLogRules } from "@/lib/logs";
-import type { LogCatalog, LogRule } from "@/lib/logs";
+import type { LogCatalog, LogFile, LogRule } from "@/lib/logs";
 import { useLogReader } from "@/lib/use-log-reader";
 import {
   httpStatusGroups,
@@ -84,6 +86,10 @@ function LogLocationHelp() {
 }
 
 export function Logs() {
+  const client = useQueryClient();
+  const [addOpen, setAddOpen] = useState(false);
+  const [customPath, setCustomPath] = useState("");
+  const [addError, setAddError] = useState("");
   const catalog = useQuery({
     queryKey: ["logs"],
     queryFn: ({ signal }) => api<LogCatalog>("/logs", { signal }),
@@ -91,6 +97,44 @@ export function Logs() {
     refetchOnWindowFocus: false,
   });
   const [selected, setSelected] = useState("");
+  const add = useMutation({
+    mutationFn: (path: string) =>
+      api<LogFile>("/logs/custom", {
+        method: "POST",
+        body: JSON.stringify({ path }),
+      }),
+    onSuccess: async (file) => {
+      await client.cancelQueries({ queryKey: ["logs"] });
+      client.setQueryData<LogCatalog>(["logs"], (old) => ({
+        files: [
+          ...(old?.files ?? []).filter((item) => item.path !== file.path),
+          file,
+        ],
+        warnings: old?.warnings ?? [],
+      }));
+      setSelected(file.path);
+      setAddOpen(false);
+      setCustomPath("");
+      void client.invalidateQueries({ queryKey: ["logs"] });
+    },
+    onError: (error) => setAddError(error.message),
+  });
+  const remove = useMutation({
+    mutationFn: (path: string) =>
+      api<void>("/logs/custom", {
+        method: "DELETE",
+        body: JSON.stringify({ path }),
+      }),
+    onSuccess: async (_, removedPath) => {
+      await client.cancelQueries({ queryKey: ["logs"] });
+      client.setQueryData<LogCatalog>(["logs"], (old) => ({
+        files: (old?.files ?? []).filter((item) => item.path !== removedPath),
+        warnings: old?.warnings ?? [],
+      }));
+      setSelected("");
+      void client.invalidateQueries({ queryKey: ["logs"] });
+    },
+  });
   const [rulesOpen, setRulesOpen] = useState(false);
   const files = useMemo(
     () =>
@@ -199,6 +243,11 @@ export function Logs() {
           {reader.error}
         </div>
       )}
+      {remove.error && (
+        <div className="notice" role="alert">
+          移除日志失败：{remove.error.message}
+        </div>
+      )}
       {reader.changed && !reader.error && (
         <div className="notice" role="status">
           日志已轮转或截断，当前已切换至新文件的最新内容。
@@ -246,6 +295,92 @@ export function Logs() {
             </Select>
           </div>
           <div className="log-actions">
+            <Dialog
+              open={addOpen}
+              onOpenChange={(open) => {
+                if (add.isPending) return;
+                setAddOpen(open);
+                if (open) setAddError("");
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Plus size={14} />
+                  添加日志
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <form
+                  className="custom-log-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const path = customPath.trim();
+                    if (!path.startsWith("/")) {
+                      setAddError("请输入日志文件的绝对路径");
+                      return;
+                    }
+                    setAddError("");
+                    add.mutate(path);
+                  }}
+                >
+                  <DialogHeader>
+                    <DialogTitle>添加日志文件</DialogTitle>
+                    <DialogDescription>
+                      输入服务器上已有日志文件的绝对路径。添加后保存在服务器上，可继续实时追踪与筛选。
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="custom-log-input">
+                    <Label htmlFor="custom-log-path">日志文件绝对路径</Label>
+                    <Input
+                      id="custom-log-path"
+                      placeholder="/var/log/syslog"
+                      autoComplete="off"
+                      required
+                      maxLength={2048}
+                      disabled={add.isPending}
+                      value={customPath}
+                      onChange={(event) => setCustomPath(event.target.value)}
+                    />
+                    <p className="small-note">
+                      系统配置、面板数据、凭据与证书、数据库数据等敏感路径禁止读取；不支持目录、符号链接、硬链接或二进制文件。
+                    </p>
+                    {addError && (
+                      <p role="alert" className="notice">
+                        {addError}
+                      </p>
+                    )}
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={add.isPending}
+                      onClick={() => setAddOpen(false)}
+                    >
+                      取消
+                    </Button>
+                    <Button
+                      type="submit"
+                      disabled={add.isPending || !customPath.trim()}
+                    >
+                      {add.isPending ? "正在添加…" : "添加并读取"}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+            {file?.custom && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={remove.isPending}
+                title="仅从自定义列表移除，不删除磁盘上的文件"
+                onClick={() => remove.mutate(path)}
+              >
+                <Trash2 size={14} />
+                移除日志
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"

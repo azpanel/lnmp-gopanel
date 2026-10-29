@@ -29,25 +29,27 @@ import (
 )
 
 type Server struct {
-	Config      config.Config
-	Sessions    *auth.Store
-	Metrics     *metrics.Collector
-	Services    *control.Manager
-	Components  *components.Manager
-	Docker      *docker.Manager
-	Logs        logs.Reader
-	Cron        cron.Reader
-	Releases    *releases.Manager
-	Storage     *storage.Manager
-	Vhosts      *vhosts.Manager
-	VhostJobs   *vhosts.Jobs
-	DNS         *vhosts.DNSChecker
-	Screenshots *screenshots.Manager
-	Host        metrics.Host
-	Assets      fs.FS
-	limiter     auth.Limiter
-	streams     chan struct{}
-	logReads    chan struct{}
+	Config          config.Config
+	Sessions        *auth.Store
+	Metrics         *metrics.Collector
+	Services        *control.Manager
+	Components      *components.Manager
+	Docker          *docker.Manager
+	Logs            logs.Reader
+	CustomLogs      *logs.Registry
+	CustomLogsError string
+	Cron            cron.Reader
+	Releases        *releases.Manager
+	Storage         *storage.Manager
+	Vhosts          *vhosts.Manager
+	VhostJobs       *vhosts.Jobs
+	DNS             *vhosts.DNSChecker
+	Screenshots     *screenshots.Manager
+	Host            metrics.Host
+	Assets          fs.FS
+	limiter         auth.Limiter
+	streams         chan struct{}
+	logReads        chan struct{}
 }
 
 func New(c config.Config, m *metrics.Collector, svc *control.Manager, assets fs.FS) *Server {
@@ -130,6 +132,8 @@ func (s *Server) Handler() http.Handler {
 	private.GET("/cron/preview", s.cronPreview)
 	private.GET("/logs", s.logList)
 	private.POST("/logs/read", s.csrf, s.logRead)
+	private.POST("/logs/custom", s.csrf, s.logAdd)
+	private.DELETE("/logs/custom", s.csrf, s.logRemove)
 	private.POST("/docker/refresh", s.csrf, func(c *gin.Context) { s.dockerSnapshot(c, true) })
 	private.GET("/storage/mounts", func(c *gin.Context) {
 		result, err := storage.Mounts(c.Request.Context())

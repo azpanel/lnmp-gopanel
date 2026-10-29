@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -18,6 +20,103 @@ type stubLogs struct {
 	calls int
 	err   error
 	lines []logs.Line
+}
+
+func TestCustomLogEndpoints(t *testing.T) {
+	s, _ := testServer(t)
+	s.Logs = logs.Store{}
+	s.logReads = make(chan struct{}, 1)
+	state := filepath.Join(t.TempDir(), "state")
+	var err error
+	s.CustomLogs, err = logs.OpenRegistry(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := s.Handler()
+	id, session := s.Sessions.Create()
+	cookie := &http.Cookie{Name: auth.CookieName, Value: id}
+	path := filepath.Join(t.TempDir(), "custom log")
+	if err := os.WriteFile(path, []byte("custom entry\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`{"path":%q}`, path)
+	readBody := fmt.Sprintf(`{"path":%q,"mode":"tail","rules":[]}`, path)
+	for _, method := range []string{"POST", "DELETE"} {
+		if w := request(h, method, "/api/v1/logs/custom", body, nil, "", ""); w.Code != 401 {
+			t.Fatal("custom catalog auth bypass", w.Code)
+		}
+		if w := request(h, method, "/api/v1/logs/custom", body, cookie, "", ""); w.Code != 403 {
+			t.Fatal("custom catalog CSRF bypass", w.Code)
+		}
+		if w := request(h, method, "/api/v1/logs/custom", body, cookie, session.CSRF, "https://evil.example"); w.Code != 403 {
+			t.Fatal("custom catalog origin bypass", w.Code)
+		}
+	}
+	for _, bad := range []string{
+		`{"path":"/etc/shadow"}`, `{"path":"/root/private.log"}`, `{"path":"/srv/app/.env"}`,
+		`{"path":"/srv/app/../app/log"}`, `{"path":"relative.log"}`, `{"path":"/srv/key.pem"}`,
+		body + `{}`, body + strings.Repeat(" ", 4096), `{"path":"/srv/app.log","command":"cat"}`,
+	} {
+		if w := request(h, "POST", "/api/v1/logs/custom", bad, cookie, session.CSRF, ""); w.Code != 400 {
+			t.Fatalf("invalid custom log accepted: %d %s", w.Code, w.Body.String())
+		}
+	}
+	if w := request(h, "POST", "/api/v1/logs/read", readBody, cookie, session.CSRF, ""); w.Code != 400 {
+		t.Fatal("unregistered custom path readable", w.Code)
+	}
+	for range 2 {
+		w := request(h, "POST", "/api/v1/logs/custom", body, cookie, session.CSRF, "")
+		var file logs.File
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &file) != nil || !file.Custom || !file.Available || file.Size != 13 {
+			t.Fatalf("add: %d %s", w.Code, w.Body.String())
+		}
+	}
+	if len(s.CustomLogs.Paths()) != 1 {
+		t.Fatal("duplicate paths stored")
+	}
+	s.CustomLogs, err = logs.OpenRegistry(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := request(h, "POST", "/api/v1/logs/read", readBody, cookie, session.CSRF, "")
+	var window logs.Window
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &window) != nil || len(window.Lines) != 1 || window.Lines[0].Text != "custom entry" {
+		t.Fatalf("custom read after reload: %d %s", w.Code, w.Body.String())
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	w = request(h, "GET", "/api/v1/logs", "", cookie, "", "")
+	var catalog logs.Catalog
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &catalog) != nil {
+		t.Fatalf("catalog: %d %s", w.Code, w.Body.String())
+	}
+	found := false
+	for _, file := range catalog.Files {
+		if file.Path == path {
+			found = true
+			if !file.Custom || file.Available || file.Error == "" {
+				t.Fatal("missing custom log not represented", file)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("custom log lost when file disappeared")
+	}
+	if err := os.WriteFile(path, []byte("retained file\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if w := request(h, "DELETE", "/api/v1/logs/custom", body, cookie, session.CSRF, ""); w.Code != 204 {
+			t.Fatal("remove failed", w.Code, w.Body.String())
+		}
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "retained file\n" {
+		t.Fatal("removing catalog entry touched original file", err)
+	}
+	if w := request(h, "POST", "/api/v1/logs/read", readBody, cookie, session.CSRF, ""); w.Code != 400 {
+		t.Fatal("removed custom path still readable", w.Code)
+	}
 }
 
 func (s *stubLogs) List(context.Context) (logs.Catalog, error) {

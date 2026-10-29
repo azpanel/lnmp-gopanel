@@ -380,7 +380,13 @@ screenshots:
 
 ### 日志读取
 
-左侧“日志读取”页面支持 `/home/wwwlogs`、`/usr/local/nginx/logs/gopanel` 直属目录中的 `.log` 普通文件，以及 `/var/log/mysql/mariadb-slow.log`、`/usr/local/php/var/log/php_errors.log`。在“日志内容”卡片顶部选择日志，卡片显示路径、大小和修改时间；不递归读取子目录，不读取轮转归档或符号链接，不提供编辑、清空和下载功能。文件不存在不影响安装。
+左侧“日志读取”页面自动列出 `/home/wwwlogs`、`/usr/local/nginx/logs/gopanel` 直属目录中的 `.log` 普通文件，以及 `/var/log/mysql/mariadb-slow.log`、`/usr/local/php/var/log/php_errors.log`。在“日志内容”卡片顶部选择日志，卡片显示路径、大小和修改时间；不递归发现子目录，不自动列出轮转归档，不跟随符号链接，不提供编辑、清空和下载功能。文件不存在不影响安装。
+
+点击“添加日志”，输入服务器上已有普通文本日志的绝对路径，例如 `/var/log/syslog`、`/opt/app/logs/server.log`；不要求 `.log` 扩展名，也可显式添加轮转后的普通文本文件。添加前由辅助程序检查文件，成功后自动选中读取。最多保存 64 个自定义路径，刷新、重新登录和面板重启后保留；文件暂时消失或不可读时保留条目并显示错误。“移除日志”只移除自定义列表条目，不删除或修改原文件，内置日志不能移除。
+
+系统配置（`/etc`）、`/root`、`/proc`、`/sys`、`/dev`、`/run`、`/boot`、备份和面板状态目录、常见 MySQL／MariaDB／PostgreSQL／Redis 数据目录，以及 Nginx／PHP 等组件的配置目录禁止读取。任意路径中的 `.ssh`、`.aws`、`.kube`、`.docker`、`.gnupg`、`.git` 等凭据或版本库目录，`.env*`、常见密码配置、私钥证书和数据库文件也会拒绝。路径必须规范，不能包含 `..`、重复分隔符、控制字符或反斜杠。添加及每次读取都重新校验，逐段禁止符号链接，并拒绝硬链接、特殊文件、包含 NUL 或私钥头的文件；格式检查仅检查前 4 KiB，不对应用日志中可能记录的敏感业务内容进行脱敏。
+
+自定义路径存于 `logs.state_dir` 下的 `custom-logs.json`，标准安装默认为 `/var/lib/lnmp-gopanel`；自定义配置文件默认使用同级 `logs-state/`。目录必须属于面板账号且权限为 `0700`，列表文件为 `0600`，采用原子替换保存；存储不可用时内置日志继续可用并显示提示。备份该文件即可保留自定义列表，升级安装不会覆盖它。
 
 默认定位到文件末尾，约每秒增量读取，可暂停追踪、自动滚动、回到最新或加载更早日志。向上滚动会关闭自动滚动；加载历史会暂停追踪。后台标签页暂停轮询，返回后从游标继续读取。单批原始范围最多 256 KiB、最多返回 4000 行；页面缓存最多 2 MiB、20000 行和 64 批，超限会释放浏览方向另一端，可重新加载。日志使用虚拟列表显示，避免整文件读取和大量 DOM。文件轮转或截断后提示并重新读取最新文件，不混合不同版本的历史。
 
@@ -394,7 +400,9 @@ IP 地址位置数据由[纯真 CZ88](https://www.cz88.net/) 提供支持，使�
 
 新增需登录接口 `GET /api/v1/logs` 和 `POST /api/v1/logs/read`，POST 需要 CSRF。读取 JSON 包含 `path`、`mode`（`tail`、`before`、`after`、`range`）、不透明的 `start` / `end` 游标和 `rules`；每条规则包含 `kind`（`keyword` / `regex`）、`action`（`show` / `hide`）、`pattern`、`ignore_case`、`enabled`。响应提供匹配行及字节偏移、源文件范围、前后游标和文件状态，Nginx 日志行可包含 `ip_location` 属地显示文本；409 表示文件已变化。属地由普通面板进程补充，不增加辅助程序权限。游标始终按原始范围推进，筛选全部隐藏也不会反复读取同一批。规则在 Go 后端执行，读取有超时和全局并发限制。
 
-升级时同步安装两个二进制和 sudoers 模板，新增固定授权 `/usr/local/libexec/lnmp-gopanel-control logs list`、`/usr/local/libexec/lnmp-gopanel-control logs read`，验证 sudoers 并重启面板。文件、游标和规则通过有界 JSON stdin 传递，辅助程序重新校验白名单、文件类型和路径，禁止跟随任意路径组件中的符号链接。安装脚本仅检查这两项的 sudo 授权，不实际读取或输出日志内容。
+升级时同步安装两个二进制和 sudoers 模板，新增固定授权 `/usr/local/libexec/lnmp-gopanel-control logs list`、`/usr/local/libexec/lnmp-gopanel-control logs read`，验证 sudoers 并重启面板。文件、游标和规则通过有界 JSON stdin 传递，辅助程序重新校验敏感路径策略、文件类型和路径，禁止跟随任意路径组件中的符号链接。安装脚本仅检查这两项的 sudo 授权，不实际读取或输出日志内容。
+
+自定义日志沿用上述两项 sudo 授权，需同步升级面板和辅助程序。新增 `POST /api/v1/logs/custom`、`DELETE /api/v1/logs/custom`，请求均为 `{"path":"绝对路径"}`，需要登录、CSRF，JSON 不超过 4 KiB。添加返回文件元数据，移除返回 204；列表中自定义条目带 `custom: true`。现有读取接口仅允许内置路径或已添加的自定义路径，不能通过直接请求绕过添加。辅助程序的读取请求新增 `stat` 模式用于有界格式检查与文件元数据查询，沿用读取超时和并发限制，不提供任意命令或文件修改权限。
 
 ## 站点配置格式化
 

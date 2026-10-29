@@ -1,4 +1,4 @@
-// Package logs provides bounded, read-only windows over the panel's log allowlist.
+// Package logs provides bounded, read-only windows over permitted log files.
 package logs
 
 import (
@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -39,6 +38,7 @@ type File struct {
 	Size      int64     `json:"size"`
 	Modified  time.Time `json:"modified"`
 	Available bool      `json:"available"`
+	Custom    bool      `json:"custom,omitempty"`
 	Error     string    `json:"error,omitempty"`
 }
 type Catalog struct {
@@ -84,17 +84,6 @@ type Reader interface {
 	Read(context.Context, Request) (Window, error)
 }
 
-func ValidPath(path string) bool {
-	if path == MySQL || path == PHP {
-		return true
-	}
-	if (filepath.Dir(path) != Directory && filepath.Dir(path) != ManagedDirectory) || filepath.Clean(path) != path {
-		return false
-	}
-	name := filepath.Base(path)
-	return strings.HasSuffix(name, ".log") && !strings.ContainsAny(name, "\x00/\\") && utf8.ValidString(path)
-}
-
 type matcher struct {
 	rule Rule
 	re   *regexp.Regexp
@@ -134,10 +123,10 @@ func compile(rules []Rule) ([]matcher, error) {
 	return out, nil
 }
 func Validate(r Request) error {
-	if !ValidPath(r.Path) {
-		return fmt.Errorf("%w：不允许读取此路径", ErrInvalid)
+	if err := ValidatePath(r.Path); err != nil {
+		return err
 	}
-	if r.Mode != "tail" && r.Mode != "before" && r.Mode != "after" && r.Mode != "range" {
+	if r.Mode != "tail" && r.Mode != "before" && r.Mode != "after" && r.Mode != "range" && r.Mode != "stat" {
 		return ErrInvalid
 	}
 	if len(r.Start) > 1024 || len(r.End) > 1024 {
@@ -246,6 +235,15 @@ func ReadFile(ctx context.Context, f *os.File, req Request) (Window, error) {
 	}
 	identity := fileIdentity(info)
 	size := info.Size()
+	if req.Mode == "stat" {
+		cursor, err := makeCursor(f, identity, 0)
+		if err != nil {
+			return out, err
+		}
+		out.Size, out.Modified, out.Start, out.End = size, info.ModTime(), cursor, cursor
+		out.From, out.To, out.ReplaceFrom = "0", "0", "0"
+		return out, nil
+	}
 	start, end := max(int64(0), size-BatchBytes), size
 	switch req.Mode {
 	case "before":

@@ -22,6 +22,7 @@ import (
 	"github.com/azpanel/lnmp-gopanel/internal/config"
 	"github.com/azpanel/lnmp-gopanel/internal/control"
 	"github.com/azpanel/lnmp-gopanel/internal/docker"
+	"github.com/azpanel/lnmp-gopanel/internal/logs"
 	"github.com/azpanel/lnmp-gopanel/internal/metrics"
 	"github.com/azpanel/lnmp-gopanel/internal/paneltls"
 	"github.com/azpanel/lnmp-gopanel/internal/releases"
@@ -80,6 +81,11 @@ func run() error {
 	go collector.Run(ctx)
 	go manager.Run(ctx)
 	app := server.New(c, collector, manager, web.Assets())
+	app.CustomLogs, err = logs.OpenRegistry(c.Logs.StateDir)
+	if err != nil {
+		app.CustomLogsError = "自定义日志列表不可用，请检查状态目录及文件"
+		slog.Warn("自定义日志列表初始化失败，内置日志继续可用", "error", err)
+	}
 	app.Storage = storage.NewManager(ctx, control.Helper{Path: c.Helper})
 	app.Vhosts = vhosts.NewManager(ctx, control.Helper{Path: c.Helper})
 	app.VhostJobs = vhosts.NewJobs(ctx, control.Helper{Path: c.Helper}, func() { app.Vhosts.Invalidate() })
