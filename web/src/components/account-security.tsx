@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowLeft,
+  Check,
   Copy,
   Download,
   Eye,
   EyeOff,
   KeyRound,
   Loader2,
+  RefreshCw,
   ShieldCheck,
+  ShieldOff,
+  ShieldPlus,
   Shuffle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -306,6 +311,11 @@ function SecurityContents({
                 setFactor("");
               }}
             >
+              {recovery ? (
+                <ShieldCheck size={15} aria-hidden="true" />
+              ) : (
+                <KeyRound size={15} aria-hidden="true" />
+              )}
               {recovery ? "使用动态验证码" : "使用恢复码"}
             </Button>
             <p className="small-note">
@@ -456,7 +466,12 @@ function SecurityContents({
                   busy || !canAuthenticate || !strength?.valid || !confirmation
                 }
               >
-                {busy && <Loader2 className="animate-spin" />}修改密码并退出登录
+                {busy ? (
+                  <Loader2 className="animate-spin" aria-hidden="true" />
+                ) : (
+                  <KeyRound size={15} aria-hidden="true" />
+                )}
+                修改密码并退出登录
               </Button>
             </form>
           </Tabs.Content>
@@ -485,7 +500,10 @@ function SecurityContents({
                     <Download size={15} />
                     下载恢复码
                   </Button>
-                  <Button onClick={() => setCodes(null)}>我已保存</Button>
+                  <Button onClick={() => setCodes(null)}>
+                    <Check size={15} aria-hidden="true" />
+                    我已保存
+                  </Button>
                 </div>
               </section>
             ) : setup ? (
@@ -557,8 +575,12 @@ function SecurityContents({
                       type="submit"
                       disabled={busy || expired || setupCode.length !== 6}
                     >
-                      {busy && <Loader2 className="animate-spin" />}确认启用
-                      TOTP
+                      {busy ? (
+                        <Loader2 className="animate-spin" aria-hidden="true" />
+                      ) : (
+                        <ShieldCheck size={15} aria-hidden="true" />
+                      )}
+                      确认启用 TOTP
                     </Button>
                     <Button
                       type="button"
@@ -573,6 +595,7 @@ function SecurityContents({
                         })
                       }
                     >
+                      <ArrowLeft size={15} aria-hidden="true" />
                       返回
                     </Button>
                   </div>
@@ -594,6 +617,7 @@ function SecurityContents({
                         disabled={busy || !canAuthenticate}
                         onClick={() => manageTOTP(false)}
                       >
+                        <RefreshCw size={15} aria-hidden="true" />
                         重新生成恢复码
                       </Button>
                       <Button
@@ -601,6 +625,7 @@ function SecurityContents({
                         disabled={busy || !canAuthenticate}
                         onClick={() => manageTOTP(true)}
                       >
+                        <ShieldOff size={15} aria-hidden="true" />
                         关闭 TOTP
                       </Button>
                     </>
@@ -610,6 +635,7 @@ function SecurityContents({
                       disabled={busy || !current}
                       onClick={startSetup}
                     >
+                      <ShieldPlus size={15} aria-hidden="true" />
                       绑定 TOTP
                     </Button>
                   )}
