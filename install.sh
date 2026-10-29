@@ -45,6 +45,7 @@ Usage: sudo bash install.sh [options]
   --install              Install the panel (existing installations are upgraded)
   --update               Update an installed panel from GitHub Release
   --reset-password       Reset administrator password and clear TOTP/recovery codes
+  --configure-metrics    Interactively configure local service monitoring
   --uninstall            Completely remove the panel, configuration, data and backups
   --yes                  Confirm --uninstall without prompting
   --version TAG          Install a release tag such as v0.1.0 (default: latest)
@@ -64,12 +65,14 @@ Uninstall keeps LNMP, websites, databases, source certificates and system packag
 Requires Linux amd64/arm64, systemd and root. New installations prompt for a
 12-72 byte password and a certificate choice. Only HTTPS is supported.
 Upgrades preserve credentials, services.yaml and an existing HTTPS listener.
+Monitoring setup requires a terminal and a matching panel binary. Fresh interactive
+installs optionally offer it; updates and --no-start never configure LNMP automatically.
 EOF
 }
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 need_value() { [[ $# -ge 2 && -n "$2" ]] || die "$1 requires a value"; }
 set_action() {
-  [[ -z "$action" || "$action" == "$1" ]] || die "Choose only one of --install, --update, --uninstall and --reset-password"
+  [[ -z "$action" || "$action" == "$1" ]] || die "Choose only one of --install, --update, --uninstall, --reset-password and --configure-metrics"
   action="$1"
 }
 while (($#)); do
@@ -78,6 +81,7 @@ while (($#)); do
     --update) set_action update; shift; continue ;;
     --uninstall) set_action uninstall; shift; continue ;;
     --reset-password) set_action reset-password; shift; continue ;;
+    --configure-metrics) set_action configure-metrics; shift; continue ;;
     --yes) auto_confirm=true; shift; continue ;;
     --version) need_value "$@"; release_version="$2"; shift 2 ;;
     --archive) need_value "$@"; archive_path="$2"; shift 2 ;;
@@ -96,22 +100,26 @@ while (($#)); do
   reset_incompatible=true
 done
 if "$show_menu"; then
-  [[ -t 0 ]] || die "Use --install, --update, --reset-password --password-stdin or --uninstall --yes without a terminal"
-  printf 'LNMP GoPanel 管理\n  1) 安装面板\n  2) 从 GitHub Release 更新\n  3) 完全卸载\n  4) 重置管理员密码（同时清除二步验证）\n  0) 退出\n'
+  [[ -t 0 ]] || die "Use --install, --update, --reset-password --password-stdin or --uninstall --yes without a terminal; --configure-metrics requires a terminal"
+  printf 'LNMP GoPanel 管理\n  1) 安装面板\n  2) 从 GitHub Release 更新\n  3) 完全卸载\n  4) 重置管理员密码（同时清除二步验证）\n  5) 配置服务监控指标\n  0) 退出\n'
   while true; do
-    read -r -p '请选择 [0/1/2/3/4]：' choice || die "Menu cancelled"
+    read -r -p '请选择 [0/1/2/3/4/5]：' choice || die "Menu cancelled"
     case "$choice" in
       1) action=install; break ;;
       2) action=update; break ;;
       3) action=uninstall; break ;;
       4) action=reset-password; break ;;
+      5) action=configure-metrics; break ;;
       0) exit 0 ;;
-      *) printf '请输入 0、1、2、3 或 4。\n' ;;
+      *) printf '请输入 0、1、2、3、4 或 5。\n' ;;
     esac
   done
 fi
 action="${action:-install}"
-if [[ "$action" == reset-password ]]; then
+if [[ "$action" == configure-metrics ]]; then
+  ! "$install_options" || die "--configure-metrics cannot be combined with installation options"
+  ! "$auto_confirm" || die "--yes is only valid with --uninstall"
+elif [[ "$action" == reset-password ]]; then
   ! "$reset_incompatible" || die "--reset-password only accepts --password-stdin"
   ! "$auto_confirm" || die "--yes is only valid with --uninstall"
 elif [[ "$action" == uninstall ]]; then
@@ -146,7 +154,7 @@ if ! "$check_only"; then
   done
   [[ ! -L /run/lnmp-gopanel-install.lock ]] || die "Refusing a symlink lock file"
   exec 9>/run/lnmp-gopanel-install.lock
-  flock -n 9 || die "Another panel installation, update, uninstall or password reset is running"
+  flock -n 9 || die "Another panel installation, update, uninstall, password reset or metrics setup is running"
 fi
 uninstall_panel() {
   local destination parent load_state confirmation
@@ -252,6 +260,28 @@ reset_panel_password() (
 if [[ "$action" == reset-password ]]; then
   reset_panel_password
   exit 0
+fi
+configure_panel_metrics() {
+  local metrics_help
+  if [[ ! -x /usr/local/bin/lnmp-gopanel || ! -f /etc/lnmp-gopanel/config.yaml ]]; then
+    printf '请先安装面板，再配置服务监控指标。\n' >&2
+    return 1
+  fi
+  # Capability detection never changes service files or starts a download.
+  metrics_help="$(/usr/local/bin/lnmp-gopanel metrics configure --help 2>&1 || true)"
+  if [[ "$metrics_help" != *'Usage of metrics configure:'* || "$metrics_help" != *'-config string'* ]]; then
+    printf '当前面板不支持服务监控配置向导，请先升级面板；仅更新 install.sh 不会更新二进制。\n' >&2
+    return 1
+  fi
+  if [[ ! -t 0 ]]; then
+    printf '服务监控配置需要交互终端，请运行 sudo bash install.sh --configure-metrics。\n' >&2
+    return 1
+  fi
+  /usr/local/bin/lnmp-gopanel metrics configure --config /etc/lnmp-gopanel/config.yaml
+}
+if [[ "$action" == configure-metrics ]]; then
+  configure_panel_metrics
+  exit $?
 fi
 if [[ "$action" == update ]]; then
   [[ -f /etc/lnmp-gopanel/config.yaml && -f /etc/lnmp-gopanel/services.yaml && -f /usr/local/bin/lnmp-gopanel ]] || die "No complete panel installation found; use --install to install or repair it"
@@ -642,5 +672,23 @@ if "$tls_changed"; then
     printf '已自动生成 ECDSA P-256 自签名证书（有效期一年），浏览器需要信任该证书。\n'
   else
     printf '已复制证书：%s；请使用证书覆盖的域名访问。原证书续期后，使用相同 --certificate-dir 参数重新安装以同步证书。\n' "$certificate_dir"
+  fi
+fi
+
+# Optional setup has its own backups and rollback. The panel installation is
+# already committed, so a declined or failed wizard cannot roll it back.
+if "$fresh_install" && "$start_service" && [[ -t 0 ]]; then
+  if read -r -p '是否现在配置 Nginx、PHP-FPM、数据库监控？[y/N]：' metrics_choice; then
+    case "$metrics_choice" in
+      y|Y|yes|YES)
+        if ! configure_panel_metrics; then
+          printf '面板已安装成功，服务监控配置未完成；可稍后运行 --configure-metrics 重试。\n' >&2
+          exit 1
+        fi
+        ;;
+      *) printf '已跳过，可稍后运行 sudo bash install.sh --configure-metrics。\n' ;;
+    esac
+  else
+    printf '\n已跳过服务监控配置。\n'
   fi
 fi

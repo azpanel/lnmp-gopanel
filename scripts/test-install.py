@@ -126,6 +126,16 @@ fi
 printf '{"status":"unavailable","message":"Docker not installed"}\\n'
 """
 PANEL = """#!/bin/bash
+if [[ "$1" == metrics && "$2" == configure ]]; then
+  if [[ "$3" == --help ]]; then
+    printf 'Usage of metrics configure:\\n  -config string\\n' >&2
+    exit 1
+  fi
+  printf '%s\\n' "$*" >> /run/metrics.log
+  [[ ! -f /run/fail-metrics ]] || exit 1
+  printf '监控配置向导完成。\\n'
+  exit 0
+fi
 if [[ "$1" == auth && "$2" == reset-password ]]; then
   if [[ "$3" == --help ]]; then
     printf 'Usage of auth reset-password:\\n  -password-stdin\\n' >&2
@@ -348,7 +358,7 @@ printf '%s\\n' "$*" >> /run/apparmor.log
         result = self.run_script(input_text="9\n0\n", terminal=True)
         self.assertIn("从 GitHub Release 更新", result.stdout)
         self.assertFalse((self.root / "run/downloads.log").exists())
-        self.run_script(input_text="1\n1\ninstaller-test-password\n", terminal=True)
+        self.run_script(input_text="1\n1\ninstaller-test-password\nn\n", terminal=True)
         self.assertTrue((self.root / "etc/lnmp-gopanel/config.yaml").exists())
         self.run_script(input_text="2\n", terminal=True)
         self.assertIn("latest/download/", (self.root / "run/downloads.log").read_text())
@@ -455,10 +465,10 @@ printf '%s\\n' "$*" >> /run/apparmor.log
         lock = self.root / "run/lnmp-gopanel-install.lock"
         with lock.open("w") as handle:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            for options in (("--install",), ("--update",), ("--uninstall", "--yes"), ("--reset-password", "--password-stdin")):
+            for options in (("--install",), ("--update",), ("--uninstall", "--yes"), ("--reset-password", "--password-stdin"), ("--configure-metrics",)):
                 with self.subTest(options=options):
                     result = self.run_script(*options, success=False)
-                    self.assertIn("Another panel installation, update, uninstall or password reset", result.stderr)
+                    self.assertIn("Another panel installation, update, uninstall, password reset or metrics setup", result.stderr)
         self.assertFalse((self.root / "run/downloads.log").exists())
         self.assertFalse((self.root / "run/systemctl.log").exists())
 
@@ -523,6 +533,51 @@ printf '%s\\n' "$*" >> /run/apparmor.log
         self.assertNotIn('"name":"python3"', result.stdout)
         self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\ncomponents snapshot\n")
         self.assertIn("show lnmp-gopanel --property=MainPID --value\n", (self.root / "run/systemctl.log").read_text())
+
+    def test_metrics_independent_command_and_menu_do_not_download_or_restart(self):
+        self.run_installer("--password-stdin")
+        (self.root / "run/downloads.log").unlink(missing_ok=True)
+        (self.root / "run/systemctl.log").write_text("")
+        before = (self.root / "etc/lnmp-gopanel/config.yaml").read_bytes()
+        self.run_script("--configure-metrics", terminal=True)
+        self.run_script(input_text="5\n", terminal=True)
+        log = (self.root / "run/metrics.log").read_text()
+        self.assertEqual(log.count("metrics configure --config /etc/lnmp-gopanel/config.yaml"), 2)
+        self.assertFalse((self.root / "run/downloads.log").exists())
+        self.assertNotIn("restart", (self.root / "run/systemctl.log").read_text())
+        self.assertEqual((self.root / "etc/lnmp-gopanel/config.yaml").read_bytes(), before)
+
+    def test_metrics_rejects_noninteractive_missing_old_panel_and_conflicting_flags(self):
+        self.run_script("--configure-metrics", success=False)
+        for options in (("--configure-metrics", "--install"), ("--configure-metrics", "--yes"),
+                        ("--configure-metrics", "--password-stdin"), ("--configure-metrics", "--check"),
+                        ("--configure-metrics", "--no-start"), ("--configure-metrics", "--archive", "/tmp/package")):
+            self.run_script(*options, success=False)
+        self.run_installer("--password-stdin")
+        result = self.run_script("--configure-metrics", success=False)
+        self.assertIn("交互终端", result.stderr)
+        write(self.root, "/usr/local/bin/lnmp-gopanel", "#!/bin/bash\nprintf 'old panel\\n' >&2\nexit 1\n", 0o755)
+        result = self.run_script("--configure-metrics", terminal=True, success=False)
+        self.assertIn("请先升级面板", result.stderr)
+        self.assertFalse((self.root / "run/metrics.log").exists())
+
+    def test_metrics_optional_after_fresh_install_and_failure_does_not_undo_install(self):
+        write(self.root, "/run/fail-metrics", "")
+        result = self.run_script(input_text="1\n1\ninstaller-test-password\ny\n", terminal=True, success=False)
+        self.assertIn("面板已安装成功，服务监控配置未完成", result.stderr)
+        self.assertTrue((self.root / "usr/local/bin/lnmp-gopanel").exists())
+        self.assertTrue((self.root / "etc/lnmp-gopanel/config.yaml").exists())
+        self.assertTrue((self.root / "run/panel.active").exists())
+        self.assertEqual((self.root / "run/metrics.log").read_text().count("metrics configure"), 1)
+        (self.root / "run/fail-metrics").unlink()
+        result = self.run_script(input_text="2\n", terminal=True)
+        self.assertNotIn("是否现在配置", result.stdout)
+        self.assertEqual((self.root / "run/metrics.log").read_text().count("metrics configure"), 1)
+
+    def test_metrics_noninteractive_and_no_start_install_do_not_prompt(self):
+        result = self.run_installer("--password-stdin", "--no-start")
+        self.assertNotIn("是否现在配置", result.stdout)
+        self.assertFalse((self.root / "run/metrics.log").exists())
 
     def test_reset_password_stdin_preserves_config_and_restores_service(self):
         self.run_installer("--password-stdin")
@@ -679,7 +734,7 @@ printf '%s\\n' "$*" >> /run/apparmor.log
             )
             os.close(slave)
             slave = None
-            os.write(master, b"2\n1\ninstaller-test-password\n")
+            os.write(master, b"2\n1\ninstaller-test-password\nn\n")
             stdout, stderr = process.communicate(timeout=20)
             self.assertEqual(process.returncode, 0, stdout + stderr)
             self.assertIn("自动生成自签名证书", stdout)

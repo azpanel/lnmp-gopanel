@@ -32,6 +32,7 @@ sudo bash install.sh
 
 ```bash
 sudo bash install.sh --reset-password            # 重置管理员密码，同时清除 TOTP 和恢复码
+sudo bash install.sh --configure-metrics         # 交互配置 Nginx、PHP-FPM 和数据库监控
 sudo bash install.sh --update                    # 从 GitHub Release 更新到最新版本
 sudo bash install.sh --update --version v0.1.0   # 更新到指定 Release
 sudo bash install.sh --uninstall                 # 列出清理范围，输入 yes 确认
@@ -477,7 +478,7 @@ IP 地址位置数据由[纯真 CZ88](https://www.cz88.net/) 提供支持，使�
 
 ### 接入已有服务状态接口
 
-在面板 `config.yaml` 中添加以下配置并重启面板。服务状态接口必须已由管理员启用；本功能只查询，不修改服务配置或重载服务。仅支持一个 Nginx 状态入口、一个 PHP-FPM 池和一个本机 MySQL／MariaDB 实例。
+在面板 `config.yaml` 中添加以下配置并重启面板。手工填写 URL 时，服务状态接口必须已由管理员启用；面板运行时的采集只查询，不修改服务配置或重载服务。也可使用下面的安装脚本快捷配置向导自动启用入口。仅支持一个 Nginx 状态入口、一个 PHP-FPM 池和一个本机 MySQL／MariaDB 实例。
 
 ```yaml
 metrics:
@@ -503,3 +504,38 @@ Nginx 地址须返回 `stub_status` 文本，其中活跃连接包含等待连�
 | PUT | `/api/v1/dashboard/widgets` | 保存同结构数据，需要 `X-CSRF-Token` |
 
 组件标识为 `disk_io`、`load`、`swap`、`memory_breakdown`、`processes`、`nginx`、`php_fpm`、`database`。空数组移除全部可选组件；未知或重复标识返回 400；配置不可读或不可写返回 503。原指标快照及 SSE 兼容增加内存构成字段和可选的 `processes`、`nginx`、`php_fpm`、`database`；未启用或采集失败时不返回对应可选数据，错误放入同名 `errors` 字段。
+
+
+### 安装脚本快捷配置服务监控
+
+下载与当前版本配套的 `install.sh` 和面板程序后，以 root 运行：
+
+```bash
+sudo bash install.sh --configure-metrics
+```
+
+也可在管理菜单选择“5) 配置服务监控指标”。交互式首次安装成功后会询问是否配置，默认跳过；更新、非交互安装和 `--no-start` 不自动进入。该独立入口不下载或升级软件，不接受安装参数或 `--yes`；旧版二进制没有向导时，会在修改前提示先升级，仅更新脚本无法增加二进制能力。
+
+向导分别询问 Nginx、PHP-FPM 和数据库，已配置项目默认保留并检查。未检测到运行环境时可跳过，也可填写已有本机 HTTP 地址或数据库连接。所有选择完成后会预览文件路径、监控地址、账号名称和重载动作，确认前不写入配置或创建账号；密码不回显，不作为命令行参数，不记录在日志中。跳过某项会保留原配置，不关闭既有采集，不改变概览页的组件选择。
+
+自动启用适用于 `/usr/local/nginx`、`/usr/local/php` 的 LNMP 环境，要求相关服务正在运行：
+
+- Nginx 默认增加 `127.0.0.1:18080` 本机 HTTP 入口，端口冲突可另选。专用文件为 `/usr/local/nginx/conf/panel-metrics.conf`，主配置 `http` 块只增加一次 include，不放入网站目录。仅生成所选状态路由，其他路径返回 404。原有公网状态页及访问规则保持原样，向导会提示检查。
+- PHP-FPM 展示从实际配置及绝对路径 include 中发现的池，选择后复用其业务 socket（或已配置的回环 TCP 监听）。已有 `pm.status_path` 时沿用，否则增加 `/fpm-status`。不新增 `pm.status_listen`；业务池满载时，状态请求也可能排队或超时。复杂、重复或不能安全解析的配置会拒绝自动修改，可改用已有 URL。
+- 数据库默认使用检测到的 Unix socket，也可填写回环 TCP 地址。“新建专用账号”默认名称 `panel_monitor`，生成随机密码；需要时隐藏输入管理员凭据。只执行创建账号和必要的检查，新账号只有隐含的 `USAGE`，不授业务库、`PROCESS`、`SUPER` 或复制权限。同名账号存在时停止，要求换名或改选“使用已有账号”；后者仅验证连接及两项状态查询，不重置密码或修改权限。socket 账号来源为 `localhost`，TCP 新账号来源限定 `127.0.0.1` 或 `::1`，不创建 `%` 来源账号。慢查询阈值及日志开关保持原样。
+
+应用前会检查可信文件路径和配置版本，生成 root 私有备份到 `/var/backups/lnmp-gopanel/*-metrics-*/`，其中 `manifest.json` 记录原文件路径和权限，按清单顺序对应 `0.before`、`1.before` 等原始内容（新文件没有 `.before`）。原配置备份为 `0600`。向导的受管入口记录保存在面板配置同目录的 `metrics-setup.json`，用于识别文件及端口；受管文件被手工修改时不会覆盖。面板 `config.yaml` 保持 root 所有、`0640`，原服务配置保留原权限和组。
+
+配置检查通过后，仅重载发生变化的 Nginx／PHP-FPM，再以 `lnmp-panel` 账号验证所选采集；原本运行的面板会重启并检查 HTTPS 是否就绪，原本停止的面板保持停止，数据库不重启。重复运行不会重复增加 include、状态路径或账号；如改变受管 HTTP 端口，会一并更新引用该入口的既有监控 URL。
+
+应用失败或收到中断信号时，恢复本次修改的文件和服务配置，只清理本次已确认创建的新账号；已有账号不变。并发修改的文件不会被恢复操作强行覆盖，恢复失败会列出残留项及备份目录。数据库创建请求遇到网络等错误、无法确认是否成功时，会提示核对账号，不自动删除归属未确认的账号。首次安装后的向导是独立事务，取消或失败不撤销已经成功的面板安装。
+
+需要只读复查时，可以面板账号运行：
+
+```bash
+sudo -u lnmp-panel /usr/local/bin/lnmp-gopanel metrics check \
+  --config /etc/lnmp-gopanel/config.yaml \
+  --only nginx,php_fpm,database
+```
+
+`--only` 可只列出已配置的服务，名称为 `nginx`、`php_fpm`、`database`。检查复用运行时采集逻辑，不打开认证状态或写入指标数据。卸载面板仍保留 LNMP 配置和数据库账号；如需清理本功能资源，应先删除专用入口及其 include、恢复本次新增的 PHP 状态设置，检查并重载相关服务，再由数据库管理员删除对应监控账号。勿将 `config.yaml` 中的监控密码当作数据库管理员密码。
