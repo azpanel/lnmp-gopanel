@@ -26,18 +26,25 @@ export function chartPoints(samples: Snapshot[]) {
       memory: s.memory?.percent ?? null,
       download: s.network?.read ?? null,
       upload: s.network?.write ?? null,
+      diskRead: s.disk_io?.read ?? null,
+      diskWrite: s.disk_io?.write ?? null,
+      loadOne: s.load?.one ?? null,
+      loadFive: s.load?.five ?? null,
+      loadFifteen: s.load?.fifteen ?? null,
+      swapUsed: s.swap?.used ?? null,
+      nginxActive: s.nginx?.active ?? null,
+      phpActive: s.php_fpm?.active ?? null,
+      phpIdle: s.php_fpm?.idle ?? null,
+      phpQueue: s.php_fpm?.queue ?? null,
+      dbConnections: s.database?.connections ?? null,
     };
-    if (i > 0 && time - Date.parse(samples[i - 1].timestamp) > 6500)
-      return [
-        {
-          time: time - 1,
-          cpu: null,
-          memory: null,
-          download: null,
-          upload: null,
-        },
-        point,
-      ];
+    if (i > 0 && time - Date.parse(samples[i - 1].timestamp) > 6500) {
+      const gap = { ...point, time: time - 1 };
+      for (const key of Object.keys(point) as (keyof typeof point)[]) {
+        if (key !== "time") gap[key] = null;
+      }
+      return [gap, point];
+    }
     return [point];
   });
 }

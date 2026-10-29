@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/azpanel/lnmp-gopanel/internal/config"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/host"
@@ -15,9 +16,14 @@ import (
 )
 
 type Memory struct {
-	Used    uint64  `json:"used"`
-	Total   uint64  `json:"total"`
-	Percent float64 `json:"percent"`
+	Available uint64  `json:"available"`
+	Free      uint64  `json:"free"`
+	Buffers   uint64  `json:"buffers"`
+	Cached    uint64  `json:"cached"`
+	Other     uint64  `json:"other"`
+	Used      uint64  `json:"used"`
+	Total     uint64  `json:"total"`
+	Percent   float64 `json:"percent"`
 }
 type Rates struct {
 	Read  float64 `json:"read"`
@@ -36,6 +42,10 @@ type Load struct {
 	Fifteen float64 `json:"fifteen"`
 }
 type Snapshot struct {
+	Processes *Processes        `json:"processes,omitempty"`
+	Nginx     *Nginx            `json:"nginx,omitempty"`
+	PHPFPM    *PHPFPM           `json:"php_fpm,omitempty"`
+	Database  *Database         `json:"database,omitempty"`
 	Timestamp time.Time         `json:"timestamp"`
 	CPU       *float64          `json:"cpu"`
 	Memory    *Memory           `json:"memory"`
@@ -95,15 +105,18 @@ func rates(prev, current counter) *Rates {
 }
 
 type Collector struct {
-	mu         sync.RWMutex
-	latest     Snapshot
-	clients    map[chan Snapshot]struct{}
-	prevCPU    *cpu.TimesStat
-	prevNet    map[string]counter
-	prevDisk   map[string]counter
-	disks      []Disk
-	diskErrors map[string]string
-	diskAt     time.Time
+	options       config.MetricsConfig
+	enabled       map[string]bool
+	prevProcesses map[int32]processCounter
+	mu            sync.RWMutex
+	latest        Snapshot
+	clients       map[chan Snapshot]struct{}
+	prevCPU       *cpu.TimesStat
+	prevNet       map[string]counter
+	prevDisk      map[string]counter
+	disks         []Disk
+	diskErrors    map[string]string
+	diskAt        time.Time
 }
 
 func New() *Collector {
@@ -171,10 +184,22 @@ func (c *Collector) sample(parent context.Context) {
 		c.prevCPU = nil
 	}
 	if v, e := mem.VirtualMemoryWithContext(ctx); e == nil {
-		s.Memory = &Memory{Used: v.Used, Total: v.Total, Percent: v.UsedPercent}
+		other, free, buffers, cached := MemoryParts(v.Total, v.Free, v.Buffers, v.Cached)
+		s.Memory = &Memory{Used: v.Used, Total: v.Total, Percent: v.UsedPercent, Available: v.Available, Free: free, Buffers: buffers, Cached: cached, Other: other}
 	} else {
 		s.Errors["memory"] = "内存采集失败"
 	}
+	enabled := c.enabledWidgets()
+	extraCh := make(chan extraSnapshot, 1)
+	var totalMemory uint64
+	if s.Memory != nil {
+		totalMemory = s.Memory.Total
+	}
+	go func() {
+		extraCtx, done := context.WithTimeout(ctx, 1500*time.Millisecond)
+		defer done()
+		extraCh <- c.sampleExtra(extraCtx, enabled, totalMemory)
+	}()
 	if v, e := mem.SwapMemoryWithContext(ctx); e == nil {
 		s.Swap = &Memory{Used: v.Used, Total: v.Total, Percent: v.UsedPercent}
 	} else {
@@ -271,6 +296,11 @@ func (c *Collector) sample(parent context.Context) {
 	}
 	s.Disks = c.disks
 	for k, v := range c.diskErrors {
+		s.Errors[k] = v
+	}
+	extra := <-extraCh
+	s.Processes, s.Nginx, s.PHPFPM, s.Database = extra.processes, extra.nginx, extra.php, extra.database
+	for k, v := range extra.errors {
 		s.Errors[k] = v
 	}
 	c.publish(s)

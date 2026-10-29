@@ -1,3 +1,8 @@
+import {
+  AddWidgetButton,
+  DashboardWidgets,
+  useDashboardWidgets,
+} from "@/components/dashboard-widgets";
 import { Link } from "react-router-dom";
 import { LNMPInstallNotice } from "@/components/lnmp-install-notice";
 import {
@@ -126,10 +131,15 @@ export function Dashboard({
   services?: Service[];
   serviceError?: string;
 }) {
+  const widgets = useDashboardWidgets();
   const s = monitor.latest;
   const load = s?.load;
   const healthy = services?.filter((v) => v.state === "running").length ?? 0;
-  const errors = Object.values(s?.errors || {});
+  const errors = Object.entries(s?.errors || {})
+    .filter(
+      ([key]) => !["processes", "nginx", "php_fpm", "database"].includes(key),
+    )
+    .map(([, value]) => value);
   return (
     <>
       <LNMPInstallNotice />
@@ -139,10 +149,13 @@ export function Dashboard({
           <h1>系统概览</h1>
           <p>掌握服务器的每一次心跳。</p>
         </div>
-        <div className="heading-time">
-          <Clock3 size={14} />
-          <span>{s ? clock(s.timestamp) : "等待采集"}</span>
-          <span className="small-note">最后更新</span>
+        <div className="dashboard-heading-actions">
+          <AddWidgetButton control={widgets} />
+          <div className="heading-time">
+            <Clock3 size={14} />
+            <span>{s ? clock(s.timestamp) : "等待采集"}</span>
+            <span className="small-note">最后更新</span>
+          </div>
         </div>
       </div>
       {errors.length > 0 && (
@@ -222,6 +235,7 @@ export function Dashboard({
         <MetricChart samples={monitor.samples} />
         <MetricChart samples={monitor.samples} network />
       </div>
+      <DashboardWidgets control={widgets} monitor={monitor} host={host} />
       <div className="details-grid">
         <Card>
           <CardHeader className="section-card-header">

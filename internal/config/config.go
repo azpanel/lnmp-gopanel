@@ -14,6 +14,7 @@ import (
 )
 
 type Config struct {
+	Metrics      MetricsConfig    `yaml:"metrics"`
 	Listen       string           `yaml:"listen"`
 	Username     string           `yaml:"username"`
 	PasswordHash string           `yaml:"password_hash"`
@@ -70,6 +71,20 @@ func Read(path string, out any) error {
 func Load(path string) (Config, error) {
 	var c Config
 	if err := Read(path, &c); err != nil {
+		return c, err
+	}
+	if c.Metrics.StateDir == "" {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return c, err
+		}
+		if filepath.Dir(absolute) == "/etc/lnmp-gopanel" {
+			c.Metrics.StateDir = "/var/lib/lnmp-gopanel"
+		} else {
+			c.Metrics.StateDir = filepath.Join(filepath.Dir(absolute), "metrics-state")
+		}
+	}
+	if err := c.Metrics.Validate(); err != nil {
 		return c, err
 	}
 	for _, value := range c.Vhosts.PublicIPs {

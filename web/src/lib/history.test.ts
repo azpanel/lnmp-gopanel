@@ -44,3 +44,39 @@ describe("temporary monitoring window", () => {
     expect(chartPoints([sample(0)])[0].download).toBeNull();
   });
 });
+
+describe("optional dashboard trends", () => {
+  it("maps all optional trend series and preserves real zeroes", () => {
+    const value = sample(2000);
+    value.disk_io = { read: 0, write: 2048 };
+    value.load = { one: 0, five: 2, fifteen: 3 };
+    value.swap = { used: 0, total: 1024, percent: 0 };
+    value.nginx = { active: 0 };
+    value.php_fpm = { active: 0, idle: 4, queue: 0 };
+    value.database = { connections: 0, slow_queries: 5 };
+    expect(chartPoints([value])[0]).toMatchObject({
+      diskRead: 0,
+      diskWrite: 2048,
+      loadOne: 0,
+      loadFive: 2,
+      loadFifteen: 3,
+      swapUsed: 0,
+      nginxActive: 0,
+      phpActive: 0,
+      phpIdle: 4,
+      phpQueue: 0,
+      dbConnections: 0,
+    });
+  });
+  it("leaves gaps for every series after disconnection or probe failure", () => {
+    const value = { ...sample(1000), nginx: { active: 7 } };
+    const points = chartPoints([value, sample(10000)]);
+    expect(points).toHaveLength(3);
+    for (const [key, field] of Object.entries(points[1])) {
+      if (key !== "time") expect(field).toBeNull();
+    }
+    expect(points[2].nginxActive).toBeNull();
+    expect(points[2].dbConnections).toBeNull();
+    expect(points[2].diskRead).toBeNull();
+  });
+});

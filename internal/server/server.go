@@ -37,6 +37,7 @@ type Server struct {
 	Config              config.Config
 	Sessions            *auth.Store
 	Metrics             *metrics.Collector
+	Widgets             *metrics.WidgetStore
 	Services            *control.Manager
 	Components          *components.Manager
 	Docker              *docker.Manager
@@ -115,6 +116,7 @@ func (s *Server) Handler() http.Handler {
 		c.Status(204)
 	})
 	s.registerAccountSecurity(private)
+	s.registerDashboard(private)
 	s.registerLNMPInstallation(private)
 	private.GET("/host", func(c *gin.Context) { c.JSON(200, s.Host) })
 	private.GET("/metrics", func(c *gin.Context) {

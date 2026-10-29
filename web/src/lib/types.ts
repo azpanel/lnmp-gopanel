@@ -1,5 +1,31 @@
 export type BuildInfo = { version: string; built_at: string };
-export type Memory = { used: number; total: number; percent: number };
+export type Memory = {
+  used: number;
+  total: number;
+  percent: number;
+  available?: number;
+  free?: number;
+  buffers?: number;
+  cached?: number;
+  other?: number;
+};
+export type ProcessMetric = {
+  pid: number;
+  name: string;
+  cpu: number | null;
+  rss: number;
+  memory_percent: number | null;
+};
+export type WidgetID =
+  | "disk_io"
+  | "load"
+  | "swap"
+  | "memory_breakdown"
+  | "processes"
+  | "nginx"
+  | "php_fpm"
+  | "database";
+export type DashboardWidgetSelection = { enabled: WidgetID[] };
 export type Rates = { read: number; write: number };
 export type Disk = {
   path: string;
@@ -9,6 +35,14 @@ export type Disk = {
   percent: number;
 };
 export type Snapshot = {
+  processes?: {
+    cpu: ProcessMetric[];
+    memory: ProcessMetric[];
+    partial: boolean;
+  };
+  nginx?: { active: number };
+  php_fpm?: { active: number; idle: number; queue: number };
+  database?: { connections: number; slow_queries: number };
   timestamp: string;
   cpu: number | null;
   memory: Memory | null;

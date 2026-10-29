@@ -86,10 +86,18 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 	collector := metrics.New()
+	collector.Configure(c.Metrics)
+	widgets, widgetsErr := metrics.OpenWidgetStore(c.Metrics.StateDir)
+	if widgetsErr != nil {
+		slog.Warn("状态指标配置初始化失败，系统指标继续可用", "error", widgetsErr)
+	} else {
+		collector.SetEnabled(widgets.Get().Enabled)
+	}
 	manager := control.New(services, control.Helper{Path: c.Helper})
 	go collector.Run(ctx)
 	go manager.Run(ctx)
 	app := server.New(c, collector, manager, web.Assets())
+	app.Widgets = widgets
 	app.ServicesFile = *servicesPath
 	app.Account = account
 	app.LoginLog, err = logs.OpenLoginLog(c.Logs.StateDir)

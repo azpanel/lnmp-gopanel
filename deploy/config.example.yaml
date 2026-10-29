@@ -23,3 +23,14 @@ vhosts:
 screenshots:
   browser: ""
   state_dir: /var/lib/lnmp-gopanel
+# Optional dashboard widgets; selection is stored in dashboard-widgets.json.
+# Only existing local HTTP status endpoints are queried; no service config is changed.
+metrics:
+  state_dir: /var/lib/lnmp-gopanel
+  nginx_status_url: "" # e.g. http://127.0.0.1/nginx_status
+  php_fpm_status_url: "" # e.g. http://127.0.0.1/fpm-status (JSON is requested automatically)
+  mysql:
+    socket: "" # e.g. /tmp/mysql.sock; choose socket OR address
+    address: "" # e.g. 127.0.0.1:3306
+    user: "" # dedicated account able to run SHOW GLOBAL STATUS
+    password: ""
