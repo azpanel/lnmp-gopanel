@@ -23,12 +23,13 @@ async function passwordLogin(page: Page, password: string) {
   await page.getByLabel("密码", { exact: true }).fill(password);
   await page.getByRole("button", { name: "登录面板", exact: true }).click();
 }
-async function openSecurity(page: Page, mobile: boolean) {
+async function openSecurity(page: Page, mobile: boolean, tab = "修改密码") {
   const menu = page.getByRole("button", { name: "打开导航", exact: true });
   if (mobile && (await menu.getAttribute("aria-expanded")) !== "true")
     await menu.click();
   await page.getByRole("button", { name: "账户安全", exact: true }).click();
   const dialog = page.getByRole("dialog");
+  await dialog.getByRole("tab", { name: tab, exact: true }).click();
   await expect(dialog.getByLabel("当前登录密码")).toBeVisible();
   return dialog;
 }
@@ -53,6 +54,11 @@ test("password changes, TOTP enrollment, recovery and session rotation work toge
   await passwordLogin(page, original);
   await expect(page.locator(".workspace")).toBeVisible();
   let dialog = await openSecurity(page, mobile);
+  await page.screenshot({
+    path: testInfo.outputPath("account-password-light.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
   await dialog.getByLabel("当前登录密码").fill(original);
   await dialog
     .getByLabel("新密码", { exact: true })
@@ -83,7 +89,7 @@ test("password changes, TOTP enrollment, recovery and session rotation work toge
   await expect(page.getByRole("alert")).toContainText("用户名或密码错误");
   await passwordLogin(page, password);
   await expect(page.locator(".workspace")).toBeVisible();
-  dialog = await openSecurity(page, mobile);
+  dialog = await openSecurity(page, mobile, "TOTP 设置");
   await dialog.getByLabel("当前登录密码").fill(password);
   await dialog.getByRole("button", { name: "绑定 TOTP", exact: true }).click();
   await expect(
@@ -119,7 +125,7 @@ test("password changes, TOTP enrollment, recovery and session rotation work toge
     timeout: 10000,
   });
   await page.getByRole("button", { name: "切换深色主题" }).click();
-  dialog = await openSecurity(page, mobile);
+  dialog = await openSecurity(page, mobile, "TOTP 设置");
   await page.screenshot({
     path: testInfo.outputPath("account-security-dark.png"),
     fullPage: true,
@@ -144,7 +150,7 @@ test("password changes, TOTP enrollment, recovery and session rotation work toge
   await page.getByLabel("恢复码", { exact: true }).fill(codes[0]);
   await page.getByRole("button", { name: "验证并登录" }).click();
   await expect(page.locator(".workspace")).toBeVisible();
-  dialog = await openSecurity(page, mobile);
+  dialog = await openSecurity(page, mobile, "TOTP 设置");
   await expect(
     dialog.getByText("剩余 9 个恢复码", { exact: false }),
   ).toBeVisible();
@@ -169,7 +175,7 @@ test("password changes, TOTP enrollment, recovery and session rotation work toge
   await page.getByLabel("恢复码", { exact: true }).fill(fresh[0]);
   await page.getByRole("button", { name: "验证并登录" }).click();
   await expect(page.locator(".workspace")).toBeVisible();
-  dialog = await openSecurity(page, mobile);
+  dialog = await openSecurity(page, mobile, "TOTP 设置");
   await dialog.getByLabel("当前登录密码").fill(password);
   await dialog.getByRole("button", { name: "使用恢复码", exact: true }).click();
   await dialog.getByLabel("一次性恢复码", { exact: true }).fill(fresh[1]);
@@ -178,6 +184,7 @@ test("password changes, TOTP enrollment, recovery and session rotation work toge
     dialog.getByRole("button", { name: "绑定 TOTP", exact: true }),
   ).toBeVisible();
   // Restore this isolated test server's original credentials for other specs.
+  await dialog.getByRole("tab", { name: "修改密码", exact: true }).click();
   await dialog.getByLabel("当前登录密码").fill(password);
   await dialog.getByLabel("新密码", { exact: true }).fill(original);
   await dialog.getByLabel("确认新密码").fill(original);

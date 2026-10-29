@@ -1043,11 +1043,66 @@ a {
   gap: 14px;
   min-width: 0;
 }
-.account-security-content
-  > .account-security-section
-  + .account-security-section {
-  padding-top: 18px;
-  border-top: 1px solid var(--border);
+.account-security-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--secondary);
+}
+.account-security-tab {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 5px;
+  color: var(--muted-foreground);
+  font-size: 14px;
+}
+.account-security-tab[data-state="active"] {
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 1px 3px #0000000d;
+}
+.account-security-tab:focus-visible,
+.account-security-panel:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.account-security-tab:disabled {
+  opacity: 0.6;
+}
+.account-security-field {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+.account-security-field > label {
+  min-height: 36px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.account-security-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.account-security-dialog .account-password-generate,
+.account-security-dialog .account-password-submit {
+  font-size: 14px;
+}
+.account-password-generate {
+  align-self: start;
+}
+@media (max-width: 480px) {
+  .account-security-field {
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 10px;
+  }
 }
 .account-security-section h3 {
   display: flex;
@@ -1056,22 +1111,14 @@ a {
   font-size: 16px;
   font-weight: 600;
 }
-.account-security-section .form-field {
-  margin-bottom: 0;
-}
-.account-password-heading,
 .account-password-input,
 .account-security-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.account-password-heading,
 .account-security-actions {
   flex-wrap: wrap;
-}
-.account-password-heading {
-  justify-content: space-between;
 }
 .account-password-input > input {
   flex: 1;
