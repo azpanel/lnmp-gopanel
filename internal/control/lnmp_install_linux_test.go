@@ -6,12 +6,76 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/lnmpinstall"
 )
+
+func TestLNMPInstallUmaskKeepsRuntimeAccessibleAndOutputsPrivate(t *testing.T) {
+	dir := t.TempDir()
+	logPath, sqlPath := filepath.Join(dir, "install.log"), filepath.Join(dir, "query.sql")
+	for _, path := range []string{logPath, sqlPath} {
+		if err := preparePrivateInstallFile(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	script := `#!/bin/bash
+mkdir -p prefix/sbin
+printf '#!/bin/sh\nexit 0\n' > prefix/sbin/daemon
+chmod +x prefix/sbin/daemon
+printf '%s\n' "$TEST_PASSWORD" >> "$TEST_INSTALL_LOG"
+printf '%s\n' "$TEST_PASSWORD" > "$TEST_SQL_FILE"
+`
+	if err := os.WriteFile(filepath.Join(dir, "install.sh"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"TEST_INSTALL_LOG=" + logPath, "TEST_SQL_FILE=" + sqlPath, "TEST_PASSWORD=private-test-value"}
+	// Set 0077 in the parent shell, exactly as systemd does for the worker.
+	err := installerCommand(context.Background(), dir, "/bin/bash", env, func(string) {}, "-c", `umask 077; exec /bin/bash -c "$1"`, "test", lnmpInstallEntrypoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]os.FileMode{filepath.Join(dir, "prefix"): 0755, filepath.Join(dir, "prefix/sbin"): 0755, filepath.Join(dir, "prefix/sbin/daemon"): 0755, logPath: 0600, sqlPath: 0600} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != want {
+			t.Fatalf("%s mode=%o, want %o", path, info.Mode().Perm(), want)
+		}
+	}
+}
+
+func TestPrivateInstallFilesRejectLinksAndPreserveContents(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, []byte("keep existing log"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := preparePrivateInstallFile(target); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(target); err != nil || string(b) != "keep existing log" {
+		t.Fatal("existing output lost")
+	}
+	link := filepath.Join(dir, "symlink")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := preparePrivateInstallFile(link); err == nil {
+		t.Fatal("symlink accepted")
+	}
+	hard := filepath.Join(dir, "hardlink")
+	if err := os.Link(target, hard); err != nil {
+		t.Fatal(err)
+	}
+	if err := preparePrivateInstallFile(hard); err == nil {
+		t.Fatal("hardlink accepted")
+	}
+}
 
 func TestInstallationStreamingAndRedaction(t *testing.T) {
 	secret := "Secret-Pass#2026"

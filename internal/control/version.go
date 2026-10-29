@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -44,9 +45,9 @@ func parseInstalledVersion(name, output string) (string, error) {
 }
 
 func InstalledVersion(ctx context.Context, name string, run CommandRunner) (string, error) {
-	program := firstExecutable(serviceBinaries(name)...)
-	if program == "" {
-		return "", fmt.Errorf("未找到服务可执行文件")
+	program, err := versionProgram(serviceBinaries(name), os.Stat)
+	if err != nil {
+		return "", err
 	}
 	// Production probes run as the unprivileged panel user, including LNMP
 	// binaries owned by their service account. Never elevate version queries.
@@ -61,9 +62,29 @@ func InstalledVersion(ctx context.Context, name string, run CommandRunner) (stri
 	}
 	output, err := run(ctx, program, flag)
 	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return "", fmt.Errorf("服务程序或安装目录权限不足，面板账号无法访问")
+		}
 		return "", fmt.Errorf("服务版本读取失败")
 	}
 	return parseInstalledVersion(name, output)
+}
+
+func versionProgram(paths []string, stat func(string) (os.FileInfo, error)) (string, error) {
+	denied := false
+	for _, path := range paths {
+		info, err := stat(path)
+		if errors.Is(err, os.ErrPermission) {
+			denied = true
+		}
+		if err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0 {
+			return path, nil
+		}
+	}
+	if denied {
+		return "", fmt.Errorf("服务程序或安装目录权限不足，面板账号无法访问")
+	}
+	return "", fmt.Errorf("未找到服务可执行文件")
 }
 
 func (h Helper) Version(ctx context.Context, name string) (string, error) {

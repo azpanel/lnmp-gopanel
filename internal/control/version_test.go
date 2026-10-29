@@ -3,12 +3,44 @@ package control
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/config"
 )
+
+func TestVersionLookupDistinguishesPermissionsFromMissing(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{{os.ErrPermission, "权限不足"}, {os.ErrNotExist, "未找到服务可执行文件"}} {
+		_, err := versionProgram([]string{"/restricted/sbin/nginx"}, func(path string) (os.FileInfo, error) { return nil, &os.PathError{Op: "stat", Path: path, Err: tc.err} })
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("error=%v, want %s", err, tc.want)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "daemon")
+	if err := os.WriteFile(path, []byte("binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program, err := versionProgram([]string{"/missing", "/available"}, func(p string) (os.FileInfo, error) {
+		if p == "/available" {
+			return info, nil
+		}
+		return nil, os.ErrNotExist
+	})
+	if err != nil || program != "/available" {
+		t.Fatal(program, err)
+	}
+}
 
 func TestInstalledVersionParsing(t *testing.T) {
 	for _, tc := range []struct{ name, output, want string }{

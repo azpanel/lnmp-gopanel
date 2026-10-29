@@ -28,6 +28,26 @@ import (
 
 const lnmpRepository = "https://github.com/azpanel/lnmp2.3-offline.git"
 
+// Keep the worker's private state under 0077, but let the upstream installer
+// create ordinary runtime directories and executables for service accounts.
+const lnmpInstallEntrypoint = "umask 022\nexec /bin/bash ./install.sh lnmp"
+
+func preparePrivateInstallFile(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var info unix.Stat_t
+	if err = unix.Fstat(int(f.Fd()), &info); err != nil {
+		return err
+	}
+	if info.Mode&unix.S_IFMT != unix.S_IFREG || info.Uid != uint32(os.Geteuid()) || info.Nlink != 1 {
+		return errors.New("安装敏感输出文件类型或所有者不安全")
+	}
+	return f.Chmod(0600)
+}
+
 type rootInstaller struct{ state, repo, services, helper string }
 
 func defaultInstaller() rootInstaller {
@@ -745,15 +765,16 @@ func (p rootInstaller) install(ctx context.Context, j *lnmpinstall.Job, r lnmpin
 		return err
 	}
 	logPath := "/root/lnmp-install.log"
-	if _, e := os.Lstat(logPath); e == nil {
-		if e = TrustedPath(logPath); e != nil {
-			return errors.New("上游日志文件权限不安全")
+	if err = preparePrivateInstallFile(logPath); err != nil {
+		return fmt.Errorf("无法准备私有安装日志：%w", err)
+	}
+	// Do_Query writes SQL (including password changes) to this fixed upstream
+	// temporary file. Pre-create it privately before relaxing the child's umask.
+	if r.Database != 0 {
+		if err = preparePrivateInstallFile("/tmp/.mysql.tmp"); err != nil {
+			return fmt.Errorf("无法准备私有数据库临时文件：%w", err)
 		}
-		if e = os.Chmod(logPath, 0600); e != nil {
-			return e
-		}
-	} else if !os.IsNotExist(e) {
-		return e
+		defer os.Remove("/tmp/.mysql.tmp")
 	}
 	phase("LNMP 安装与编译")
 	completed, failed := false, false
@@ -775,7 +796,7 @@ func (p rootInstaller) install(ctx context.Context, j *lnmpinstall.Job, r lnmpin
 			}
 		}
 		emit(line)
-	}, "./install.sh", "lnmp")
+	}, "-c", lnmpInstallEntrypoint)
 	if err != nil {
 		return errors.New("LNMP 安装脚本执行失败，请查看编译输出")
 	}
