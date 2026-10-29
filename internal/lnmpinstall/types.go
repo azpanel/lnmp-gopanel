@@ -80,6 +80,7 @@ type Line struct {
 type ReadRequest struct {
 	ID    string `json:"id"`
 	After int64  `json:"after"`
+	Tail  bool   `json:"tail,omitempty"`
 }
 type LogPage struct {
 	Lines  []Line `json:"lines"`

@@ -7,6 +7,10 @@ test("installation defaults, module choices, restart recovery and polling output
   const revision = "a".repeat(40);
   let job: Record<string, unknown> | undefined;
   let submission: Record<string, unknown> | undefined;
+  const logQueries: string[] = [];
+  const streamCursors: string[] = [];
+  let latest = 100;
+  let failNextTail = false;
   const options = {
     revision,
     architecture: "amd64",
@@ -64,27 +68,53 @@ test("installation defaults, module choices, restart recovery and polling output
     job = { ...job, status: "running", phase: "Nginx 编译" };
     return route.fulfill({ status: 202, json: job });
   });
-  await page.route(`**/api/v1/lnmp-installation/jobs/${id}/events*`, (route) =>
-    route.abort(),
+  await page.route(
+    `**/api/v1/lnmp-installation/jobs/${id}/events*`,
+    (route) => {
+      streamCursors.push(
+        new URL(route.request().url()).searchParams.get("after") || "0",
+      );
+      return route.abort();
+    },
   );
   await page.route(`**/api/v1/lnmp-installation/jobs/${id}/logs*`, (route) => {
-    const after = Number(
-      new URL(route.request().url()).searchParams.get("after") || "0",
-    );
+    const url = new URL(route.request().url());
+    logQueries.push(url.search);
+    const tail = url.searchParams.get("tail") === "1";
+    const after = Number(url.searchParams.get("after") || "0");
+    if (tail && failNextTail) {
+      failNextTail = false;
+      return route.fulfill({
+        status: 503,
+        json: { error: "temporary log read failure" },
+      });
+    }
+    if (!tail && after === 0) {
+      return route.fulfill({
+        json: {
+          lines: [{ id: 50, text: "old compilation output" }],
+          cursor: 50,
+          more: true,
+        },
+      });
+    }
     return route.fulfill({
       json: {
         lines:
-          after === 0
+          tail || after < latest
             ? [
                 {
-                  id: 100,
+                  id: latest,
                   time: new Date().toISOString(),
                   phase: "编译",
-                  text: "make: compiling nginx with selected modules",
+                  text:
+                    latest === 100
+                      ? "make: compiling nginx with selected modules"
+                      : "make: latest compilation progress",
                 },
               ]
             : [],
-        cursor: 100,
+        cursor: latest,
         more: false,
       },
     });
@@ -131,10 +161,40 @@ test("installation defaults, module choices, restart recovery and polling output
   await expect(page.getByLabel("安装编译输出")).toContainText(
     "compiling nginx",
   );
+  expect(logQueries).toContain("?tail=1");
+  expect(logQueries).not.toContain("?after=0");
+  await expect.poll(() => streamCursors).toContain("100");
+  logQueries.length = 0;
+  streamCursors.length = 0;
+  failNextTail = true;
   await page.reload();
   await expect(page.getByText("Nginx 编译", { exact: true })).toBeVisible();
   await expect(page.getByLabel("安装编译输出")).toContainText(
     "compiling nginx",
+  );
+  expect(logQueries[0]).toBe("?tail=1");
+  expect(logQueries.filter((query) => query === "?tail=1")).toHaveLength(2);
+  expect(logQueries).not.toContain("?after=0");
+  await expect.poll(() => streamCursors).toContain("100");
+  expect(streamCursors).not.toContain("0");
+  await expect(page.getByLabel("安装编译输出")).not.toContainText(
+    "old compilation output",
+  );
+  latest = 200;
+  await expect(page.getByLabel("安装编译输出")).toContainText(
+    "latest compilation progress",
+  );
+  expect(logQueries).toContain("?after=100");
+  await page.getByRole("button", { name: "读取历史日志" }).click();
+  await expect(page.locator(".install-history")).toContainText(
+    "old compilation output",
+  );
+  await page.getByRole("button", { name: "下一页历史" }).click();
+  await expect(page.locator(".install-history")).toContainText(
+    "latest compilation progress",
+  );
+  await expect(page.getByLabel("安装编译输出")).not.toContainText(
+    "old compilation output",
   );
   await expect(page.getByRole("button", { name: "开始安装 LNMP" })).toHaveCount(
     0,

@@ -377,6 +377,7 @@ function InstallationOutput({ job }: { job: InstallJob }) {
     let disposed = false;
     let source: EventSource | null = null;
     let polling = false;
+    let initialized = false;
     let lastFailureCheck = 0;
     cursor.current = 0;
     setLines([]);
@@ -399,11 +400,12 @@ function InstallationOutput({ job }: { job: InstallJob }) {
         let pages = 0;
         while (more && !disposed && pages++ < 8) {
           const page = await api<InstallLogPage>(
-            `/lnmp-installation/jobs/${job.id}/logs?after=${cursor.current}`,
+            `/lnmp-installation/jobs/${job.id}/logs?${initialized ? `after=${cursor.current}` : "tail=1"}`,
           );
           if (disposed) return;
           append(page.lines);
           cursor.current = Math.max(cursor.current, page.cursor);
+          initialized = true;
           more = page.more;
         }
         if (!disposed) setError("");
@@ -467,11 +469,13 @@ function InstallationOutput({ job }: { job: InstallJob }) {
         }
       };
     };
-    void poll().then(() => {
-      if (!disposed && activeInstall(job)) connect();
-    });
+    const refresh = async () => {
+      await poll();
+      if (!disposed && initialized && !source && activeInstall(job)) connect();
+    };
+    void refresh();
     const timer = window.setInterval(() => {
-      if (!source || source.readyState !== EventSource.OPEN) void poll();
+      if (!source || source.readyState !== EventSource.OPEN) void refresh();
     }, 2000);
     return () => {
       disposed = true;
@@ -562,7 +566,8 @@ function InstallationOutput({ job }: { job: InstallJob }) {
           {lines.map((l) => l.text).join("\n") || "等待任务输出…"}
         </pre>
         <p className="small-note">
-          页面保留最近 2,000 行；历史日志与下载包含已保存的完整输出。
+          进入页面先显示最近输出，后续保留最近 2,000
+          行；更早的内容可读取历史日志或下载完整日志。
         </p>
       </CardContent>
     </Card>

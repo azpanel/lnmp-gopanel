@@ -4,6 +4,7 @@ package control
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -333,9 +334,50 @@ func (p rootInstaller) start(ctx context.Context, r lnmpinstall.Request) (*lnmpi
 	}
 	return j, nil
 }
+
+// installLogTailOffset finds a recent page by scanning backwards, without
+// replaying the full file. A trailing incomplete record is left for the next read.
+func installLogTailOffset(f *os.File, size int64) (int64, error) {
+	buf := make([]byte, 32*1024)
+	start, end := size, int64(-1)
+	count := 0
+	for offset := size; offset > 0; {
+		n := min(offset, int64(len(buf)))
+		offset -= n
+		chunk := buf[:n]
+		if _, err := f.ReadAt(chunk, offset); err != nil {
+			return 0, err
+		}
+		for {
+			i := bytes.LastIndexByte(chunk, '\n')
+			if i < 0 {
+				break
+			}
+			boundary := offset + int64(i) + 1
+			if end < 0 {
+				start, end = boundary, boundary
+			} else {
+				if count > 0 && end-boundary > 128*1024 {
+					return start, nil
+				}
+				start = boundary
+				count++
+				if count == 200 {
+					return start, nil
+				}
+			}
+			chunk = chunk[:i]
+		}
+	}
+	if count == 0 || end <= 128*1024 {
+		return 0, nil
+	}
+	return start, nil
+}
+
 func (p rootInstaller) read(r lnmpinstall.ReadRequest) (lnmpinstall.LogPage, error) {
 	page := lnmpinstall.LogPage{Lines: []lnmpinstall.Line{}, Cursor: r.After}
-	if !lnmpinstall.ValidID(r.ID) || r.After < 0 {
+	if !lnmpinstall.ValidID(r.ID) || r.After < 0 || (r.Tail && r.After != 0) {
 		return page, errors.New("日志游标或任务标识无效")
 	}
 	if _, err := p.load(r.ID); err != nil {
@@ -359,6 +401,13 @@ func (p rootInstaller) read(r lnmpinstall.ReadRequest) (lnmpinstall.LogPage, err
 	info, err := f.Stat()
 	if err != nil {
 		return page, err
+	}
+	if r.Tail {
+		r.After, err = installLogTailOffset(f, info.Size())
+		if err != nil {
+			return page, err
+		}
+		page.Cursor = r.After
 	}
 	if r.After > info.Size() {
 		return page, errors.New("日志游标超出文件大小")

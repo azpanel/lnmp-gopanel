@@ -14,6 +14,7 @@ import (
 type installStub struct {
 	calls    int
 	conflict bool
+	reads    []lnmpinstall.ReadRequest
 }
 
 const installTestID = "11111111-1111-4111-8111-111111111111"
@@ -33,6 +34,7 @@ func (b *installStub) InstallStart(context.Context, lnmpinstall.Request) (lnmpin
 	return lnmpinstall.Job{}, errors.New("invalid options")
 }
 func (b *installStub) InstallRead(_ context.Context, r lnmpinstall.ReadRequest) (lnmpinstall.LogPage, error) {
+	b.reads = append(b.reads, r)
 	if r.After == 0 {
 		return lnmpinstall.LogPage{Cursor: 100, Lines: []lnmpinstall.Line{{ID: 100, Text: "compile output", Time: time.Now()}}}, nil
 	}
@@ -70,6 +72,18 @@ func TestInstallationAuthenticationAndStreams(t *testing.T) {
 	}
 	if w = request(h, "GET", "/api/v1/lnmp-installation/jobs/"+installTestID+"/logs?after=-1", "", cookie, "", ""); w.Code != 400 {
 		t.Fatal(w.Code)
+	}
+	logsPath := "/api/v1/lnmp-installation/jobs/" + installTestID + "/logs"
+	for _, query := range []string{"?tail=invalid", "?tail=1&after=100", "?tail=1&download=1"} {
+		if w = request(h, "GET", logsPath+query, "", cookie, "", ""); w.Code != 400 || len(b.reads) != 0 {
+			t.Fatal(query, w.Code, w.Body.String())
+		}
+	}
+	if w = request(h, "GET", logsPath+"?tail=1", "", cookie, "", ""); w.Code != 200 || len(b.reads) != 1 || !b.reads[0].Tail {
+		t.Fatal(w.Code, w.Body.String(), b.reads)
+	}
+	if w = request(h, "GET", logsPath+"?after=100", "", cookie, "", ""); w.Code != 200 || b.reads[1].Tail || b.reads[1].After != 100 {
+		t.Fatal(w.Code, w.Body.String(), b.reads)
 	}
 	if w = request(h, "GET", "/api/v1/lnmp-installation/jobs/"+installTestID+"/events", "", cookie, "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), "compile output") || !strings.Contains(w.Body.String(), "event:complete") {
 		t.Fatal(w.Code, w.Body.String())

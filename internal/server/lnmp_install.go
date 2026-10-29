@@ -132,10 +132,15 @@ func (s *Server) installationLogs(c *gin.Context) {
 			return
 		}
 	}
+	tail := c.Query("tail") == "1"
+	if (c.Query("tail") != "" && !tail) || (tail && (after != 0 || c.Query("download") == "1")) {
+		fail(c, 400, "日志读取选项无效")
+		return
+	}
 	if c.Query("download") != "1" {
 		ctx, done := context.WithTimeout(c.Request.Context(), 20*time.Second)
 		defer done()
-		v, err := s.Installation.InstallRead(ctx, lnmpinstall.ReadRequest{ID: c.Param("id"), After: after})
+		v, err := s.Installation.InstallRead(ctx, lnmpinstall.ReadRequest{ID: c.Param("id"), After: after, Tail: tail})
 		if err != nil {
 			installFailure(c, err)
 			return

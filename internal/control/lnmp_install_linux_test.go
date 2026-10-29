@@ -237,4 +237,105 @@ func TestPersistentLogCursor(t *testing.T) {
 	if _, e := p.read(lnmpinstall.ReadRequest{ID: id}); e == nil {
 		t.Fatal("symlink read allowed")
 	}
+	if _, e := p.read(lnmpinstall.ReadRequest{ID: id, Tail: true}); e == nil {
+		t.Fatal("symlink tail read allowed")
+	}
+}
+
+func TestInstallationLogTailAndResume(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("root-owned state trust check")
+	}
+	dir, err := os.MkdirTemp("/root", "lnmp-install-tail-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	p := rootInstaller{state: dir}
+	id := "11111111-1111-4111-8111-111111111111"
+	if err = os.Mkdir(p.path(id, ""), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = p.save(&lnmpinstall.Job{ID: id, Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if page, err := p.read(lnmpinstall.ReadRequest{ID: id, Tail: true}); err != nil || len(page.Lines) != 0 || page.Cursor != 0 {
+		t.Fatalf("missing log: %+v, %v", page, err)
+	}
+	for _, tc := range []struct {
+		name    string
+		count   int
+		text    string
+		partial bool
+	}{
+		{"empty", 0, "", false},
+		{"single", 1, "first", false},
+		{"under page", 199, "compile", false},
+		{"full page", 200, "compile", false},
+		{"over page", 201, "compile", false},
+		{"many pages", 5000, "正在编译", false},
+		{"byte limit", 40, strings.Repeat("x", 8000), false},
+		{"large record", 3, strings.Repeat("\t", 65500), false},
+		{"partial first", 0, "", true},
+		{"partial last", 405, "compile", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var data []byte
+			offsets := []int64{0}
+			for i := 0; i < tc.count; i++ {
+				b, err := json.Marshal(lnmpinstall.Line{Text: tc.text})
+				if err != nil {
+					t.Fatal(err)
+				}
+				data = append(data, append(b, '\n')...)
+				offsets = append(offsets, int64(len(data)))
+			}
+			end := int64(len(data))
+			if tc.partial {
+				data = append(data, []byte(`{"text":"pending`)...)
+			}
+			path := p.path(id, "output.jsonl")
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			page, err := p.read(lnmpinstall.ReadRequest{ID: id, Tail: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			start := max(0, tc.count-200)
+			for start < tc.count-1 && end-offsets[start] > 128*1024 {
+				start++
+			}
+			if len(page.Lines) != tc.count-start || page.Cursor != end || (page.More && !tc.partial) {
+				t.Fatalf("lines=%d cursor=%d more=%v; want lines=%d cursor=%d", len(page.Lines), page.Cursor, page.More, tc.count-start, end)
+			}
+			for i, line := range page.Lines {
+				if line.ID != offsets[start+i+1] || line.Text != tc.text {
+					t.Fatalf("unexpected line %d: %+v", i, line)
+				}
+			}
+			if page.More {
+				next, err := p.read(lnmpinstall.ReadRequest{ID: id, After: page.Cursor})
+				if err != nil || len(next.Lines) != 0 || next.More || next.Cursor != end {
+					t.Fatalf("unfinished record: %+v, %v", next, err)
+				}
+			}
+			// Resume from the returned byte cursor, including an unfinished record.
+			if tc.partial {
+				data = append(data, []byte("\"}\n")...)
+			} else {
+				data = append(data, []byte("{\"text\":\"pending\"}\n")...)
+			}
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			next, err := p.read(lnmpinstall.ReadRequest{ID: id, After: page.Cursor})
+			if err != nil || len(next.Lines) != 1 || next.Lines[0].Text != "pending" || next.Cursor != int64(len(data)) {
+				t.Fatalf("resume: %+v, %v", next, err)
+			}
+		})
+	}
+	if _, err := p.read(lnmpinstall.ReadRequest{ID: id, Tail: true, After: 1}); err == nil {
+		t.Fatal("tail with cursor accepted")
+	}
 }
