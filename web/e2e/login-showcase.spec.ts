@@ -48,7 +48,7 @@ test("login slogans and local demos rotate together without moving the form or c
   await page.getByLabel("密码", { exact: true }).fill("demo-password");
   const card = (await page.locator(".login-card").boundingBox())!;
   const stage = (await page.locator(".login-showcase-stage").boundingBox())!;
-  const themes = ["resources", "services", "storage"];
+  const themes = ["resources", "services", "storage", "network", "logs"];
   for (let index = 0; index < themes.length; index++) {
     await expect(current(page)).toHaveAttribute("data-theme", themes[index]);
     await expect(current(page).locator("h1")).toBeVisible();
@@ -70,6 +70,16 @@ test("login slogans and local demos rotate together without moving the form or c
           "aria-valuenow",
           "42",
         );
+      if (index === 3)
+        await expect(current(page).locator(".chart-header")).toContainText(
+          "网络吞吐",
+        );
+      if (index === 4) {
+        await expect(current(page).locator(".log-line")).toHaveCount(5);
+        await expect(
+          current(page).getByText("10:05:02 GET /api 200", { exact: true }),
+        ).toBeVisible();
+      }
       expect(
         await current(page)
           .locator('.login-demo > [data-slot="card"]')
@@ -120,7 +130,13 @@ test("demos fit the narrow desktop layout and disappear at the mobile breakpoint
   await openLogin(page, true);
   for (const width of [721, 1024]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const name of ["资源趋势", "服务状态", "磁盘空间"]) {
+    for (const name of [
+      "资源趋势",
+      "服务状态",
+      "磁盘空间",
+      "网络吞吐",
+      "日志速览",
+    ]) {
       await select(page, name);
       const card = current(page).locator('.login-demo > [data-slot="card"]');
       await expect(card).toBeVisible();
@@ -132,6 +148,7 @@ test("demos fit the narrow desktop layout and disappear at the mobile breakpoint
         ),
       ).toBe(true);
     }
+    await select(page, "磁盘空间");
     await current(page)
       .getByRole("button", { name: "/demo/media，18.0 GiB", exact: true })
       .click();
@@ -163,17 +180,17 @@ test("carousel controls, focus, hover and visibility pause and restart the full 
   isMobile,
 }) => {
   await openLogin(page);
-  const storage = page.getByRole("button", {
-    name: "显示磁盘空间",
+  const lastSlide = page.getByRole("button", {
+    name: "显示日志速览",
     exact: true,
   });
-  await storage.focus();
-  await storage.press("Enter");
+  await lastSlide.focus();
+  await lastSlide.press("Enter");
   await page.clock.runFor(12000);
-  await expect(current(page)).toHaveAttribute("data-theme", "storage");
+  await expect(current(page)).toHaveAttribute("data-theme", "logs");
   await leaveShowcase(page);
   await page.clock.runFor(4999);
-  await expect(current(page)).toHaveAttribute("data-theme", "storage");
+  await expect(current(page)).toHaveAttribute("data-theme", "logs");
   await page.clock.runFor(1);
   await expect(current(page)).toHaveAttribute("data-theme", "resources");
 
@@ -222,7 +239,7 @@ test("carousel controls, focus, hover and visibility pause and restart the full 
   await page.clock.runFor(4999);
   await expect(current(page)).toHaveAttribute("data-theme", "storage");
   await page.clock.runFor(1);
-  await expect(current(page)).toHaveAttribute("data-theme", "resources");
+  await expect(current(page)).toHaveAttribute("data-theme", "network");
 });
 
 test("reduced motion starts paused, supports manual selection and explicit playback in dark mode", async ({
@@ -237,7 +254,13 @@ test("reduced motion starts paused, supports manual selection and explicit playb
   await expect(
     page.getByRole("button", { name: "继续自动轮换", exact: true }),
   ).toBeVisible();
-  for (const name of ["服务状态", "磁盘空间", "资源趋势"]) {
+  for (const name of [
+    "服务状态",
+    "磁盘空间",
+    "网络吞吐",
+    "日志速览",
+    "资源趋势",
+  ]) {
     await select(page, name);
     await expect(current(page)).toHaveCSS("transition-duration", "0s");
     await page.screenshot({

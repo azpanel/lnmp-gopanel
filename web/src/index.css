@@ -1261,20 +1261,22 @@ a {
 }
 .login-intro {
   min-width: 0;
+  width: 100%;
+  max-width: 470px;
 }
 .login-intro h1 {
-  font-size: 60px;
+  font-size: 52px;
   line-height: 1.3;
   font-weight: 600;
   letter-spacing: -2px;
-  margin: 25px 0;
+  margin: 21px 0;
 }
 .login-intro h1 > span {
   color: var(--primary);
 }
 .login-intro p {
   color: var(--muted-foreground);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 2;
 }
 .live-dot {
@@ -1306,8 +1308,8 @@ a {
   transition-delay: 0s;
 }
 .login-demo {
-  margin-top: 24px;
-  --login-demo-height: 248px;
+  margin-top: 20px;
+  --login-demo-height: 224px;
 }
 .login-demo-label {
   display: flex;
@@ -1318,8 +1320,8 @@ a {
 }
 .login-demo > [data-slot="card"] {
   height: var(--login-demo-height);
-  padding: 18px 20px;
-  gap: 14px;
+  padding: 16px 18px;
+  gap: 12px;
 }
 .login-demo [data-slot="card-header"],
 .login-demo [data-slot="card-content"] {
@@ -1333,7 +1335,7 @@ a {
   padding: 0 !important;
 }
 .login-demo .metric-chart {
-  height: 176px;
+  height: 156px;
   font-size: 11px;
 }
 .login-demo .chart-legend span {
@@ -1344,7 +1346,7 @@ a {
 }
 .login-demo-services {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 .login-demo-service {
   display: flex;
@@ -1353,8 +1355,8 @@ a {
   font-size: 14px;
 }
 .login-demo-service .service-icon {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   font-size: 16px;
 }
 .login-demo-service .status-badge {
@@ -1362,7 +1364,8 @@ a {
   font-size: 11px;
 }
 .login-demo-disk-heading,
-.login-demo-disk-heading [data-slot="card-title"] {
+.login-demo-disk-heading [data-slot="card-title"],
+.login-demo-log-heading [data-slot="card-title"] {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1380,7 +1383,20 @@ a {
   gap: 9px;
 }
 .login-demo .file-treemap {
-  height: 112px;
+  height: 96px;
+}
+.login-demo .log-viewport {
+  height: 154px;
+  min-height: 0;
+}
+.login-demo .log-line {
+  font-size: 11px;
+  gap: 8px;
+  padding-right: 8px;
+}
+.login-demo .log-offset {
+  width: 24px;
+  padding-left: 4px;
 }
 .login-demo .treemap-selection {
   font-size: 11px;
@@ -1425,6 +1441,11 @@ a {
 .login-showcase-pause {
   margin-left: 8px;
   color: var(--muted-foreground);
+}
+@media (min-width: 1201px) {
+  .login-intro {
+    margin-left: -36px;
+  }
 }
 .login-card [data-slot="card-content"] {
   padding: 34px;
@@ -1585,7 +1606,7 @@ a {
     grid-template-columns: 1fr 350px;
   }
   .login-intro h1 {
-    font-size: 48px;
+    font-size: 42px;
   }
   .metric-chart {
     height: 220px;
@@ -1714,7 +1735,7 @@ a {
     gap: 35px;
   }
   .login-intro h1 {
-    font-size: 40px;
+    font-size: 36px;
     margin: 17px 0;
   }
   .login-intro p {

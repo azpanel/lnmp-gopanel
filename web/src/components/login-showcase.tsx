@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { HardDrive, Pause, Play } from "lucide-react";
+import { FileText, HardDrive, Pause, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileTreemap } from "@/components/file-treemap";
 import { Meter } from "@/components/meter";
+import { LogViewport } from "@/components/log-viewport";
 import { MetricChart } from "@/components/metric-chart";
 import { ServiceIcon, ServiceStatus, serviceInfo } from "@/components/status";
 import type { Snapshot } from "@/lib/types";
@@ -30,6 +31,20 @@ const slides = [
     accent: "心中有数。",
     description: ["看清磁盘使用与文件占用，", "为每一次增长留出充足空间。"],
   },
+  {
+    id: "network",
+    name: "网络吞吐",
+    title: "网络流量，",
+    accent: "清晰可见。",
+    description: ["实时掌握接收与发送速率，", "看清每一次流量变化。"],
+  },
+  {
+    id: "logs",
+    name: "日志速览",
+    title: "关键日志，",
+    accent: "随时可查。",
+    description: ["从访问记录到运行日志，", "快速找到排查问题的线索。"],
+  },
 ];
 
 // Fixed examples are independent of the host and require no authenticated APIs.
@@ -44,7 +59,10 @@ const samples: Snapshot[] = Array.from({ length: 61 }, (_, index) => ({
   swap: null,
   load: null,
   uptime: null,
-  network: null,
+  network: {
+    read: Math.round((320 + 100 * Math.sin(index / 6)) * 1024),
+    write: Math.round((90 + 35 * Math.cos(index / 7)) * 1024),
+  },
   disk_io: null,
   disks: [],
   errors: {},
@@ -55,6 +73,13 @@ const files = [
   { path: "/demo/backups", size: 8 * 1024 ** 3 },
   { path: "/demo/assets", size: 4 * 1024 ** 3 },
 ];
+const logLines = [
+  "10:05:01 GET / 200",
+  "10:05:02 GET /api 200",
+  "10:05:03 GET /app 304",
+  "10:05:04 cache hit",
+  "10:05:05 reload done",
+].map((text, index) => ({ offset: String(index * 32), text }));
 
 function useMedia(query: string) {
   const [matches, setMatches] = useState(
@@ -72,6 +97,22 @@ function useMedia(query: string) {
 
 function Demo({ theme }: { theme: string }) {
   if (theme === "resources") return <MetricChart samples={samples} />;
+  if (theme === "network") return <MetricChart samples={samples} network />;
+  if (theme === "logs") {
+    return (
+      <Card className="login-demo-card">
+        <CardHeader className="login-demo-log-heading">
+          <CardTitle>
+            <FileText size={16} />
+            日志速览
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <LogViewport lines={logLines} follow={false} onFollow={() => {}} />
+        </CardContent>
+      </Card>
+    );
+  }
   if (theme === "services") {
     return (
       <Card className="login-demo-card">
