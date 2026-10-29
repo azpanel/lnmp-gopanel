@@ -342,20 +342,22 @@ function Workspace({
               <strong>{session.username}</strong>
               <span>系统管理员</span>
             </div>
-            <AccountSecurity username={session.username} />
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="退出登录"
-              onClick={() => void signOut()}
-              disabled={loggingOut}
-            >
-              {loggingOut ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <LogOut size={16} />
-              )}
-            </Button>
+            <div className="sidebar-profile-actions">
+              <AccountSecurity username={session.username} />
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="退出登录"
+                onClick={() => void signOut()}
+                disabled={loggingOut}
+              >
+                {loggingOut ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <LogOut size={16} />
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </aside>

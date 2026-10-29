@@ -219,10 +219,6 @@ export function LoginShowcase() {
             </p>
             {desktop && (
               <div className="login-demo" aria-label={`${slide.name}演示数据`}>
-                <div className="login-demo-label">
-                  <span>功能预览</span>
-                  <span>演示数据</span>
-                </div>
                 <Demo theme={slide.id} />
               </div>
             )}

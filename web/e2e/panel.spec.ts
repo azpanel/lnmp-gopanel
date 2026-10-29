@@ -212,3 +212,89 @@ test("default light theme ignores operating system dark mode and unavailable sto
   ).toBeVisible();
   await expect(page.locator("html")).not.toHaveClass(/dark/);
 });
+
+test("nginx build information displays full output, pending state and cached errors", async ({
+  page,
+}, testInfo) => {
+  const responses: Record<string, unknown> = {
+    "/auth/session": {
+      username: "admin",
+      csrf_token: "fixture-csrf",
+      expires_at: "2099-01-01T00:00:00Z",
+    },
+    "/build": { version: "test", built_at: "2026-10-29T00:00:00Z" },
+    "/host": {
+      hostname: "fixture-server",
+      os: "Linux",
+      platform: "debian",
+      version: "13",
+      arch: "amd64",
+      cores: 2,
+    },
+    "/vhosts/count": { count: 0 },
+    "/components": { status: "ready", items: [] },
+    "/services/releases": {},
+  };
+  await page.route("**/api/v1/**", (route) => {
+    const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
+    return route.fulfill({
+      status: path in responses ? 200 : 503,
+      json: responses[path] ?? { error: "fixture endpoint unavailable" },
+    });
+  });
+  let output = "";
+  let error = "";
+  await page.route("**/api/v1/services", (route) =>
+    route.fulfill({
+      json: [
+        {
+          name: "nginx",
+          state: "running",
+          manager: "init",
+          actions: [],
+          message: "服务运行中",
+          checked_at: new Date().toISOString(),
+          busy: false,
+          version: "1.28.0",
+          version_output: output,
+          version_error: error,
+        },
+      ],
+    }),
+  );
+  await page.goto("/services");
+  const trigger = page.getByRole("button", { name: "编译信息", exact: true });
+  const dialog = page.getByRole("dialog", {
+    name: "Nginx 编译信息",
+    exact: true,
+  });
+  await trigger.click();
+  await expect(dialog.getByRole("status")).toContainText("尚未读取编译信息");
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  output =
+    "nginx version: nginx/1.28.0\nbuilt with OpenSSL 3.4.1\nconfigure arguments: --with-http_ssl_module\n<script>window.buildInjected=true</script>";
+  await page.reload();
+  await trigger.click();
+  await expect(dialog.locator("pre")).toHaveText(output);
+  expect(await page.evaluate(() => "buildInjected" in window)).toBe(false);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("nginx-build-info.png"),
+    fullPage: true,
+  });
+  error = "服务版本读取失败";
+  await page.reload();
+  await trigger.click();
+  await expect(dialog.getByRole("alert")).toContainText("显示上次成功结果");
+  await expect(dialog.locator("pre")).toHaveText(output);
+  output = "";
+  await page.reload();
+  await trigger.click();
+  await expect(dialog.getByRole("alert")).toContainText("读取失败");
+  await expect(dialog.locator("pre")).toHaveCount(0);
+});

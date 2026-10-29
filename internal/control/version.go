@@ -44,30 +44,49 @@ func parseInstalledVersion(name, output string) (string, error) {
 	return "", fmt.Errorf("无法识别服务版本号")
 }
 
-func InstalledVersion(ctx context.Context, name string, run CommandRunner) (string, error) {
+type VersionInfo struct {
+	Version string
+	Output  string
+}
+
+func InstalledVersion(ctx context.Context, name string, run CommandRunner) (VersionInfo, error) {
 	program, err := versionProgram(serviceBinaries(name), os.Stat)
 	if err != nil {
-		return "", err
+		return VersionInfo{}, err
 	}
 	// Production probes run as the unprivileged panel user, including LNMP
 	// binaries owned by their service account. Never elevate version queries.
 	if os.Geteuid() == 0 {
 		if err := TrustedPath(program); err != nil {
-			return "", fmt.Errorf("服务可执行文件权限不安全")
+			return VersionInfo{}, fmt.Errorf("服务可执行文件权限不安全")
 		}
 	}
+	return readInstalledVersion(ctx, name, program, run)
+}
+
+func readInstalledVersion(ctx context.Context, name, program string, run CommandRunner) (VersionInfo, error) {
 	flag := "--version"
-	if name == "nginx" || name == "php-fpm" {
+	if name == "nginx" {
+		flag = "-V"
+	} else if name == "php-fpm" {
 		flag = "-v"
 	}
 	output, err := run(ctx, program, flag)
 	if err != nil {
 		if errors.Is(err, os.ErrPermission) {
-			return "", fmt.Errorf("服务程序或安装目录权限不足，面板账号无法访问")
+			return VersionInfo{}, fmt.Errorf("服务程序或安装目录权限不足，面板账号无法访问")
 		}
-		return "", fmt.Errorf("服务版本读取失败")
+		return VersionInfo{}, fmt.Errorf("服务版本读取失败")
 	}
-	return parseInstalledVersion(name, output)
+	version, err := parseInstalledVersion(name, output)
+	if err != nil {
+		return VersionInfo{}, err
+	}
+	info := VersionInfo{Version: version}
+	if name == "nginx" {
+		info.Output = output
+	}
+	return info, nil
 }
 
 func versionProgram(paths []string, stat func(string) (os.FileInfo, error)) (string, error) {
@@ -87,13 +106,13 @@ func versionProgram(paths []string, stat func(string) (os.FileInfo, error)) (str
 	return "", fmt.Errorf("未找到服务可执行文件")
 }
 
-func (h Helper) Version(ctx context.Context, name string) (string, error) {
+func (h Helper) Version(ctx context.Context, name string) (VersionInfo, error) {
 	return InstalledVersion(ctx, name, RunCommand)
 }
 
 func (m *Manager) refreshVersion(ctx context.Context, name string) {
 	reader, ok := m.executor.(interface {
-		Version(context.Context, string) (string, error)
+		Version(context.Context, string) (VersionInfo, error)
 	})
 	if !ok {
 		return
@@ -119,7 +138,8 @@ func (m *Manager) refreshVersion(ctx context.Context, name string) {
 	if err != nil {
 		view.VersionError = err.Error()
 	} else {
-		view.Version = version
+		view.Version = version.Version
+		view.VersionOutput = version.Output
 	}
 	m.views[name] = view
 }

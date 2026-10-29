@@ -1,7 +1,15 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, ImageIcon, Loader2, RefreshCw, Settings2 } from "lucide-react";
+import {
+  Camera,
+  CircleHelp,
+  ImageIcon,
+  Loader2,
+  RefreshCw,
+  Settings2,
+} from "lucide-react";
 import { toast } from "sonner";
+import { Tooltip } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,6 +32,57 @@ import {
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import type { ScreenshotSnapshot, Vhost, WebsiteScreenshot } from "@/lib/types";
+
+function ScreenshotFieldLabel({
+  htmlFor,
+  children,
+  help,
+}: {
+  htmlFor: string;
+  children: ReactNode;
+  help: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="screenshot-field-label">
+      <Label htmlFor={htmlFor}>{children}</Label>
+      <Tooltip.Provider delayDuration={150}>
+        <Tooltip.Root open={open} onOpenChange={setOpen}>
+          <Tooltip.Trigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="screenshot-help-button"
+              aria-label={`${children}说明`}
+              onClick={(event) => {
+                event.preventDefault();
+                setOpen(true);
+              }}
+            >
+              <CircleHelp size={15} aria-hidden="true" />
+            </Button>
+          </Tooltip.Trigger>
+          <Tooltip.Portal>
+            <Tooltip.Content
+              className="screenshot-help-tooltip"
+              style={{ pointerEvents: "none" }}
+              side="top"
+              sideOffset={6}
+              collisionPadding={16}
+            >
+              {help}
+              <Tooltip.Arrow className="screenshot-help-arrow" />
+            </Tooltip.Content>
+          </Tooltip.Portal>
+        </Tooltip.Root>
+      </Tooltip.Provider>
+      <span id={`${htmlFor}-help`} className="sr-only">
+        {help}
+      </span>
+    </div>
+  );
+}
 
 const resolutions = [
   ...[
@@ -379,7 +438,12 @@ export function useWebsiteScreenshots(enabled: boolean) {
                   />
                 </div>
                 <div className="form-field">
-                  <Label htmlFor="screenshot-resolution">截图分辨率</Label>
+                  <ScreenshotFieldLabel
+                    htmlFor="screenshot-resolution"
+                    help="设置浏览器视口大小，手机和平板尺寸不切换浏览器身份。"
+                  >
+                    截图分辨率
+                  </ScreenshotFieldLabel>
                   <Select
                     value={resolution}
                     disabled={busy}
@@ -408,9 +472,6 @@ export function useWebsiteScreenshots(enabled: boolean) {
                       <SelectItem value="custom">自定义</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p id="screenshot-resolution-help" className="small-note">
-                    设置浏览器视口大小，手机和平板尺寸不切换浏览器身份。
-                  </p>
                 </div>
                 {resolution === "custom" && (
                   <div className="screenshot-dimensions">
@@ -445,7 +506,12 @@ export function useWebsiteScreenshots(enabled: boolean) {
                   </div>
                 )}
                 <div className="form-field">
-                  <Label htmlFor="screenshot-zoom">网页缩放</Label>
+                  <ScreenshotFieldLabel
+                    htmlFor="screenshot-zoom"
+                    help="缩小比例可显示更多内容，输出图片尺寸保持所选分辨率。"
+                  >
+                    网页缩放
+                  </ScreenshotFieldLabel>
                   <Select
                     value={zoomPreset}
                     disabled={busy}
@@ -470,9 +536,6 @@ export function useWebsiteScreenshots(enabled: boolean) {
                       <SelectItem value="custom">自定义</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p id="screenshot-zoom-help" className="small-note">
-                    缩小比例可显示更多内容，输出图片尺寸保持所选分辨率。
-                  </p>
                 </div>
                 {zoomPreset === "custom" && (
                   <div className="form-field">
@@ -493,7 +556,12 @@ export function useWebsiteScreenshots(enabled: boolean) {
                   </div>
                 )}
                 <div className="form-field">
-                  <Label htmlFor="screenshot-language">浏览器语言</Label>
+                  <ScreenshotFieldLabel
+                    htmlFor="screenshot-language"
+                    help="例如 zh-CN（简体中文）、en-US（英语），用于网站语言及日期、数字格式。"
+                  >
+                    浏览器语言
+                  </ScreenshotFieldLabel>
                   <Input
                     id="screenshot-language"
                     required
@@ -504,13 +572,14 @@ export function useWebsiteScreenshots(enabled: boolean) {
                     onChange={(e) => setLanguage(e.target.value)}
                     aria-describedby="screenshot-language-help"
                   />
-                  <p id="screenshot-language-help" className="small-note">
-                    例如
-                    zh-CN（简体中文）、en-US（英语），用于网站语言及日期、数字格式。
-                  </p>
                 </div>
                 <div className="form-field">
-                  <Label htmlFor="screenshot-timeout">最长加载时间（秒）</Label>
+                  <ScreenshotFieldLabel
+                    htmlFor="screenshot-timeout"
+                    help="默认 30 秒，可设为 5–300 秒。等待 CSS、图片和字体等资源加载稳定后截图；加载较慢时可适当增加，超时保留上次成功截图。"
+                  >
+                    最长加载时间（秒）
+                  </ScreenshotFieldLabel>
                   <Input
                     id="screenshot-timeout"
                     type="number"
@@ -522,15 +591,14 @@ export function useWebsiteScreenshots(enabled: boolean) {
                     onChange={(e) => setLoadTimeoutSeconds(e.target.value)}
                     aria-describedby="screenshot-timeout-help"
                   />
-                  <p id="screenshot-timeout-help" className="small-note">
-                    默认 30 秒，可设为 5–300 秒。等待
-                    CSS、图片和字体等资源加载稳定后截图；加载较慢时可适当增加，超时保留上次成功截图。
-                  </p>
                 </div>
                 <div className="form-field">
-                  <Label htmlFor="screenshot-javascript">
+                  <ScreenshotFieldLabel
+                    htmlFor="screenshot-javascript"
+                    help="可选，最多 16 KiB。页面加载后在目标网站中执行一次，支持 await。执行完成并等待资源稳定后截图；执行出错或超时会保留上次成功截图。"
+                  >
                     截图前 JavaScript
-                  </Label>
+                  </ScreenshotFieldLabel>
                   <textarea
                     id="screenshot-javascript"
                     className="screenshot-script"
@@ -546,11 +614,6 @@ export function useWebsiteScreenshots(enabled: boolean) {
                     }
                     aria-describedby="screenshot-javascript-help"
                   />
-                  <p id="screenshot-javascript-help" className="small-note">
-                    可选，最多 16 KiB。页面加载后在目标网站中执行一次，支持
-                    await。
-                    执行完成并等待资源稳定后截图；执行出错或超时会保留上次成功截图。
-                  </p>
                 </div>
                 <div className="screenshot-auth-toggle">
                   <Switch
@@ -576,11 +639,15 @@ export function useWebsiteScreenshots(enabled: boolean) {
                       />
                     </div>
                     <div className="form-field">
-                      <Label htmlFor="screenshot-password">
+                      <ScreenshotFieldLabel
+                        htmlFor="screenshot-password"
+                        help="更换用户名或目标来源时，需要重新填写密码。关闭认证会清除已保存的凭据。"
+                      >
                         Basic Auth 密码
-                      </Label>
+                      </ScreenshotFieldLabel>
                       <Input
                         id="screenshot-password"
+                        aria-describedby="screenshot-password-help"
                         type="password"
                         maxLength={1024}
                         autoComplete="new-password"
@@ -593,9 +660,6 @@ export function useWebsiteScreenshots(enabled: boolean) {
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                       />
-                      <p className="small-note">
-                        更换用户名或目标来源时，需要重新填写密码。关闭认证会清除已保存的凭据。
-                      </p>
                     </div>
                   </>
                 )}

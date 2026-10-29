@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Check,
   CircuitBoard,
+  Code2,
   ExternalLink,
   Loader2,
   Play,
@@ -22,6 +23,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import { ServiceIcon, serviceInfo, ServiceStatus } from "@/components/status";
 import { api } from "@/lib/api";
@@ -195,6 +197,7 @@ export function Services({
                   版本读取失败：{service.version_error}
                 </p>
               )}
+              {service.name === "nginx" && <NginxBuildInfo service={service} />}
               <div className="service-message">
                 <span
                   className={
@@ -453,6 +456,42 @@ const componentDefinitions = [
   { name: "composer", title: "Composer", subtitle: "PHP 依赖管理工具" },
 ];
 
+function NginxBuildInfo({ service }: { service: Service }) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="nginx-build-trigger">
+          <Code2 size={14} />
+          编译信息
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="nginx-build-dialog">
+        <DialogHeader>
+          <DialogTitle>Nginx 编译信息</DialogTitle>
+          <DialogDescription>
+            nginx -V · 版本、构建环境与编译参数
+          </DialogDescription>
+        </DialogHeader>
+        {service.version_error && (
+          <p className="service-version-error" role="alert">
+            读取失败：{service.version_error}
+            {service.version_output ? "（显示上次成功结果）" : ""}
+          </p>
+        )}
+        {service.version_output ? (
+          <pre className="nginx-build-output" tabIndex={0}>
+            {service.version_output}
+          </pre>
+        ) : !service.version_error ? (
+          <p className="small-note" role="status">
+            尚未读取编译信息，请稍后刷新状态。
+          </p>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ReleaseInfo({
   release,
   failed,
@@ -475,10 +514,19 @@ function ReleaseInfo({
             aria-label="正在查询最新版本"
           />
         )}
-        {release?.source_url && (
-          <a href={release.source_url} target="_blank" rel="noreferrer">
-            官方发布 <ExternalLink size={12} />
-          </a>
+        {(release?.source_url || release?.changelog_url) && (
+          <div className="service-release-links">
+            {release?.source_url && (
+              <a href={release.source_url} target="_blank" rel="noreferrer">
+                官方发布 <ExternalLink size={12} />
+              </a>
+            )}
+            {release?.changelog_url && (
+              <a href={release.changelog_url} target="_blank" rel="noreferrer">
+                Changelog 原文 <ExternalLink size={12} />
+              </a>
+            )}
+          </div>
         )}
       </div>
       {release?.checked_at && (
@@ -503,16 +551,6 @@ function ReleaseInfo({
           <summary>查看 {release.version} 更新日志</summary>
           <pre>{release.changelog}</pre>
         </details>
-      )}
-      {release?.changelog_url && (
-        <a
-          className="service-changelog-link"
-          href={release.changelog_url}
-          target="_blank"
-          rel="noreferrer"
-        >
-          Changelog 原文 <ExternalLink size={12} />
-        </a>
       )}
     </div>
   );

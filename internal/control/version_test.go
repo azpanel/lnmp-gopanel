@@ -65,17 +65,94 @@ func TestInstalledVersionParsing(t *testing.T) {
 type versionExecutor struct {
 	versions atomic.Int32
 	fail     bool
+	info     VersionInfo
 }
 
 func (e *versionExecutor) Run(context.Context, string, string) (Result, error) {
 	return Result{State: "running"}, nil
 }
-func (e *versionExecutor) Version(context.Context, string) (string, error) {
+func (e *versionExecutor) Version(context.Context, string) (VersionInfo, error) {
 	e.versions.Add(1)
 	if e.fail {
-		return "", errors.New("version unavailable")
+		return VersionInfo{}, errors.New("version unavailable")
 	}
-	return "7.4.2", nil
+	if e.info.Version != "" {
+		return e.info, nil
+	}
+	return VersionInfo{Version: "7.4.2"}, nil
+}
+
+func TestInstalledVersionProbeRetainsNginxBuildOutput(t *testing.T) {
+	for _, tc := range []struct {
+		name, flag, output, version string
+	}{
+		{"nginx", "-V", "nginx version: nginx/1.28.0\nbuilt with OpenSSL 3.4.1\nconfigure arguments: --with-http_ssl_module", "1.28.0"},
+		{"php-fpm", "-v", "PHP 8.4.4 (fpm-fcgi)", "8.4.4"},
+		{"redis", "--version", "Redis server v=7.4.2 sha=00000000:0", "7.4.2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			info, err := readInstalledVersion(context.Background(), tc.name, "/fixture/daemon", func(_ context.Context, program string, args ...string) (string, error) {
+				calls++
+				if program != "/fixture/daemon" || len(args) != 1 || args[0] != tc.flag {
+					t.Fatalf("unexpected probe: %s %v", program, args)
+				}
+				return tc.output, nil
+			})
+			if err != nil || info.Version != tc.version || calls != 1 {
+				t.Fatalf("info=%+v, err=%v, calls=%d", info, err, calls)
+			}
+			wantOutput := ""
+			if tc.name == "nginx" {
+				wantOutput = tc.output
+			}
+			if info.Output != wantOutput {
+				t.Fatalf("output=%q, want %q", info.Output, wantOutput)
+			}
+		})
+	}
+}
+
+func TestInstalledVersionProbeErrors(t *testing.T) {
+	for _, tc := range []struct {
+		output string
+		err    error
+		want   string
+	}{
+		{"", os.ErrPermission, "权限不足"},
+		{"partial output", context.DeadlineExceeded, "服务版本读取失败"},
+		{"invalid version", nil, "无法识别服务版本号"},
+	} {
+		info, err := readInstalledVersion(context.Background(), "nginx", "/fixture/nginx", func(context.Context, string, ...string) (string, error) {
+			return tc.output, tc.err
+		})
+		if err == nil || !strings.Contains(err.Error(), tc.want) || info != (VersionInfo{}) {
+			t.Fatalf("info=%+v, err=%v; want %s", info, err, tc.want)
+		}
+	}
+}
+
+func TestNginxBuildOutputCachedAndPreservedOnFailure(t *testing.T) {
+	e := &versionExecutor{info: VersionInfo{Version: "1.28.0", Output: "nginx version: nginx/1.28.0\nconfigure arguments: --with-http_ssl_module"}}
+	m := New([]config.Service{{Name: "nginx", Manager: "init"}}, e)
+	m.Refresh(context.Background())
+	m.Refresh(context.Background())
+	view := m.List()[0]
+	if view.Version != e.info.Version || view.VersionOutput != e.info.Output || e.versions.Load() != 1 {
+		t.Fatalf("unexpected cached view: %+v", view)
+	}
+	m.mu.Lock()
+	v := m.views["nginx"]
+	v.VersionCheckedAt = time.Now().Add(-2 * time.Hour)
+	m.views["nginx"] = v
+	m.mu.Unlock()
+	e.fail = true
+	m.Refresh(context.Background())
+	m.Refresh(context.Background())
+	view = m.List()[0]
+	if view.State != "running" || view.VersionOutput != e.info.Output || view.Version != e.info.Version || view.VersionError == "" || e.versions.Load() != 2 {
+		t.Fatalf("failed probe must preserve status and cached output: %+v", view)
+	}
 }
 
 func TestVersionsCachedAndFailuresPreserveStatus(t *testing.T) {

@@ -85,13 +85,15 @@ test("custom logs validate paths, survive refresh and can be removed from the ca
   const input = dialog.getByLabel("日志文件绝对路径");
   await input.fill("relative.log");
   await dialog.getByRole("button", { name: "添加并读取" }).click();
-  await expect(dialog.getByRole("alert")).toHaveText(
-    "请输入日志文件的绝对路径",
-  );
+  await expect(
+    dialog.locator(".custom-log-input").getByRole("alert"),
+  ).toHaveText("请输入日志文件的绝对路径");
   expect(adds).toBe(0);
   await input.fill("/etc/shadow");
   await dialog.getByRole("button", { name: "添加并读取" }).click();
-  await expect(dialog.getByRole("alert")).toContainText("禁止读取敏感目录");
+  await expect(
+    dialog.locator(".custom-log-input").getByRole("alert"),
+  ).toContainText("禁止读取敏感目录");
   expect(paths.size).toBe(0);
   expect(adds).toBe(1);
   await page.screenshot({

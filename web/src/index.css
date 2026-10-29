@@ -303,9 +303,16 @@ a {
   display: block;
   margin-top: 3px;
 }
-.sidebar-profile > button:last-child {
+.sidebar-profile > .sidebar-profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
   margin-left: auto;
   color: var(--muted-foreground);
+}
+.sidebar-profile-actions > button {
+  flex-shrink: 0;
 }
 .main-shell {
   margin-left: 280px;
@@ -880,15 +887,18 @@ a {
   font-size: 16px;
   font-weight: 500;
 }
-.service-release-heading a,
-.service-changelog-link {
+.service-release-heading a {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   color: var(--primary);
   font-size: 14px;
 }
-.service-release-heading a {
+.service-release-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
   margin-left: auto;
 }
 .service-release a:hover {
@@ -922,8 +932,28 @@ a {
   font-size: 14px;
   line-height: 1.8;
 }
-.service-changelog-link {
+.nginx-build-trigger {
   margin-top: 12px;
+}
+.nginx-build-dialog {
+  width: min(850px, calc(100vw - 2rem));
+  max-width: 850px;
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+.nginx-build-output {
+  min-width: 0;
+  max-height: 60dvh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  padding: 14px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.8;
 }
 @media (max-width: 720px) {
   .page-heading:has(.service-heading-actions) {
@@ -1311,13 +1341,6 @@ a {
   margin-top: 20px;
   --login-demo-height: 224px;
 }
-.login-demo-label {
-  display: flex;
-  justify-content: space-between;
-  color: var(--muted-foreground);
-  font-size: 11px;
-  margin-bottom: 10px;
-}
 .login-demo > [data-slot="card"] {
   height: var(--login-demo-height);
   padding: 16px 18px;
@@ -1487,6 +1510,23 @@ a {
 .login-card form > button {
   height: 41px;
   font-size: 16px;
+}
+.login-step {
+  --login-step-offset: -8px;
+  animation: login-step-enter 200ms var(--motion-ease);
+}
+.login-step[data-step="totp"] {
+  --login-step-offset: 8px;
+}
+@keyframes login-step-enter {
+  from {
+    opacity: 0;
+    transform: translateX(var(--login-step-offset));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 .form-error {
   color: var(--danger);
@@ -2482,6 +2522,23 @@ a {
 .screenshot-settings-fields .small-note {
   line-height: 1.7;
 }
+.screenshot-field-label,
+.vhost-summary-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vhost-summary-toggle {
+  margin-right: 6px;
+  gap: 8px;
+}
+.vhost-summary-toggle label {
+  white-space: nowrap;
+  font-size: 14px;
+}
+.screenshot-field-label {
+  min-height: 28px;
+}
 .screenshot-dimensions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2777,13 +2834,19 @@ a {
 }
 .certificate-fields > div {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-columns: 88px minmax(0, 1fr);
   gap: 12px;
   font-size: 14px;
   line-height: 1.75;
 }
 .certificate-fields dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--muted-foreground);
+}
+.certificate-fields dt svg {
+  flex-shrink: 0;
 }
 .certificate-fields dd {
   overflow-wrap: anywhere;
@@ -3021,7 +3084,6 @@ a {
   }
   .certificate-fields > div {
     gap: 9px;
-    grid-template-columns: 60px minmax(0, 1fr);
   }
   .site-certificate-heading .status-badge {
     font-size: 12px;
@@ -3236,6 +3298,44 @@ a {
 }
 .custom-log-input .small-note {
   line-height: 1.8;
+}
+.custom-log-alerts {
+  display: grid;
+  gap: 10px;
+}
+.custom-log-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--secondary);
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--muted-foreground);
+}
+.custom-log-alert > svg {
+  flex-shrink: 0;
+  margin-top: 4px;
+  color: var(--primary);
+}
+.custom-log-alert-warning > svg {
+  color: var(--color-amber-500);
+}
+.log-rule-pattern,
+.log-rule-kind,
+.log-rule-action,
+.log-rule-options [data-slot="select-item"] {
+  font-size: 14px;
+}
+.log-rule-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.log-rule-option svg {
+  flex-shrink: 0;
 }
 .log-rules-drawer [data-variant] {
   font-size: 14px;
@@ -3924,13 +4024,15 @@ a {
   font-size: 14px;
 }
 .create-help-button,
-.log-location-help {
+.log-location-help,
+.screenshot-help-button {
   width: 26px;
   height: 28px;
   color: var(--muted-foreground);
 }
 .create-help-tooltip,
 .log-location-tooltip,
+.screenshot-help-tooltip,
 .profile-build-tooltip {
   z-index: 80;
   max-width: min(360px, calc(100vw - 32px));
@@ -3949,6 +4051,7 @@ a {
 }
 .create-help-arrow,
 .log-location-arrow,
+.screenshot-help-arrow,
 .profile-build-arrow {
   fill: var(--card);
 }
@@ -4225,10 +4328,12 @@ body,
 [data-slot="dialog-content"]:not(.log-rules-drawer)[data-state="open"],
 [data-slot="select-content"][data-state="open"],
 .cron-preview[data-state="open"],
-:is(.create-help-tooltip, .log-location-tooltip, .profile-build-tooltip):is(
-  [data-state="delayed-open"],
-  [data-state="instant-open"]
-) {
+:is(
+  .create-help-tooltip,
+  .log-location-tooltip,
+  .screenshot-help-tooltip,
+  .profile-build-tooltip
+):is([data-state="delayed-open"], [data-state="instant-open"]) {
   animation: surface-enter var(--motion-overlay) var(--motion-ease);
 }
 [data-slot="dialog-content"]:not(.log-rules-drawer)[data-state="closed"],
@@ -4237,6 +4342,7 @@ body,
 :is(
   .create-help-tooltip,
   .log-location-tooltip,
+  .screenshot-help-tooltip,
   .profile-build-tooltip
 )[data-state="closed"] {
   animation: surface-exit var(--motion-overlay) var(--motion-ease);
@@ -4246,6 +4352,7 @@ body,
 }
 .create-help-tooltip,
 .log-location-tooltip,
+.screenshot-help-tooltip,
 .profile-build-tooltip {
   transform-origin: var(--radix-tooltip-content-transform-origin);
 }
@@ -4256,6 +4363,7 @@ body,
   .cron-preview,
   .create-help-tooltip,
   .log-location-tooltip,
+  .screenshot-help-tooltip,
   .profile-build-tooltip
 )[data-state="closed"] {
   pointer-events: none;

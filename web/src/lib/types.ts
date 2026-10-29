@@ -40,6 +40,7 @@ export type Service = {
   busy: boolean;
   version: string;
   version_error?: string;
+  version_output?: string;
   version_checked_at: string;
 };
 export type ServiceRelease = {

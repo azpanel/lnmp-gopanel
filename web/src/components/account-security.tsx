@@ -48,7 +48,7 @@ export function AccountSecurity({ username }: { username: string }) {
     >
       <DialogTrigger asChild>
         <Button variant="ghost" size="icon" aria-label="账户安全">
-          <ShieldCheck size={18} />
+          <KeyRound size={18} />
         </Button>
       </DialogTrigger>
       <DialogContent

@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from "react";
 import {
   Activity,
+  ArrowLeft,
   ArrowRight,
+  KeyRound,
   Loader2,
   LockKeyhole,
   ShieldCheck,
@@ -69,7 +71,12 @@ export function Login() {
                 ? "请输入验证器中的验证码，或使用一次性恢复码"
                 : "使用管理员账号继续"}
             </p>
-            <form onSubmit={submit}>
+            <form
+              key={challenge ? "totp" : "password"}
+              onSubmit={submit}
+              className="login-step"
+              data-step={challenge ? "totp" : "password"}
+            >
               {!challenge && (
                 <>
                   <div className="form-field">
@@ -125,6 +132,11 @@ export function Login() {
                       setError("");
                     }}
                   >
+                    {recovery ? (
+                      <ShieldCheck size={15} />
+                    ) : (
+                      <KeyRound size={15} />
+                    )}
                     {recovery ? "使用动态验证码" : "使用恢复码"}
                   </Button>
                   <Button
@@ -139,6 +151,7 @@ export function Login() {
                       setRecovery(false);
                     }}
                   >
+                    <ArrowLeft size={15} />
                     返回密码登录
                   </Button>
                 </>

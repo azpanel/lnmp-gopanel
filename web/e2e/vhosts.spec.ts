@@ -224,6 +224,19 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   await expect(
     page.getByRole("heading", { name: "虚拟主机", exact: true }),
   ).toBeVisible();
+  const hideSummary = page.getByRole("switch", {
+    name: "隐藏统计卡片",
+    exact: true,
+  });
+  await expect(hideSummary).not.toBeChecked();
+  await expect(page.locator(".vhost-summary")).toBeVisible();
+  await hideSummary.click();
+  await expect(page.locator(".vhost-summary")).toHaveCount(0);
+  await page.reload();
+  await expect(hideSummary).toBeChecked();
+  await expect(page.locator(".vhost-summary")).toHaveCount(0);
+  await hideSummary.click();
+  await expect(page.locator(".vhost-summary")).toBeVisible();
   await expect(
     page.getByText("CN=ZeroSSL RSA Domain Secure Site CA,O=ZeroSSL,C=AT", {
       exact: true,
@@ -273,6 +286,22 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   });
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "截图设置", exact: true }).click();
+  const resolutionHelp = page.getByRole("button", {
+    name: "截图分辨率说明",
+    exact: true,
+  });
+  await resolutionHelp.focus();
+  await expect(page.getByRole("tooltip")).toContainText("设置浏览器视口大小");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await resolutionHelp.click();
+  await expect(page.getByRole("tooltip")).toContainText("设置浏览器视口大小");
+  await page.screenshot({
+    path: testInfo.outputPath("screenshot-settings-help.png"),
+    animations: "disabled",
+  });
+  await page.getByLabel("截图地址", { exact: true }).click();
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
   const resolution = page.getByRole("combobox", { name: "截图分辨率" });
   await expect(resolution).toContainText("1440 × 900（默认）");
   const zoom = page.getByRole("combobox", { name: "网页缩放", exact: true });

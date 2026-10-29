@@ -56,7 +56,7 @@ test("login slogans and local demos rotate together without moving the form or c
     else {
       await expect(
         current(page).getByText("演示数据", { exact: true }),
-      ).toBeVisible();
+      ).toHaveCount(0);
       if (index === 0)
         await expect(
           current(page).locator(".recharts-area-area").first(),
@@ -305,3 +305,52 @@ test("rotating the showcase preserves TOTP and recovery code input", async ({
   await expect(recovery).toHaveValue("demo-recovery-code");
   await expect(recovery).toBeFocused();
 });
+
+for (const reduced of [false, true]) {
+  test(`login step transitions respect reduced motion ${reduced}`, async ({
+    page,
+  }) => {
+    await openLogin(page, reduced);
+    await page.route("**/api/v1/auth/login", (route) =>
+      route.fulfill({
+        json: {
+          totp_required: true,
+          challenge_token: "demo-challenge",
+          expires_in: 300,
+        },
+      }),
+    );
+    await page.getByLabel("用户名", { exact: true }).fill("demo-admin");
+    await page.getByLabel("密码", { exact: true }).fill("demo-password");
+    await page.getByRole("button", { name: "登录面板", exact: true }).click();
+    const step = page.locator(".login-step");
+    await expect(step).toHaveAttribute("data-step", "totp");
+    await expect(step).toHaveCSS(
+      "animation-name",
+      reduced ? "none" : "login-step-enter",
+    );
+    await expect(page.getByLabel("动态验证码", { exact: true })).toBeFocused();
+    await page.getByRole("button", { name: "使用恢复码", exact: true }).click();
+    await page
+      .getByLabel("恢复码", { exact: true })
+      .fill("unused-recovery-code");
+    await page
+      .getByRole("button", { name: "返回密码登录", exact: true })
+      .click();
+    await expect(step).toHaveAttribute("data-step", "password");
+    await expect(step).toHaveCSS(
+      "animation-name",
+      reduced ? "none" : "login-step-enter",
+    );
+    await expect(page.getByLabel("用户名", { exact: true })).toHaveValue(
+      "demo-admin",
+    );
+    await expect(page.getByLabel("密码", { exact: true })).toHaveValue("");
+    await page.getByLabel("密码", { exact: true }).fill("demo-password");
+    await page.getByRole("button", { name: "登录面板", exact: true }).click();
+    await expect(page.getByLabel("动态验证码", { exact: true })).toHaveValue(
+      "",
+    );
+    await expect(page.getByLabel("恢复码", { exact: true })).toHaveCount(0);
+  });
+}

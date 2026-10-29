@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   ArrowDownToLine,
   FileText,
   CircleHelp,
+  Eye,
+  EyeOff,
   History,
+  Info,
   ListFilter,
   Pause,
   Play,
   Plus,
   RefreshCw,
+  Regex,
+  TextSearch,
   Trash2,
   X,
 } from "lucide-react";
@@ -336,10 +342,27 @@ export function Logs() {
                 >
                   <DialogHeader>
                     <DialogTitle>添加日志文件</DialogTitle>
-                    <DialogDescription>
-                      输入服务器上已有日志文件的绝对路径。添加后保存在服务器上，可继续实时追踪与筛选。
+                    <DialogDescription className="sr-only">
+                      输入绝对路径以添加服务器上已有的日志文件。
                     </DialogDescription>
                   </DialogHeader>
+                  <div className="custom-log-alerts">
+                    <div className="custom-log-alert" role="alert">
+                      <Info size={16} aria-hidden="true" />
+                      <p>
+                        输入服务器上已有日志文件的绝对路径。添加后保存在服务器上，可继续实时追踪与筛选。
+                      </p>
+                    </div>
+                    <div
+                      className="custom-log-alert custom-log-alert-warning"
+                      role="alert"
+                    >
+                      <AlertTriangle size={16} aria-hidden="true" />
+                      <p>
+                        系统配置、面板数据、凭据与证书、数据库数据等敏感路径禁止读取；不支持目录、符号链接、硬链接或二进制文件。
+                      </p>
+                    </div>
+                  </div>
                   <div className="custom-log-input">
                     <Label htmlFor="custom-log-path">日志文件绝对路径</Label>
                     <Input
@@ -352,9 +375,6 @@ export function Logs() {
                       value={customPath}
                       onChange={(event) => setCustomPath(event.target.value)}
                     />
-                    <p className="small-note">
-                      系统配置、面板数据、凭据与证书、数据库数据等敏感路径禁止读取；不支持目录、符号链接、硬链接或二进制文件。
-                    </p>
                     {addError && (
                       <p role="alert" className="notice">
                         {addError}
@@ -650,9 +670,19 @@ export function Logs() {
                   >
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="keyword">关键词</SelectItem>
-                    <SelectItem value="regex">正则</SelectItem>
+                  <SelectContent className="log-rule-options">
+                    <SelectItem value="keyword">
+                      <span className="log-rule-option">
+                        <TextSearch size={14} aria-hidden="true" />
+                        关键词
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="regex">
+                      <span className="log-rule-option">
+                        <Regex size={14} aria-hidden="true" />
+                        正则
+                      </span>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
                 <Select
@@ -669,9 +699,19 @@ export function Logs() {
                   >
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="show">显示匹配</SelectItem>
-                    <SelectItem value="hide">隐藏匹配</SelectItem>
+                  <SelectContent className="log-rule-options">
+                    <SelectItem value="show">
+                      <span className="log-rule-option">
+                        <Eye size={14} aria-hidden="true" />
+                        显示匹配
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="hide">
+                      <span className="log-rule-option">
+                        <EyeOff size={14} aria-hidden="true" />
+                        隐藏匹配
+                      </span>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>

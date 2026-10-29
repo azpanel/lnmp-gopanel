@@ -2,14 +2,21 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  BadgeCheck,
+  CalendarCheck,
+  CalendarClock,
   Check,
   Code2,
+  ContactRound,
+  FileKey,
+  Fingerprint,
   FolderOpen,
   Globe2,
   HardDrive,
   LayoutGrid,
   Loader2,
   LockKeyhole,
+  ListOrdered,
   Power,
   RefreshCw,
   Search,
@@ -51,6 +58,8 @@ import { cn } from "@/lib/utils";
 import { useWebsiteScreenshots } from "@/components/website-screenshot";
 import { VhostBasicAuthDialog } from "@/components/vhost-basic-auth";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { VhostRenew } from "@/components/vhost-renew";
 import { VhostCreate } from "@/components/vhost-create";
 
@@ -182,19 +191,31 @@ function Certificate({
       ) : (
         <dl className="certificate-fields">
           <div>
-            <dt>签发者</dt>
+            <dt>
+              <BadgeCheck size={14} aria-hidden="true" />
+              签发者
+            </dt>
             <dd>{certificate.issuer}</dd>
           </div>
           <div>
-            <dt>生效时间</dt>
+            <dt>
+              <CalendarCheck size={14} aria-hidden="true" />
+              生效时间
+            </dt>
             <dd>{date(certificate.not_before)}</dd>
           </div>
           <div>
-            <dt>到期时间</dt>
+            <dt>
+              <CalendarClock size={14} aria-hidden="true" />
+              到期时间
+            </dt>
             <dd>{date(certificate.not_after)}</dd>
           </div>
           <div>
-            <dt>证书域名</dt>
+            <dt>
+              <Globe2 size={14} aria-hidden="true" />
+              证书域名
+            </dt>
             <dd>{certificate.dns_names.join("、") || certificate.subject}</dd>
           </div>
         </dl>
@@ -203,19 +224,31 @@ function Certificate({
         <summary>证书详情</summary>
         <dl className="certificate-fields">
           <div>
-            <dt>文件</dt>
+            <dt>
+              <FileKey size={14} aria-hidden="true" />
+              文件
+            </dt>
             <dd className="font-mono">{certificate.path}</dd>
           </div>
           <div>
-            <dt>主体</dt>
+            <dt>
+              <ContactRound size={14} aria-hidden="true" />
+              主体
+            </dt>
             <dd>{certificate.subject || "—"}</dd>
           </div>
           <div>
-            <dt>序列号</dt>
+            <dt>
+              <ListOrdered size={14} aria-hidden="true" />
+              序列号
+            </dt>
             <dd className="font-mono">{certificate.serial || "—"}</dd>
           </div>
           <div>
-            <dt>SHA-256</dt>
+            <dt>
+              <Fingerprint size={14} aria-hidden="true" />
+              SHA-256
+            </dt>
             <dd className="font-mono">{certificate.fingerprint || "—"}</dd>
           </div>
         </dl>
@@ -338,6 +371,13 @@ export function Vhosts() {
   const [filter, setFilter] = useState("");
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
   const [view, setView] = useState<"cards" | "table">("cards");
+  const [hideSummary, setHideSummary] = useState(() => {
+    try {
+      return localStorage.getItem("vhosts-hide-summary") === "true";
+    } catch {
+      return false;
+    }
+  });
   const [authSite, setAuthSite] = useState<Vhost | null>(null);
   const [configSite, setConfigSite] = useState<Vhost | null>(null);
   const [selection, setSelection] = useState<Vhost | null>(null);
@@ -474,6 +514,21 @@ export function Vhosts() {
             table={view === "table"}
             onStarted={() => setSelectedNames([])}
           />
+          <div className="vhost-summary-toggle">
+            <Switch
+              id="vhosts-hide-summary"
+              checked={hideSummary}
+              onCheckedChange={(checked) => {
+                setHideSummary(checked);
+                try {
+                  localStorage.setItem("vhosts-hide-summary", String(checked));
+                } catch {
+                  // Keep the switch usable when browser storage is unavailable.
+                }
+              }}
+            />
+            <Label htmlFor="vhosts-hide-summary">隐藏统计卡片</Label>
+          </div>
           <VhostCreate />
           <Button
             variant="outline"
@@ -489,42 +544,44 @@ export function Vhosts() {
           </Button>
         </div>
       </div>
-      <div className="vhost-summary">
-        {[
-          {
-            label: "站点配置",
-            value: all.length,
-            icon: Globe2,
-            detail: `${all.filter((site) => site.enabled).length} 个已启用`,
-          },
-          {
-            label: "SSL 站点",
-            value: certificateCount,
-            icon: ShieldCheck,
-            detail: "从本地配置的证书文件读取",
-          },
-          {
-            label: "证书需关注",
-            value: issues,
-            icon: issues ? ShieldX : Check,
-            detail: "即将到期、已过期或不可读取",
-          },
-        ].map((item) => (
-          <Card key={item.label}>
-            <CardContent>
-              <div className="stat-label">
-                {item.label}
-                <item.icon size={17} />
-              </div>
-              <div className="storage-summary-value">
-                {item.value}
-                <span className="vhost-stat-unit">个</span>
-              </div>
-              <div className="small-note mt-3">{item.detail}</div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {!hideSummary && (
+        <div className="vhost-summary">
+          {[
+            {
+              label: "站点配置",
+              value: all.length,
+              icon: Globe2,
+              detail: `${all.filter((site) => site.enabled).length} 个已启用`,
+            },
+            {
+              label: "SSL 站点",
+              value: certificateCount,
+              icon: ShieldCheck,
+              detail: "从本地配置的证书文件读取",
+            },
+            {
+              label: "证书需关注",
+              value: issues,
+              icon: issues ? ShieldX : Check,
+              detail: "即将到期、已过期或不可读取",
+            },
+          ].map((item) => (
+            <Card key={item.label}>
+              <CardContent>
+                <div className="stat-label">
+                  {item.label}
+                  <item.icon size={17} />
+                </div>
+                <div className="storage-summary-value">
+                  {item.value}
+                  <span className="vhost-stat-unit">个</span>
+                </div>
+                <div className="small-note mt-3">{item.detail}</div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
       <div className="vhost-toolbar">
         {view === "table" && selectedNames.length > 0 && (
           <div className="flex items-center gap-2">
