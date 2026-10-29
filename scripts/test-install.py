@@ -30,6 +30,7 @@ TARGETS = (
 )
 VHOST_COMMANDS = tuple(f"vhosts {action}" for action in ("list", "config", "format", "usage", "toggle", "options", "create", "ssl-renew-preview", "ssl-renew", "basic-auth-get", "basic-auth-set", "basic-auth-disable"))
 LNMP_INSTALL_COMMANDS = tuple(f"lnmp-install {action}" for action in ("inspect", "prepare", "start", "read"))
+NGINX_REPAIR_COMMANDS = ("nginx repair-preview", "nginx repair")
 
 
 def copy_executable(root, command):
@@ -566,6 +567,19 @@ printf '%s\\n' "$*" >> /run/apparmor.log
         self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\ncomponents snapshot\n")
         self.assertFalse((self.root / "var/lib/lnmp-gopanel-install").exists())
 
+    def test_nginx_repair_permissions_do_not_modify_nginx(self):
+        previous = self.old_installation(https=True)
+        pid = write(self.root, "/usr/local/nginx/logs/nginx.pid", "123\n", 0o600)
+        self.run_installer(automatic_tls=False)
+        sudoers = (self.root / "etc/sudoers.d/lnmp-gopanel").read_text()
+        sudo_log = (self.root / "run/sudo.log").read_text()
+        for command in NGINX_REPAIR_COMMANDS:
+            self.assertIn(f"/usr/local/libexec/lnmp-gopanel-control {command},", sudoers)
+            self.assertIn(f"-n -l -- /usr/local/libexec/lnmp-gopanel-control {command}\n", sudo_log)
+        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\ncomponents snapshot\n")
+        self.assertEqual(pid.read_text(), "123\n")
+        self.assertEqual((self.root / "etc/lnmp-gopanel/services.yaml").read_bytes(), previous["/etc/lnmp-gopanel/services.yaml"])
+
     def test_http_upgrade_migrates_and_preserves_credentials_and_services(self):
         previous = self.old_installation()
         self.run_installer()
@@ -635,7 +649,7 @@ printf '%s\\n' "$*" >> /run/apparmor.log
 
     def test_missing_helper_permissions_rolls_back(self):
         previous = self.old_installation()
-        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read") + VHOST_COMMANDS + LNMP_INSTALL_COMMANDS:
+        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read") + VHOST_COMMANDS + LNMP_INSTALL_COMMANDS + NGINX_REPAIR_COMMANDS:
             with self.subTest(command=command):
                 write(self.root, "/run/deny-helper-command", f"/usr/local/libexec/lnmp-gopanel-control {command}\n")
                 result = self.run_installer(success=False)

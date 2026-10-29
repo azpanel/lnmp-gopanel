@@ -26,6 +26,7 @@ import {
 import { ServiceIcon, serviceInfo, ServiceStatus } from "@/components/status";
 import { api } from "@/lib/api";
 import { LNMPInstallNotice } from "@/components/lnmp-install-notice";
+import { ServiceManagementRepair } from "@/components/service-management-repair";
 import { clock } from "@/lib/format";
 import type { Service, ServiceRelease, ComponentSnapshot } from "@/lib/types";
 const actions = {
@@ -218,6 +219,7 @@ export function Services({
                     const Icon = item.icon;
                     const unavailable =
                       service.busy ||
+                      service.state === "unmanaged" ||
                       mutation.isPending ||
                       Boolean(error) ||
                       (action === "start" && service.state === "running") ||
@@ -240,6 +242,13 @@ export function Services({
                     );
                   })}
                 </div>
+              )}
+              {service.name === "nginx" && service.state === "unmanaged" && (
+                <ServiceManagementRepair
+                  disabled={
+                    service.busy || mutation.isPending || Boolean(error)
+                  }
+                />
               )}
               {service.name === "redis" && (
                 <p className="small-note mt-3">只读监控运行状态和版本。</p>

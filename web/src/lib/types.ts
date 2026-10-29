@@ -32,7 +32,7 @@ export type Host = {
 };
 export type Service = {
   name: string;
-  state: "running" | "stopped" | "unknown" | "transitioning";
+  state: "running" | "stopped" | "unknown" | "transitioning" | "unmanaged";
   manager: string;
   actions: string[];
   message: string;

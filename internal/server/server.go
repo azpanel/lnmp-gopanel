@@ -132,6 +132,8 @@ func (s *Server) Handler() http.Handler {
 	private.GET("/services/releases", func(c *gin.Context) { s.serviceReleases(c, false) })
 	private.POST("/services/releases/refresh", s.csrf, func(c *gin.Context) { s.serviceReleases(c, true) })
 	private.POST("/services/:name/actions/:action", s.csrf, s.action)
+	private.GET("/services/:name/management-repair", s.managementRepairPreview)
+	private.POST("/services/:name/management-repair", s.csrf, s.managementRepair)
 	private.GET("/docker", func(c *gin.Context) { s.dockerSnapshot(c, false) })
 	private.GET("/cron", func(c *gin.Context) {
 		if s.Cron == nil {
@@ -421,7 +423,7 @@ func (s *Server) action(c *gin.Context) {
 	r, err := s.Services.Action(c.Request.Context(), c.Param("name"), c.Param("action"))
 	if err != nil {
 		status := 502
-		if errors.Is(err, control.ErrBusy) {
+		if errors.Is(err, control.ErrBusy) || errors.Is(err, control.ErrManagementConflict) {
 			status = 409
 		} else if errors.Is(err, control.ErrUnsupported) {
 			status = 400

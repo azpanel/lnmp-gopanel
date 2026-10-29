@@ -16,10 +16,12 @@ import (
 
 var ErrBusy = errors.New("service operation already in progress")
 var ErrUnsupported = errors.New("unsupported service or action")
+var ErrManagementConflict = errors.New("服务管理状态异常，请先修复管理方式")
 
 type Result struct {
 	State   string `json:"state"`
 	Message string `json:"message"`
+	Manager string `json:"manager,omitempty"`
 }
 type View struct {
 	Name             string    `json:"name"`
@@ -48,6 +50,9 @@ func (h Helper) Run(ctx context.Context, name, action string) (Result, error) {
 		return Result{}, fmt.Errorf("服务辅助程序不可用，请检查安装与 sudoers 配置")
 	}
 	if err != nil {
+		if r.State == "unmanaged" {
+			return r, fmt.Errorf("%w：%s", ErrManagementConflict, r.Message)
+		}
 		return r, errors.New(r.Message)
 	}
 	return r, nil
@@ -136,6 +141,9 @@ func (m *Manager) refreshOne(ctx context.Context, name string) {
 		v.State = r.State
 		v.Message = r.Message
 	}
+	if r.Manager != "" {
+		v.Manager = r.Manager
+	}
 	m.views[name] = v
 }
 func (m *Manager) Run(ctx context.Context) {
@@ -169,6 +177,9 @@ func (m *Manager) Action(ctx context.Context, name, action string) (Result, erro
 		return Result{}, ErrBusy
 	}
 	defer lock.Unlock()
+	if v.State == "unmanaged" {
+		return Result{State: v.State, Message: v.Message}, ErrManagementConflict
+	}
 	m.mu.Lock()
 	v = m.views[name]
 	v.Busy = true

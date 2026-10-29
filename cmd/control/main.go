@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -20,13 +21,20 @@ const serviceConfig = "/etc/lnmp-gopanel/services.yaml"
 
 func main() {
 	if err := run(); err != nil {
-		_ = json.NewEncoder(os.Stdout).Encode(control.Result{State: "unknown", Message: err.Error()})
+		state := "unknown"
+		if errors.Is(err, control.ErrManagementConflict) {
+			state = "unmanaged"
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(control.Result{State: state, Message: err.Error()})
 		os.Exit(1)
 	}
 }
 func run() error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("辅助程序需要 root 权限")
+	}
+	if len(os.Args) == 3 && os.Args[1] == "nginx" && (os.Args[2] == "repair-preview" || os.Args[2] == "repair") {
+		return handleNginxManagement(os.Args[2])
 	}
 	if len(os.Args) == 4 && os.Args[1] == "lnmp-install-worker" {
 		return control.RunLNMPInstallWorker(os.Args[2], os.Args[3])
@@ -114,13 +122,11 @@ func run() error {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		if os.Args[2] == "status" {
-			if result, handled := control.NativeStatus(ctx, s); handled {
-				return json.NewEncoder(os.Stdout).Encode(result)
-			}
-		}
-		result, err := control.Execute(ctx, s, os.Args[2], control.RunCommand)
+		result, err := control.ExecuteManaged(ctx, s, os.Args[2], control.RunCommand)
 		if err != nil {
+			if errors.Is(err, control.ErrManagementConflict) {
+				return err
+			}
 			return fmt.Errorf("%s", result.Message)
 		}
 		return json.NewEncoder(os.Stdout).Encode(result)

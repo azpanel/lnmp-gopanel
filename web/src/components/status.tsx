@@ -5,6 +5,7 @@ const labels: Record<string, string> = {
   stopped: "已停止",
   unknown: "未知",
   transitioning: "切换中",
+  unmanaged: "管理状态异常",
 };
 export function ServiceStatus({ state }: { state: string }) {
   return (
@@ -14,7 +15,7 @@ export function ServiceStatus({ state }: { state: string }) {
         "status-badge",
         state === "running"
           ? "status-green"
-          : state === "stopped"
+          : state === "stopped" || state === "unmanaged"
             ? "status-red"
             : "status-muted",
       )}
