@@ -3762,8 +3762,8 @@ a {
 }
 
 .vhost-create-dialog {
-  width: min(960px, calc(100vw - 2rem));
-  max-width: 960px;
+  width: min(720px, calc(100vw - 2rem));
+  max-width: 720px;
   max-height: calc(100dvh - 2rem);
   overflow: hidden;
   display: flex;
@@ -3774,17 +3774,17 @@ a {
 }
 .vhost-create-dialog > [data-slot="dialog-header"] {
   flex-shrink: 0;
-  padding: 20px 60px 16px 30px;
+  padding: 20px 48px 16px 24px;
   border-bottom: 1px solid var(--border);
   text-align: left;
 }
 .vhost-create-dialog [data-slot="dialog-title"] {
-  font-size: 25px;
+  font-size: 18px;
   line-height: 1.3;
 }
 .vhost-create-dialog > [data-slot="dialog-close"] {
-  top: 25px;
-  right: 28px;
+  top: 20px;
+  right: 24px;
 }
 .vhost-create-dialog form {
   display: flex;
@@ -3794,7 +3794,7 @@ a {
 .create-form-body {
   overflow-y: auto;
   min-height: 0;
-  padding: 20px 30px 12px;
+  padding: 20px 24px 12px;
 }
 .vhost-create-dialog .create-form-body,
 .vhost-create-dialog .create-task,
@@ -3805,18 +3805,18 @@ a {
   min-width: 0;
   display: grid;
   gap: 12px;
-  margin: 0 0 22px;
+  margin: 0 0 20px;
   padding: 0;
   border: 0;
 }
 .create-section-title {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   width: 100%;
   margin-bottom: 12px;
   padding: 0;
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 600;
   line-height: 1.4;
 }
@@ -3850,12 +3850,8 @@ a {
   align-items: center;
   gap: 4px;
 }
-.vhost-create-dialog input,
-.vhost-create-dialog [data-slot="select-trigger"],
 .create-dns-actions > button:first-child {
-  height: 44px;
-}
-.create-dns-actions > button:first-child {
+  height: 36px;
   padding-inline: 16px;
 }
 .create-dns-actions .create-help-button {
@@ -3885,15 +3881,15 @@ a {
   border-radius: 5px;
   background: var(--secondary);
   color: var(--muted-foreground);
-  font-size: 13px;
+  font-size: 12px;
 }
 .create-alias-input {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  min-height: 46px;
-  padding: 5px 8px;
+  min-height: 36px;
+  padding: 4px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
 }
@@ -3905,7 +3901,7 @@ a {
   flex: 1;
   width: 0;
   min-width: min(230px, 100%);
-  height: 32px;
+  height: 26px;
   padding: 0 6px;
   border: 0;
   box-shadow: none;
@@ -3914,13 +3910,13 @@ a {
 .create-alias-tag {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   max-width: 100%;
-  padding: 4px 8px;
+  padding: 2px 6px;
   border: 1px solid var(--border);
   border-radius: 5px;
   background: var(--secondary);
-  font-size: 16px;
+  font-size: 13px;
 }
 .create-alias-tag > span {
   min-width: 0;
@@ -3931,8 +3927,8 @@ a {
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border-radius: 3px;
   color: var(--muted-foreground);
 }
@@ -3944,7 +3940,7 @@ a {
   position: relative;
 }
 .create-root-input input {
-  padding-right: 52px;
+  padding-right: 44px;
 }
 .create-root-input > span {
   position: absolute;
@@ -3952,7 +3948,7 @@ a {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
+  width: 36px;
   border-left: 1px solid var(--border);
   color: var(--muted-foreground);
   pointer-events: none;
@@ -3965,11 +3961,11 @@ a {
 .create-advanced-trigger {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
-  padding: 12px 16px;
+  padding: 10px 12px;
   text-align: left;
-  font-size: 16px;
+  font-size: 14px;
 }
 .create-advanced-trigger > svg {
   flex-shrink: 0;
@@ -3981,8 +3977,8 @@ a {
 }
 .create-advanced-body:not([hidden]) {
   display: grid;
-  gap: 16px;
-  padding: 4px 16px 16px;
+  gap: 12px;
+  padding: 4px 12px 12px;
 }
 .create-options-card {
   border: 1px solid var(--border);
@@ -3990,7 +3986,7 @@ a {
   padding: 0 10px;
 }
 .create-options-card .create-section {
-  gap: 16px;
+  gap: 12px;
   margin: 0;
   padding: 14px 12px;
 }
@@ -4000,7 +3996,7 @@ a {
 .create-option-row {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 12px;
 }
 .create-option-row > svg {
   flex-shrink: 0;
@@ -4013,7 +4009,7 @@ a {
   min-width: 0;
 }
 .create-option-description > strong {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 500;
 }
 .create-ssl-heading > .create-field {
@@ -4120,12 +4116,11 @@ a {
 .create-form-footer {
   flex-shrink: 0;
   justify-content: flex-end;
-  padding: 14px 30px;
+  padding: 12px 24px;
   border-top: 1px solid var(--border);
 }
 .create-form-footer > button {
-  height: 44px;
-  padding-inline: 24px;
+  padding-inline: 16px;
 }
 .create-required-note {
   margin-right: auto;
@@ -4165,7 +4160,7 @@ a {
   gap: 0.85rem;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 30px;
+  padding: 20px 24px;
 }
 .create-task-heading,
 .create-result-grid {
