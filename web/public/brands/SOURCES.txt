@@ -28,3 +28,9 @@ Browser Logos: logos and trademarks remain the property of their respective owne
 curl.svg, wget.svg and axios.svg: Simple Icons, CC0-1.0 (LICENSE-simple-icons.txt). wget.svg is the GNU mark used to identify GNU Wget.
 okhttp.png: upstream OkHttp project icon, distributed with Apache-2.0 (LICENSE-okhttp.txt); trademarks remain the property of their respective owners.
 Python requests and Go HTTP Client reuse python3.svg and go.svg above.
+
+Host environment marks:
+amd.svg: https://raw.githubusercontent.com/simple-icons/simple-icons/13.0.0/icons/amd.svg (CC0-1.0); isolated AMD arrow mark and cropped viewBox to fill the square icon slot.
+linux.svg: https://raw.githubusercontent.com/gilbarbara/logos/d6960edc1b7309d392c76e40d3a320df7f9ff85c/logos/linux-tux.svg
+SVG Logos collection license (CC0-1.0): https://github.com/gilbarbara/logos/blob/d6960edc1b7309d392c76e40d3a320df7f9ff85c/LICENSE.txt
+Tux was created by Larry Ewing using The GIMP: https://isc.tamu.edu/~lewing/linux/
