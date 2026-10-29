@@ -1499,13 +1499,15 @@ a {
   gap: 16px;
   flex-wrap: wrap;
 }
-.mount-capacity-toggle {
+.mount-capacity-toggle,
+.storage-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
 }
-.mount-capacity-toggle label {
+.mount-capacity-toggle label,
+.storage-toggle label {
   font-size: 14px;
   font-weight: 400;
   color: var(--muted-foreground);
@@ -1602,6 +1604,15 @@ a {
 }
 .file-ranking-card {
   margin-top: 23px;
+}
+.file-ranking-card .storage-section-header {
+  flex-wrap: wrap;
+}
+.file-ranking-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 .ranking-content {
   padding-top: 18px !important;
@@ -1885,7 +1896,7 @@ a {
   .ranking-meta > span:last-child {
     text-align: right;
   }
-  .file-ranking-card .storage-section-header > button {
+  .file-ranking-controls > button {
     height: 29px;
   }
   .file-ranking-card .chart-foot {
@@ -3211,6 +3222,19 @@ a {
 
 .programming-components {
   margin-top: 2rem;
+}
+.programming-components .service-cards {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 1200px) {
+  .programming-components .service-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 720px) {
+  .programming-components .service-cards {
+    grid-template-columns: 1fr;
+  }
 }
 .component-heading {
   margin-bottom: 1rem;

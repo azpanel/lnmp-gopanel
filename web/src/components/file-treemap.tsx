@@ -13,13 +13,25 @@ export const fileColors = [
   "#5f9ca8",
   "#9b9467",
 ];
-export function FileTreemap({ files }: { files: LargeFile[] }) {
+export function FileTreemap({
+  files,
+  hideSwapfile = false,
+}: {
+  files: LargeFile[];
+  hideSwapfile?: boolean;
+}) {
   const [selected, setSelected] = useState<string | null>(null);
-  const total = files.reduce((sum, f) => sum + f.size, 0);
-  const data = files
-    .filter((f) => f.size > 0)
-    .map((f) => ({ name: f.path, size: f.size, rank: files.indexOf(f) }));
-  const active = files.find((f) => f.path === selected);
+  const visibleFiles = files.filter(
+    (f) =>
+      f.size > 0 && (!hideSwapfile || f.path.split("/").at(-1) !== "swapfile"),
+  );
+  const total = visibleFiles.reduce((sum, f) => sum + f.size, 0);
+  const data = visibleFiles.map((f) => ({
+    name: f.path,
+    size: f.size,
+    rank: files.indexOf(f),
+  }));
+  const active = visibleFiles.find((f) => f.path === selected);
   function content(node: TreemapNode) {
     if (node.depth !== 1) return <g />;
     const rank = Number(node.rank ?? node.index);
@@ -104,7 +116,11 @@ export function FileTreemap({ files }: { files: LargeFile[] }) {
   }
   return (
     <>
-      <div className="file-treemap" data-testid="file-treemap">
+      <div
+        id="storage-file-treemap"
+        className="file-treemap"
+        data-testid="file-treemap"
+      >
         {total > 0 ? (
           <ResponsiveContainer width="100%" height="100%">
             <Treemap
@@ -130,8 +146,7 @@ export function FileTreemap({ files }: { files: LargeFile[] }) {
           </>
         ) : (
           <span>
-            悬停查看完整路径，点击矩形选中文件。面积表示该文件占前 30
-            名合计大小的比例。
+            悬停查看完整路径，点击矩形选中文件。面积表示该文件占图中显示文件合计大小的比例。
           </span>
         )}
       </div>

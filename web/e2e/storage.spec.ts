@@ -60,6 +60,7 @@ test("storage mounts, asynchronous file ranking, treemap and retry", async ({
     },
   ];
   const files = [
+    { path: "/swapfile", size: 8 * 1024 ** 3 },
     { path: "/var/lib/mysql/database with spaces.ibd", size: 4 * 1024 ** 3 },
     { path: "/home/wwwlogs/access.log", size: 2 * 1024 ** 3 },
     { path: "/root/backup archive.tar.gz", size: 1024 ** 3 },
@@ -104,7 +105,7 @@ test("storage mounts, asynchronous file ranking, treemap and retry", async ({
         status: "completed",
         files,
         scanned: 8000,
-        total_bytes: 9 * 1024 ** 3,
+        total_bytes: 15 * 1024 ** 3,
         complete: true,
         finished_at: new Date().toISOString(),
       },
@@ -218,15 +219,42 @@ test("storage mounts, asynchronous file ranking, treemap and retry", async ({
     timeout: 12000,
   });
   await expect(page.getByTestId("file-treemap")).toBeVisible();
+  const swapfileSwitch = page.getByRole("switch", { name: "隐藏 swapfile" });
+  const swapfileTile = page.getByRole("button", { name: /^\/swapfile，/ });
+  await expect(swapfileSwitch).toBeChecked();
+  await expect(swapfileTile).toHaveCount(0);
   const tile = page.getByRole("button", { name: /database with spaces.ibd/ });
+  const tileColor = await tile.locator("rect").getAttribute("fill");
   await tile.click();
   await expect(page.locator(".treemap-selection")).toContainText(
     "database with spaces.ibd",
   );
-  await expect(page.locator(".file-ranking-table tbody tr")).toHaveCount(3);
+  await expect(page.locator(".treemap-selection strong")).toContainText(
+    "57.14%",
+  );
+  await expect(page.locator(".file-ranking-table tbody tr")).toHaveCount(4);
   await expect(
     page.locator(".file-ranking-table tbody tr").first(),
-  ).toContainText("57.14%");
+  ).toContainText("53.33%");
+  await swapfileSwitch.click();
+  await expect(swapfileTile).toBeVisible();
+  await expect(page.locator(".treemap-selection strong")).toContainText(
+    "26.67%",
+  );
+  await expect(tile.locator("rect")).toHaveAttribute("fill", tileColor!);
+  await swapfileTile.click();
+  await expect(page.locator(".treemap-selection")).toContainText("/swapfile");
+  await swapfileSwitch.focus();
+  await page.keyboard.press("Space");
+  await expect(swapfileSwitch).toBeChecked();
+  await expect(swapfileTile).toHaveCount(0);
+  await expect(page.locator(".treemap-selection")).not.toContainText(
+    "/swapfile",
+  );
+  await expect(page.locator(".file-ranking-table tbody tr")).toHaveCount(4);
+  await expect(
+    page.locator(".file-ranking-table tbody tr").first(),
+  ).toContainText("53.33%");
   expect(starts).toBe(1);
   expect(
     await page.evaluate(
@@ -237,6 +265,20 @@ test("storage mounts, asynchronous file ranking, treemap and retry", async ({
     path: testInfo.outputPath("storage.png"),
     fullPage: true,
   });
+  files.splice(1);
+  await page.reload();
+  await expect(swapfileSwitch).toBeChecked();
+  await expect(page.locator(".treemap-empty")).toHaveText(
+    "暂无可绘制的文件大小数据",
+  );
+  await expect(page.locator(".file-ranking-table tbody tr")).toHaveCount(1);
+  await swapfileSwitch.click();
+  await expect(swapfileTile).toBeVisible();
+  await swapfileTile.click();
+  await expect(page.locator(".treemap-selection strong")).toContainText(
+    "100.00%",
+  );
+  expect(starts).toBe(1);
   await page.getByRole("button", { name: "重新扫描", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("测试扫描失败，请重试", {
     timeout: 12000,

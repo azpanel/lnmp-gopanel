@@ -103,6 +103,20 @@ test("programming component versions, changelogs and refresh without services", 
     page.getByRole("heading", { name: "编程组件", exact: true }),
   ).toBeVisible();
   await expect(page.locator("[data-component]")).toHaveCount(5);
+  const componentGrid = page.locator(".programming-components .service-cards");
+  const columnCount = () =>
+    componentGrid.evaluate(
+      (node) => getComputedStyle(node).gridTemplateColumns.split(" ").length,
+    );
+  await expect
+    .poll(columnCount)
+    .toBe(testInfo.project.name === "mobile" ? 1 : 3);
+  if (testInfo.project.name === "desktop") {
+    await page.setViewportSize({ width: 1000, height: 900 });
+    await expect.poll(columnCount).toBe(2);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await expect.poll(columnCount).toBe(3);
+  }
   for (const name of ["python3", "go", "node", "codex", "composer"]) {
     const logo = page.locator(`[data-component="${name}"] .component-logo img`);
     await expect(logo).toBeVisible();

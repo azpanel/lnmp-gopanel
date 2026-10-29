@@ -42,6 +42,7 @@ export function Storage() {
   const client = useQueryClient();
   const [filter, setFilter] = useState("");
   const [hideUnavailable, setHideUnavailable] = useState(true);
+  const [hideSwapfile, setHideSwapfile] = useState(true);
   const [sort, setSort] = useState<MountSort | null>(null);
   const autoStarted = useRef(false);
   const mounts = useQuery({
@@ -337,15 +338,26 @@ export function Storage() {
               {status}
             </Badge>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={running || scan.isPending}
-            onClick={() => start.mutate()}
-          >
-            <RefreshCw size={13} className={running ? "animate-spin" : ""} />
-            {running ? "正在扫描…" : "重新扫描"}
-          </Button>
+          <div className="file-ranking-controls">
+            <div className="storage-toggle">
+              <Switch
+                id="hide-swapfile"
+                checked={hideSwapfile}
+                onCheckedChange={setHideSwapfile}
+                aria-controls="storage-file-treemap"
+              />
+              <Label htmlFor="hide-swapfile">隐藏 swapfile</Label>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={running || scan.isPending}
+              onClick={() => start.mutate()}
+            >
+              <RefreshCw size={13} className={running ? "animate-spin" : ""} />
+              {running ? "正在扫描…" : "重新扫描"}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="ranking-content">
           <p className="ranking-description">
@@ -395,7 +407,7 @@ export function Storage() {
           </div>
           {files.length > 0 ? (
             <div className="ranking-grid">
-              <FileTreemap files={files} />
+              <FileTreemap files={files} hideSwapfile={hideSwapfile} />
               <div className="file-ranking-table">
                 <Table>
                   <TableHeader>
