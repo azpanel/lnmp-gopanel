@@ -16,9 +16,11 @@ export const fileColors = [
 export function FileTreemap({
   files,
   hideSwapfile = false,
+  hint = "悬停查看完整路径，点击矩形选中文件。面积表示该文件占图中显示文件合计大小的比例。",
 }: {
   files: LargeFile[];
   hideSwapfile?: boolean;
+  hint?: string;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const visibleFiles = files.filter(
@@ -145,9 +147,7 @@ export function FileTreemap({
             </strong>
           </>
         ) : (
-          <span>
-            悬停查看完整路径，点击矩形选中文件。面积表示该文件占图中显示文件合计大小的比例。
-          </span>
+          <span>{hint}</span>
         )}
       </div>
     </>

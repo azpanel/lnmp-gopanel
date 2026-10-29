@@ -10,7 +10,8 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DiskTable, Meter } from "./dashboard";
+import { DiskTable } from "./dashboard";
+import { Meter } from "@/components/meter";
 import type { Host, Snapshot } from "@/lib/types";
 import { bytes, uptime } from "@/lib/format";
 import { hostBrands } from "@/lib/host-brands";

@@ -28,7 +28,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { FileTreemap, fileColors } from "@/components/file-treemap";
-import { Meter } from "@/pages/dashboard";
+import { Meter } from "@/components/meter";
 import { api } from "@/lib/api";
 import { bytes, clock } from "@/lib/format";
 import type { MountList, StorageScan } from "@/lib/types";

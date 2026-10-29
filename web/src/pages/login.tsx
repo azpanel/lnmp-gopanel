@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoginShowcase } from "@/components/login-showcase";
 import { login, loginTOTP } from "@/lib/api";
 import type { LoginChallenge } from "@/lib/types";
 
@@ -56,36 +57,7 @@ export function Login() {
         </span>
       </div>
       <div className="login-grid">
-        <section className="login-intro">
-          <div className="eyebrow">
-            <span className="live-dot" />
-            为你的服务器而生
-          </div>
-          <h1>
-            运行状态，
-            <br />
-            <span>一目了然。</span>
-          </h1>
-          <p>
-            轻量的 LNMP 监控与管理面板。
-            <br />
-            实时了解系统状态，从容管理每一项服务。
-          </p>
-          <div className="login-features">
-            <span>
-              <Activity size={16} />
-              实时指标
-            </span>
-            <span>
-              <ShieldCheck size={16} />
-              本机管理
-            </span>
-            <span>
-              <LockKeyhole size={16} />
-              安全访问
-            </span>
-          </div>
-        </section>
+        <LoginShowcase />
         <Card className="login-card">
           <CardContent>
             <div className="login-lock">
