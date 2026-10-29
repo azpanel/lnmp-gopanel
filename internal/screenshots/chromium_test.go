@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"image/jpeg"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -165,6 +166,66 @@ func TestChromiumIntegrationLanguageAndDelayedCSS(t *testing.T) {
 	_, err = c.Capture(context.Background(), Target{URL: site.URL + "/timeout", LoadTimeoutSeconds: 5})
 	if err == nil || !strings.Contains(err.Error(), "超时") || time.Since(started) > 8*time.Second {
 		t.Fatal("configured resource loading timeout was not enforced", err)
+	}
+}
+
+func TestChromiumIntegrationZoom(t *testing.T) {
+	path := os.Getenv("SCREENSHOT_TEST_BROWSER")
+	if path == "" {
+		t.Skip("set SCREENSHOT_TEST_BROWSER to run real Chromium integration tests")
+	}
+	c := &Chromium{Browser: path, StateDir: t.TempDir(), testNoSandbox: os.Geteuid() == 0}
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<!doctype html><html><head><style>
+			body { margin: 0; min-height: 20000px; background: white; }
+			#box { width: 100px; height: 100px; background: red; }
+			@media (min-width: 1600px) { #box { background: lime; } }
+			#fixed { position: fixed; right: 0; bottom: 0; width: 100px; height: 100px; background: blue; }
+		</style></head><body><div id="box"></div><div id="fixed"></div></body></html>`))
+	}))
+	defer site.Close()
+	for _, tc := range []struct{ width, height, percent, scroll int }{
+		{1440, 900, 100, 0}, {1440, 900, 80, 0}, {1440, 900, 125, 0},
+		{1537, 961, 67, 0}, {1537, 961, 125, 0}, {3840, 2400, 25, 0}, {390, 844, 200, 0},
+		{1440, 900, 80, 1200},
+	} {
+		t.Run(fmt.Sprintf("%dx%d_%d_scroll%d", tc.width, tc.height, tc.percent, tc.scroll), func(t *testing.T) {
+			zoom := float64(tc.percent) / 100
+			cssWidth := int(math.Round(float64(tc.width) / zoom))
+			cssHeight := int(math.Round(float64(tc.height) / zoom))
+			data, err := c.Capture(context.Background(), Target{
+				URL: site.URL, ViewportWidth: tc.width, ViewportHeight: tc.height, ZoomPercent: tc.percent,
+				JavaScript: fmt.Sprintf(`
+					if (innerWidth !== %d || innerHeight !== %d || Math.abs(devicePixelRatio - %f) > 0.00001)
+						throw Error("incorrect zoom viewport");
+					document.querySelector("#box").style.marginTop = "%dpx";
+					scrollTo(0, %d);
+				`, cssWidth, cssHeight, zoom, tc.scroll, tc.scroll),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			image, err := jpeg.Decode(bytes.NewReader(data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if image.Bounds().Dx() != tc.width || image.Bounds().Dy() != tc.height {
+				t.Fatal("zoom changed output dimensions", image.Bounds())
+			}
+			assertPixel := func(x, y int, red, green, blue bool) {
+				t.Helper()
+				r, g, b, _ := image.At(x, y).RGBA()
+				if (r > 0x8000) != red || (g > 0x8000) != green || (b > 0x8000) != blue {
+					t.Fatalf("unexpected pixel at %d,%d: %d,%d,%d", x, y, r, g, b)
+				}
+			}
+			// Check responsive layout, scaled content size, and viewport-fixed content.
+			assertPixel(10, 10, cssWidth < 1600, cssWidth >= 1600, false)
+			assertPixel(tc.percent-6, 10, cssWidth < 1600, cssWidth >= 1600, false)
+			assertPixel(tc.percent+6, 10, true, true, true)
+			assertPixel(tc.width-10, tc.height-10, false, false, true)
+		})
 	}
 }
 

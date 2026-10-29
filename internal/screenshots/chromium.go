@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"os/exec"
@@ -93,6 +94,14 @@ func (c *Chromium) Capture(parent context.Context, target Target) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
+	percent := target.ZoomPercent
+	if percent == 0 {
+		percent = DefaultZoomPercent
+	}
+	if err := validateZoomPercent(percent); err != nil {
+		return nil, err
+	}
+	zoom := float64(percent) / 100
 	ctx, cancel := context.WithTimeout(parent, time.Duration(seconds)*time.Second)
 	defer cancel()
 	profile, err := os.MkdirTemp(c.StateDir, ".browser-*")
@@ -109,7 +118,11 @@ func (c *Chromium) Capture(parent context.Context, target Target) ([]byte, error
 	defer closeAllocator()
 	ctx, closeBrowser := chromedp.NewContext(allocator, chromedp.WithLogf(func(string, ...any) {}), chromedp.WithErrorf(func(string, ...any) {}))
 	defer closeBrowser()
-	if err := chromedp.Do(ctx, chromedp.EmulateViewport(int64(width), int64(height))); err != nil {
+	// Browser zoom changes the CSS viewport while keeping the output pixel size.
+	if err := chromedp.Do(ctx, chromedp.EmulateViewport(int64(math.Round(float64(width)/zoom)), int64(math.Round(float64(height)/zoom)),
+		func(metrics *emulation.SetDeviceMetricsOverrideParams, _ *emulation.SetTouchEmulationEnabledParams) {
+			metrics.DeviceScaleFactor = zoom
+		})); err != nil {
 		return nil, browserError(ctx, err)
 	}
 	session := chromedp.FromContext(ctx).Target
@@ -207,7 +220,17 @@ func (c *Chromium) Capture(parent context.Context, target Target) ([]byte, error
 			return nil, browserError(ctx, err)
 		}
 	}
-	image, err := cdp.Call(ctx, session, page.CaptureScreenshot, page.CaptureScreenshotParams{Format: page.CaptureScreenshotFormatJpeg, Quality: ptr(int64(80)), CaptureBeyondViewport: ptr(false)})
+	metrics, err := cdp.Call(ctx, session, page.GetLayoutMetrics, cdp.Empty{})
+	if err != nil {
+		return nil, browserError(ctx, err)
+	}
+	// Clip fractional CSS sizes explicitly to avoid an extra output pixel, while
+	// retaining the current scroll position if the custom script moved the page.
+	clip := &page.Viewport{Width: float64(width) / zoom, Height: float64(height) / zoom, Scale: 1}
+	if metrics.CSSVisualViewport != nil {
+		clip.X, clip.Y = metrics.CSSVisualViewport.PageX, metrics.CSSVisualViewport.PageY
+	}
+	image, err := cdp.Call(ctx, session, page.CaptureScreenshot, page.CaptureScreenshotParams{Format: page.CaptureScreenshotFormatJpeg, Quality: ptr(int64(80)), CaptureBeyondViewport: ptr(false), Clip: clip})
 	if err != nil {
 		return nil, browserError(ctx, err)
 	}

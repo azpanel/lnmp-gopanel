@@ -159,6 +159,7 @@ export type WebsiteScreenshot = {
   url: string;
   viewport_width: number;
   viewport_height: number;
+  zoom_percent: number;
   javascript: string;
   language: string;
   load_timeout_seconds: number;

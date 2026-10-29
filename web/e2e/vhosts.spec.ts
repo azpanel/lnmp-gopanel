@@ -94,6 +94,7 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
       url: "http://127.0.0.1:8080/private",
       viewport_width: 420,
       viewport_height: 900,
+      zoom_percent: 83,
       javascript: screenshotScript,
       language: "en-US",
       load_timeout_seconds: 120,
@@ -108,6 +109,7 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
       url: input.url,
       viewport_width: input.viewport_width,
       viewport_height: input.viewport_height,
+      zoom_percent: input.zoom_percent,
       javascript: input.javascript,
       language: input.language,
       load_timeout_seconds: input.load_timeout_seconds,
@@ -122,6 +124,7 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   await page.route("**/api/v1/vhosts/screenshot/refresh?*", (route) => {
     expect(screenshot!.viewport_width).toBe(420);
     expect(screenshot!.viewport_height).toBe(900);
+    expect(screenshot!.zoom_percent).toBe(83);
     expect(screenshot!.javascript).toBe(screenshotScript);
     screenshotCaptures++;
     screenshotPolls = 0;
@@ -272,9 +275,39 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   await page.getByRole("button", { name: "截图设置", exact: true }).click();
   const resolution = page.getByRole("combobox", { name: "截图分辨率" });
   await expect(resolution).toContainText("1440 × 900（默认）");
+  const zoom = page.getByRole("combobox", { name: "网页缩放", exact: true });
+  await expect(zoom).toContainText("100%（默认）");
   await expect(
     page.getByLabel("截图前 JavaScript", { exact: true }),
   ).toHaveValue("");
+  for (const size of [
+    "1920 × 1200",
+    "2560 × 1600",
+    "2880 × 1800",
+    "3072 × 1920",
+    "3200 × 2000",
+    "3840 × 2400",
+  ]) {
+    await resolution.click();
+    await page.getByRole("option", { name: `桌面 · ${size}（16:10）` }).click();
+    await expect(resolution).toContainText(`${size}（16:10）`);
+  }
+  await zoom.click();
+  await page.getByRole("option", { name: "80%", exact: true }).click();
+  await expect(zoom).toContainText("80%");
+  await zoom.click();
+  await page.getByRole("option", { name: "自定义", exact: true }).click();
+  const customZoom = page.getByLabel("自定义缩放比例（%）", { exact: true });
+  await expect(customZoom).toHaveValue("80");
+  for (const invalid of ["24", "201", "80.5", ""]) {
+    await customZoom.fill(invalid);
+    expect(
+      await customZoom.evaluate((input: HTMLInputElement) =>
+        input.checkValidity(),
+      ),
+    ).toBe(false);
+  }
+  await customZoom.fill("83");
   await resolution.click();
   await page.getByRole("option", { name: "手机尺寸 · 390 × 844" }).click();
   await expect(resolution).toContainText("390 × 844");
@@ -347,6 +380,8 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "截图设置", exact: true }).click();
   await expect(resolution).toContainText("自定义");
+  await expect(zoom).toContainText("自定义");
+  await expect(customZoom).toHaveValue("83");
   await expect(page.getByLabel("截图宽度（像素）")).toHaveValue("420");
   await expect(page.getByLabel("截图高度（像素）")).toHaveValue("900");
   await expect(

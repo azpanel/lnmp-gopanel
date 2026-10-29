@@ -74,6 +74,11 @@ func TestScreenshotAPIsAuthenticationPersistenceAndImages(t *testing.T) {
 		`{"url":"http://localhost/","viewport_width":390}`,
 		`{"url":"http://localhost/","viewport_width":390.5,"viewport_height":844}`,
 		`{"url":"http://localhost/","viewport_width":390,"viewport_height":3841}`,
+		`{"url":"http://localhost/","zoom_percent":0}`,
+		`{"url":"http://localhost/","zoom_percent":24}`,
+		`{"url":"http://localhost/","zoom_percent":201}`,
+		`{"url":"http://localhost/","zoom_percent":80.5}`,
+		`{"url":"http://localhost/","zoom_percent":"80"}`,
 	} {
 		if w := request(h, "PUT", base+"?name=example.conf", input, cookie, session.CSRF, ""); w.Code != 400 {
 			t.Fatal("invalid capture settings accepted", w.Code)
@@ -82,8 +87,9 @@ func TestScreenshotAPIsAuthenticationPersistenceAndImages(t *testing.T) {
 	// A maximum-size script can expand sixfold when JSON-escaped.
 	script := "/*" + strings.Repeat("\x01", screenshots.MaxJavaScriptSize-4) + "*/"
 	password := "private-screenshot-password"
+	zoom := 80
 	input := screenshots.Input{URL: "http://localhost/private", Language: "en-US", LoadTimeoutSeconds: 120,
-		ViewportWidth: 390, ViewportHeight: 844, JavaScript: script,
+		ViewportWidth: 390, ViewportHeight: 844, ZoomPercent: &zoom, JavaScript: script,
 		AuthEnabled: true, Username: "site-user", Password: &password}
 	data, err := json.Marshal(input)
 	if err != nil {
@@ -97,7 +103,7 @@ func TestScreenshotAPIsAuthenticationPersistenceAndImages(t *testing.T) {
 		t.Fatal("capture settings missing from response", w.Body.String())
 	}
 	var view screenshots.View
-	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil || view.ViewportWidth != 390 || view.ViewportHeight != 844 || view.JavaScript != script {
+	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil || view.ViewportWidth != 390 || view.ViewportHeight != 844 || view.ZoomPercent != 80 || view.JavaScript != script {
 		t.Fatal("capture options missing from response", err)
 	}
 	for _, body := range []string{

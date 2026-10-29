@@ -26,6 +26,19 @@ import { api } from "@/lib/api";
 import type { ScreenshotSnapshot, Vhost, WebsiteScreenshot } from "@/lib/types";
 
 const resolutions = [
+  ...[
+    [3840, 2400],
+    [3200, 2000],
+    [3072, 1920],
+    [2880, 1800],
+    [2560, 1600],
+    [1920, 1200],
+  ].map(([width, height]) => ({
+    value: `${width}x${height}`,
+    label: `桌面 · ${width} × ${height}（16:10）`,
+    width,
+    height,
+  })),
   {
     value: "1920x1080",
     label: "桌面 · 1920 × 1080",
@@ -47,6 +60,8 @@ const resolutions = [
   },
   { value: "390x844", label: "手机尺寸 · 390 × 844", width: 390, height: 844 },
 ];
+
+const zoomPresets = [25, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200];
 
 function imageURL(item: WebsiteScreenshot) {
   return `/api/v1/vhosts/screenshot/image?name=${encodeURIComponent(item.name)}&v=${encodeURIComponent(item.image_version || "")}`;
@@ -172,6 +187,8 @@ export function useWebsiteScreenshots(enabled: boolean) {
   const [resolution, setResolution] = useState("1440x900");
   const [viewportWidth, setViewportWidth] = useState("1440");
   const [viewportHeight, setViewportHeight] = useState("900");
+  const [zoomPreset, setZoomPreset] = useState("100");
+  const [zoomPercent, setZoomPercent] = useState("100");
   const [javascript, setJavaScript] = useState("");
   const [language, setLanguage] = useState("zh-CN");
   const [loadTimeoutSeconds, setLoadTimeoutSeconds] = useState("30");
@@ -205,6 +222,7 @@ export function useWebsiteScreenshots(enabled: boolean) {
             url,
             viewport_width: Number(viewportWidth),
             viewport_height: Number(viewportHeight),
+            zoom_percent: Number(zoomPercent),
             javascript,
             language,
             load_timeout_seconds: Number(loadTimeoutSeconds),
@@ -268,6 +286,9 @@ export function useWebsiteScreenshots(enabled: boolean) {
       resolutions.find((r) => r.width === width && r.height === height)
         ?.value || "custom",
     );
+    const zoom = item?.zoom_percent || 100;
+    setZoomPercent(String(zoom));
+    setZoomPreset(zoomPresets.includes(zoom) ? String(zoom) : "custom");
     setJavaScript(item?.javascript || "");
     setLanguage(item?.language || "zh-CN");
     setLoadTimeoutSeconds(String(item?.load_timeout_seconds || 30));
@@ -421,6 +442,54 @@ export function useWebsiteScreenshots(enabled: boolean) {
                         onChange={(e) => setViewportHeight(e.target.value)}
                       />
                     </div>
+                  </div>
+                )}
+                <div className="form-field">
+                  <Label htmlFor="screenshot-zoom">网页缩放</Label>
+                  <Select
+                    value={zoomPreset}
+                    disabled={busy}
+                    onValueChange={(value) => {
+                      setZoomPreset(value);
+                      if (value !== "custom") setZoomPercent(value);
+                    }}
+                  >
+                    <SelectTrigger
+                      id="screenshot-zoom"
+                      className="w-full"
+                      aria-describedby="screenshot-zoom-help"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {zoomPresets.map((percent) => (
+                        <SelectItem key={percent} value={String(percent)}>
+                          {percent}%{percent === 100 ? "（默认）" : ""}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="custom">自定义</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p id="screenshot-zoom-help" className="small-note">
+                    缩小比例可显示更多内容，输出图片尺寸保持所选分辨率。
+                  </p>
+                </div>
+                {zoomPreset === "custom" && (
+                  <div className="form-field">
+                    <Label htmlFor="screenshot-zoom-percent">
+                      自定义缩放比例（%）
+                    </Label>
+                    <Input
+                      id="screenshot-zoom-percent"
+                      type="number"
+                      required
+                      min={25}
+                      max={200}
+                      step={1}
+                      value={zoomPercent}
+                      onChange={(e) => setZoomPercent(e.target.value)}
+                      aria-describedby="screenshot-zoom-help"
+                    />
                   </div>
                 )}
                 <div className="form-field">

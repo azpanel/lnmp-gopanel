@@ -299,7 +299,7 @@ func TestInterruptedTaskAndPrivateFiles(t *testing.T) {
 	if err != nil || items["example.conf"].Status != "failed" {
 		t.Fatal("interrupted task not recovered", err)
 	}
-	if item := items["example.conf"]; item.Language != DefaultLanguage || item.LoadTimeoutSeconds != 30 || item.ViewportWidth != 1440 || item.ViewportHeight != 900 || item.JavaScript != "" {
+	if item := items["example.conf"]; item.Language != DefaultLanguage || item.LoadTimeoutSeconds != 30 || item.ViewportWidth != 1440 || item.ViewportHeight != 900 || item.ZoomPercent != DefaultZoomPercent || item.JavaScript != "" {
 		t.Fatal("legacy settings did not receive defaults", item)
 	}
 	if err := os.Chmod(filepath.Join(dir, "screenshot-settings.json"), 0644); err != nil {
@@ -333,6 +333,10 @@ func TestCaptureSettingsValidationAndDeadline(t *testing.T) {
 		{ViewportWidth: -1, ViewportHeight: 900},
 		{ViewportWidth: 319, ViewportHeight: 900},
 		{ViewportWidth: 1440, ViewportHeight: 3841},
+		{ZoomPercent: ptr(-1)},
+		{ZoomPercent: ptr(0)},
+		{ZoomPercent: ptr(24)},
+		{ZoomPercent: ptr(201)},
 		{JavaScript: strings.Repeat("a", MaxJavaScriptSize+1)},
 		{JavaScript: strings.Repeat("中", MaxJavaScriptSize/3+1)},
 	} {
@@ -351,7 +355,7 @@ func TestCaptureSettingsValidationAndDeadline(t *testing.T) {
 	if remaining := <-deadlines; remaining < 119*time.Second || remaining > 120*time.Second {
 		t.Fatal("custom timeout was capped or ignored", remaining)
 	}
-	if v.Language != "en-US" || v.LoadTimeoutSeconds != 120 {
+	if v.Language != "en-US" || v.LoadTimeoutSeconds != 120 || v.ZoomPercent != DefaultZoomPercent {
 		t.Fatal("settings were not normalized", v)
 	}
 	for _, seconds := range []int{0, 5, 300} {
@@ -369,18 +373,18 @@ func TestCaptureOptionsPersistenceAndRefresh(t *testing.T) {
 	}}
 	dir := t.TempDir()
 	m := newTestManager(t, dir, f)
-	for _, size := range [][2]int{{1920, 1080}, {390, 844}, {777, 555}, {320, 3840}} {
-		input := Input{URL: "http://localhost/", ViewportWidth: size[0], ViewportHeight: size[1], JavaScript: "await Promise.resolve();\ndocument.body.style.background = 'green';"}
+	for _, size := range [][3]int{{1920, 1080, 25}, {390, 844, 67}, {777, 555, 125}, {320, 3840, 200}} {
+		input := Input{URL: "http://localhost/", ViewportWidth: size[0], ViewportHeight: size[1], ZoomPercent: ptr(size[2]), JavaScript: "await Promise.resolve();\ndocument.body.style.background = 'green';"}
 		if _, err := m.Save("example.conf", input); err != nil {
 			t.Fatal(err)
 		}
 		v := waitStatus(t, m, "example.conf", "ready")
 		target := <-received
-		if target.ViewportWidth != size[0] || target.ViewportHeight != size[1] || target.JavaScript != input.JavaScript {
+		if target.ViewportWidth != size[0] || target.ViewportHeight != size[1] || target.ZoomPercent != size[2] || v.ZoomPercent != size[2] || target.JavaScript != input.JavaScript {
 			t.Fatal("capture options not forwarded", target)
 		}
 		_, restored, err := openStore(dir)
-		if err != nil || restored["example.conf"].View.ViewportWidth != size[0] || restored["example.conf"].ViewportHeight != size[1] || restored["example.conf"].JavaScript != input.JavaScript {
+		if err != nil || restored["example.conf"].View.ViewportWidth != size[0] || restored["example.conf"].ViewportHeight != size[1] || restored["example.conf"].ZoomPercent != size[2] || restored["example.conf"].JavaScript != input.JavaScript {
 			t.Fatal("capture options not restored", restored, err)
 		}
 		if _, err := m.Refresh("example.conf"); err != nil {
@@ -393,6 +397,23 @@ func TestCaptureOptionsPersistenceAndRefresh(t *testing.T) {
 	}
 	if _, _, err := normalizeCaptureOptions(3840, 320, strings.Repeat("a", MaxJavaScriptSize)); err != nil {
 		t.Fatal("valid bounds rejected", err)
+	}
+}
+
+func TestStoreRejectsInvalidZoom(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	s, _, err := openStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.save(map[string]record{"example.conf": {View: View{Name: "example.conf", URL: "http://localhost/", ZoomPercent: 201}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := openStore(dir); err == nil {
+		t.Fatal("accepted invalid persisted zoom")
 	}
 }
 

@@ -98,9 +98,12 @@ func openStore(dir string) (*store, map[string]record, error) {
 		}
 	}
 	for name, item := range items {
+		if item.ZoomPercent == 0 {
+			item.ZoomPercent = DefaultZoomPercent
+		}
 		language, seconds, settingsErr := normalizeSettings(item.Language, item.LoadTimeoutSeconds)
 		width, height, captureErr := normalizeCaptureOptions(item.ViewportWidth, item.ViewportHeight, item.JavaScript)
-		if !validName(name) || item.Name != name || validateURL(item.URL) != nil || !validVersion(item.ImageVersion) || settingsErr != nil || captureErr != nil {
+		if !validName(name) || item.Name != name || validateURL(item.URL) != nil || !validVersion(item.ImageVersion) || settingsErr != nil || captureErr != nil || validateZoomPercent(item.ZoomPercent) != nil {
 			return nil, nil, errors.New("截图设置文件包含无效记录")
 		}
 		item.Language, item.LoadTimeoutSeconds = language, seconds

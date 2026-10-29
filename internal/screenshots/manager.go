@@ -30,10 +30,20 @@ const DefaultViewportHeight = 900
 const MinViewportSize = 320
 const MaxViewportSize = 3840
 const MaxJavaScriptSize = 16 * 1024
+const DefaultZoomPercent = 100
+const MinZoomPercent = 25
+const MaxZoomPercent = 200
 
 var ErrBusy = errors.New("截图队列已满，请稍后重试")
 var ErrMissing = errors.New("请先保存截图设置")
 var languagePattern = regexp.MustCompile(`^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$`)
+
+func validateZoomPercent(percent int) error {
+	if percent < MinZoomPercent || percent > MaxZoomPercent {
+		return errors.New("网页缩放必须为 25–200 的整数百分比")
+	}
+	return nil
+}
 
 func normalizeCaptureOptions(width, height int, javascript string) (int, int, error) {
 	if width == 0 && height == 0 {
@@ -69,6 +79,7 @@ type Input struct {
 	URL                string  `json:"url"`
 	ViewportWidth      int     `json:"viewport_width"`
 	ViewportHeight     int     `json:"viewport_height"`
+	ZoomPercent        *int    `json:"zoom_percent,omitempty"`
 	JavaScript         string  `json:"javascript"`
 	Language           string  `json:"language"`
 	LoadTimeoutSeconds int     `json:"load_timeout_seconds"`
@@ -80,6 +91,7 @@ type Target struct {
 	URL, Username, Password string
 	ViewportWidth           int
 	ViewportHeight          int
+	ZoomPercent             int
 	JavaScript              string
 	AuthEnabled             bool
 	Language                string
@@ -90,6 +102,7 @@ type View struct {
 	URL                string     `json:"url"`
 	ViewportWidth      int        `json:"viewport_width"`
 	ViewportHeight     int        `json:"viewport_height"`
+	ZoomPercent        int        `json:"zoom_percent"`
 	JavaScript         string     `json:"javascript"`
 	Language           string     `json:"language"`
 	LoadTimeoutSeconds int        `json:"load_timeout_seconds"`
@@ -238,6 +251,13 @@ func (m *Manager) Save(name string, input Input) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
+	zoom := DefaultZoomPercent
+	if input.ZoomPercent != nil {
+		zoom = *input.ZoomPercent
+	}
+	if err := validateZoomPercent(zoom); err != nil {
+		return View{}, err
+	}
 	if len(input.Username) > 256 || strings.ContainsAny(input.Username, ":\r\n\x00") || (input.Password != nil && len(*input.Password) > 1024) {
 		return View{}, errors.New("认证信息无效或过长")
 	}
@@ -251,6 +271,7 @@ func (m *Manager) Save(name string, input Input) (View, error) {
 	r.Name, r.URL, r.AuthEnabled, r.Username = name, input.URL, input.AuthEnabled, input.Username
 	r.Language, r.LoadTimeoutSeconds = language, seconds
 	r.ViewportWidth, r.ViewportHeight, r.JavaScript = width, height, input.JavaScript
+	r.ZoomPercent = zoom
 	r.PasswordCipher = ""
 	r.PasswordSaved = false
 	if input.AuthEnabled {
@@ -366,7 +387,7 @@ func (m *Manager) work() {
 			continue
 		}
 		target := Target{URL: r.URL, Username: r.Username, AuthEnabled: r.AuthEnabled, Language: r.Language, LoadTimeoutSeconds: r.LoadTimeoutSeconds,
-			ViewportWidth: r.ViewportWidth, ViewportHeight: r.ViewportHeight, JavaScript: r.JavaScript}
+			ViewportWidth: r.ViewportWidth, ViewportHeight: r.ViewportHeight, ZoomPercent: r.ZoomPercent, JavaScript: r.JavaScript}
 		var err error
 		if r.AuthEnabled {
 			target.Password, err = m.store.decrypt(j.name, r.PasswordCipher)
