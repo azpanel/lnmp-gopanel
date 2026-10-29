@@ -19,6 +19,7 @@ import (
 	"github.com/azpanel/lnmp-gopanel/internal/control"
 	"github.com/azpanel/lnmp-gopanel/internal/cron"
 	"github.com/azpanel/lnmp-gopanel/internal/docker"
+	"github.com/azpanel/lnmp-gopanel/internal/lnmpinstall"
 	"github.com/azpanel/lnmp-gopanel/internal/logs"
 	"github.com/azpanel/lnmp-gopanel/internal/metrics"
 	"github.com/azpanel/lnmp-gopanel/internal/releases"
@@ -29,32 +30,36 @@ import (
 )
 
 type Server struct {
-	Config          config.Config
-	Sessions        *auth.Store
-	Metrics         *metrics.Collector
-	Services        *control.Manager
-	Components      *components.Manager
-	Docker          *docker.Manager
-	LoginLog        *logs.LoginLog
-	Logs            logs.Reader
-	CustomLogs      *logs.Registry
-	CustomLogsError string
-	Cron            cron.Reader
-	Releases        *releases.Manager
-	Storage         *storage.Manager
-	Vhosts          *vhosts.Manager
-	VhostJobs       *vhosts.Jobs
-	DNS             *vhosts.DNSChecker
-	Screenshots     *screenshots.Manager
-	Host            metrics.Host
-	Assets          fs.FS
-	limiter         auth.Limiter
-	streams         chan struct{}
-	logReads        chan struct{}
-	Account         *auth.Account
-	accountOnce     sync.Once
-	authMu          sync.Mutex
-	securityLimiter auth.Limiter
+	Installation        lnmpinstall.Backend
+	ServicesFile        string
+	installationMu      sync.Mutex
+	installationApplied string
+	Config              config.Config
+	Sessions            *auth.Store
+	Metrics             *metrics.Collector
+	Services            *control.Manager
+	Components          *components.Manager
+	Docker              *docker.Manager
+	LoginLog            *logs.LoginLog
+	Logs                logs.Reader
+	CustomLogs          *logs.Registry
+	CustomLogsError     string
+	Cron                cron.Reader
+	Releases            *releases.Manager
+	Storage             *storage.Manager
+	Vhosts              *vhosts.Manager
+	VhostJobs           *vhosts.Jobs
+	DNS                 *vhosts.DNSChecker
+	Screenshots         *screenshots.Manager
+	Host                metrics.Host
+	Assets              fs.FS
+	limiter             auth.Limiter
+	streams             chan struct{}
+	logReads            chan struct{}
+	Account             *auth.Account
+	accountOnce         sync.Once
+	authMu              sync.Mutex
+	securityLimiter     auth.Limiter
 }
 
 func New(c config.Config, m *metrics.Collector, svc *control.Manager, assets fs.FS) *Server {
@@ -110,6 +115,7 @@ func (s *Server) Handler() http.Handler {
 		c.Status(204)
 	})
 	s.registerAccountSecurity(private)
+	s.registerLNMPInstallation(private)
 	private.GET("/host", func(c *gin.Context) { c.JSON(200, s.Host) })
 	private.GET("/metrics", func(c *gin.Context) {
 		v := s.Metrics.Latest()

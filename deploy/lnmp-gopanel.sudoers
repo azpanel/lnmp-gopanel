@@ -2,6 +2,10 @@
 # Each exact service/action pair is listed; do not replace with wildcard args.
 Defaults:lnmp-panel !requiretty
 Cmnd_Alias LNMP_PANEL = /usr/local/libexec/lnmp-gopanel-control nginx status, \
+ /usr/local/libexec/lnmp-gopanel-control lnmp-install inspect, \
+ /usr/local/libexec/lnmp-gopanel-control lnmp-install prepare, \
+ /usr/local/libexec/lnmp-gopanel-control lnmp-install start, \
+ /usr/local/libexec/lnmp-gopanel-control lnmp-install read, \
  /usr/local/libexec/lnmp-gopanel-control components snapshot, \
  /usr/local/libexec/lnmp-gopanel-control docker snapshot, \
  /usr/local/libexec/lnmp-gopanel-control cron list, \

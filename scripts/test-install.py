@@ -29,6 +29,7 @@ TARGETS = (
     "/etc/lnmp-gopanel/tls/panel.key",
 )
 VHOST_COMMANDS = tuple(f"vhosts {action}" for action in ("list", "config", "format", "usage", "toggle", "options", "create", "ssl-renew-preview", "ssl-renew", "basic-auth-get", "basic-auth-set", "basic-auth-disable"))
+LNMP_INSTALL_COMMANDS = tuple(f"lnmp-install {action}" for action in ("inspect", "prepare", "start", "read"))
 
 
 def copy_executable(root, command):
@@ -554,6 +555,17 @@ printf '%s\\n' "$*" >> /run/apparmor.log
         for path in preserved:
             self.assertEqual(path.read_text(), "keep")
 
+    def test_lnmp_install_permissions_do_not_start_an_installation(self):
+        self.old_installation(https=True)
+        self.run_installer(automatic_tls=False)
+        sudoers = (self.root / "etc/sudoers.d/lnmp-gopanel").read_text()
+        sudo_log = (self.root / "run/sudo.log").read_text()
+        for command in LNMP_INSTALL_COMMANDS:
+            self.assertIn(f"/usr/local/libexec/lnmp-gopanel-control {command},", sudoers)
+            self.assertIn(f"-n -l -- /usr/local/libexec/lnmp-gopanel-control {command}\n", sudo_log)
+        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\ncomponents snapshot\n")
+        self.assertFalse((self.root / "var/lib/lnmp-gopanel-install").exists())
+
     def test_http_upgrade_migrates_and_preserves_credentials_and_services(self):
         previous = self.old_installation()
         self.run_installer()
@@ -623,7 +635,7 @@ printf '%s\\n' "$*" >> /run/apparmor.log
 
     def test_missing_helper_permissions_rolls_back(self):
         previous = self.old_installation()
-        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read") + VHOST_COMMANDS:
+        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read") + VHOST_COMMANDS + LNMP_INSTALL_COMMANDS:
             with self.subTest(command=command):
                 write(self.root, "/run/deny-helper-command", f"/usr/local/libexec/lnmp-gopanel-control {command}\n")
                 result = self.run_installer(success=False)

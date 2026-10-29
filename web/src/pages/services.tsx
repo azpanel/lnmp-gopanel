@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { ServiceIcon, serviceInfo, ServiceStatus } from "@/components/status";
 import { api } from "@/lib/api";
+import { LNMPInstallNotice } from "@/components/lnmp-install-notice";
 import { clock } from "@/lib/format";
 import type { Service, ServiceRelease, ComponentSnapshot } from "@/lib/types";
 const actions = {
@@ -100,6 +101,7 @@ export function Services({
   });
   return (
     <>
+      <LNMPInstallNotice />
       <div className="page-heading">
         <div>
           <div className="eyebrow muted">SERVICE MANAGEMENT</div>

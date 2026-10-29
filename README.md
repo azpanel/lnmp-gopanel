@@ -7,6 +7,7 @@
 - 浏览器仅在内存中保留最近 5 分钟、最多 150 个采样点；刷新或退出登录即清空。重连只取最新数据，断档不补线。
 - Nginx、PHP-FPM、MySQL / MariaDB 状态与启停、重启；Nginx 配置检查通过后才允许重载。Redis 提供只读状态监控。
 - 显示服务已安装版本，异步查询官方最新稳定版本及 changelog。
+- 未安装 LNMP 时提供在线安装，支持可选 Nginx 模块、持久化安装任务和实时编译输出。
 - Docker 只读概览：运行中容器的基础信息、可写层与虚拟大小，以及镜像、容器、数据卷和构建缓存的空间占用。
 - 定时任务只读查看 root crontab，展示执行周期、命令和原文，支持刷新。
 - 日志读取支持登录日志、网站、MariaDB 慢查询及 PHP 错误日志，按需加载大文件、实时追踪和多条关键词／正则筛选。
@@ -74,6 +75,16 @@ sudo bash install.sh --archive ./lnmp-gopanel_linux_amd64.tar.gz
 ```
 
 离线安装同时需要 `lnmp-gopanel_linux_amd64.tar.gz.sha256`（或通过 `--checksum-file` 指定校验文件）。`--no-start` 用于安装后自行检查配置，脚本不会启用或重启面板；检查后执行 `sudo systemctl enable --now lnmp-gopanel`，已有运行实例升级后需执行 `sudo systemctl restart lnmp-gopanel`。非交互首次安装使用 `--password-stdin --tls-mode self-signed`，或 `--password-stdin --tls-mode existing --certificate-dir /usr/local/nginx/conf/ssl/域名`；密码从标准输入读取，勿把密码放入命令行参数。非交互旧版 HTTP 升级也需显式选择证书模式。
+
+## 在线安装 LNMP
+
+在“LNMP 服务”或系统概览中点击“安装 LNMP”，进入 `/lnmp/install`。先从 [azpanel/lnmp2.3-offline](https://github.com/azpanel/lnmp2.3-offline) 的 `main` 分支获取最新源码到 `/root/lnmp2.3-offline`，再按实际脚本选择数据库、PHP、内存分配器与默认站点保护方式。准备完成后固定该提交安装；上游选项结构不兼容时会停止并提示。
+
+Nginx 默认勾选 VTS、GeoIP2、FancyIndex 和 Substitutions Filter，支持逐项取消。所选模块从各自仓库的默认分支拉取并记录提交，使用 `--add-module` 静态编译，FancyIndex 不会重复添加。选择 GeoIP2 时，apt 系统自动安装 `libmaxminddb0 libmaxminddb-dev mmdb-bin`；dnf/yum 系统安装 `libmaxminddb libmaxminddb-devel`。Rocky、AlmaLinux、CentOS 8 在本次命令中启用官方 PowerTools 源，9 及以后启用 CRB 源，不永久更改源配置。软件源缺包或模块编译失败会明确终止，不会跳过。MMDB 数据库、统计访问入口和模块业务配置需自行配置。
+
+安装通过独立 systemd 服务运行，关闭页面或重启面板后继续执行。页面展示阶段、运行时间及编译输出，支持断线续传、轮询、历史日志和下载。任务状态与脱敏日志保存在 root 专属的 `/var/lib/lnmp-gopanel-install`，原始安装日志为 `/root/lnmp-install.log`。服务器重启后未完成的任务标记为中断，不自动恢复编译。成功后自动更新面板服务列表。
+
+在线安装仅用于无 LNMP 和冲突组件的服务器。已有组件、目录残留或端口冲突时会阻止安装；失败保留源码和日志，由管理员处理后重试，不自动删除数据库或网站。面板卸载保留上述安装记录、源码与 LNMP 环境。升级时请同时更新辅助程序及 sudoers：新增的 `lnmp-install inspect/prepare/start/read` 仅在面板安装自检中检查授权，不触发环境安装。
 
 ## GitHub Actions 产物
 

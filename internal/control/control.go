@@ -63,7 +63,19 @@ type Manager struct {
 
 func New(services []config.Service, e Executor) *Manager {
 	m := &Manager{services: map[string]config.Service{}, views: map[string]View{}, locks: map[string]*sync.Mutex{}, executor: e}
+	m.AddServices(services)
+	return m
+}
+
+// AddServices imports newly installed services without replacing administrator
+// configuration or the mutexes used by operations already in progress.
+func (m *Manager) AddServices(services []config.Service) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, s := range services {
+		if _, exists := m.services[s.Name]; exists {
+			continue
+		}
 		m.services[s.Name] = s
 		m.locks[s.Name] = &sync.Mutex{}
 		actions := []string{"start", "stop", "restart"}
@@ -75,7 +87,6 @@ func New(services []config.Service, e Executor) *Manager {
 		}
 		m.views[s.Name] = View{Name: s.Name, State: "unknown", Manager: s.Manager, Actions: actions, Message: "等待状态检查"}
 	}
-	return m
 }
 func (m *Manager) List() []View {
 	m.mu.RLock()
@@ -90,11 +101,16 @@ func (m *Manager) List() []View {
 }
 func (m *Manager) Refresh(ctx context.Context) {
 	var wg sync.WaitGroup
-	for name := range m.services {
+	m.mu.RLock()
+	locks := make(map[string]*sync.Mutex, len(m.locks))
+	for name, lock := range m.locks {
+		locks[name] = lock
+	}
+	m.mu.RUnlock()
+	for name, lock := range locks {
 		wg.Add(1)
 		go func(name string) {
 			defer wg.Done()
-			lock := m.locks[name]
 			if !lock.TryLock() {
 				return
 			}
@@ -138,6 +154,7 @@ func (m *Manager) Run(ctx context.Context) {
 func (m *Manager) Action(ctx context.Context, name, action string) (Result, error) {
 	m.mu.RLock()
 	v, ok := m.views[name]
+	lock := m.locks[name]
 	m.mu.RUnlock()
 	allowed := false
 	for _, a := range v.Actions {
@@ -148,7 +165,6 @@ func (m *Manager) Action(ctx context.Context, name, action string) (Result, erro
 	if !ok || !allowed {
 		return Result{}, ErrUnsupported
 	}
-	lock := m.locks[name]
 	if !lock.TryLock() {
 		return Result{}, ErrBusy
 	}

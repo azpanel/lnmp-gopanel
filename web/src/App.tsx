@@ -37,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import { Login } from "@/pages/login";
 import { Dashboard } from "@/pages/dashboard";
 import { Services } from "@/pages/services";
+import { LNMPInstall } from "@/pages/lnmp-install";
 import { System } from "@/pages/system";
 import { Storage } from "@/pages/storage";
 import { Vhosts } from "@/pages/vhosts";
@@ -419,6 +420,7 @@ function Workspace({
         <main className="main-content">
           <div className="page-transition" key={pathname}>
             <Routes>
+              <Route path="/lnmp/install" element={<LNMPInstall />} />
               <Route
                 path="/"
                 element={

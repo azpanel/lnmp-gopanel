@@ -90,6 +90,7 @@ func run() error {
 	go collector.Run(ctx)
 	go manager.Run(ctx)
 	app := server.New(c, collector, manager, web.Assets())
+	app.ServicesFile = *servicesPath
 	app.Account = account
 	app.LoginLog, err = logs.OpenLoginLog(c.Logs.StateDir)
 	if err != nil {

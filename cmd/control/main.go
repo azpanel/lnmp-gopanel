@@ -28,6 +28,14 @@ func run() error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("辅助程序需要 root 权限")
 	}
+	if len(os.Args) == 4 && os.Args[1] == "lnmp-install-worker" {
+		return control.RunLNMPInstallWorker(os.Args[2], os.Args[3])
+	}
+	if len(os.Args) == 3 && os.Args[1] == "lnmp-install" {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		return control.HandleLNMPInstall(ctx, os.Args[2], os.Stdin, os.Stdout)
+	}
 	if len(os.Args) == 3 && os.Args[1] == "components" && os.Args[2] == "snapshot" {
 		ctx, cancel := context.WithTimeout(context.Background(), components.Timeout)
 		defer cancel()

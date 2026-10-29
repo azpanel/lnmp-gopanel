@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { LNMPInstallNotice } from "@/components/lnmp-install-notice";
 import {
   Activity,
   ArrowDownLeft,
@@ -131,6 +132,7 @@ export function Dashboard({
   const errors = Object.values(s?.errors || {});
   return (
     <>
+      <LNMPInstallNotice />
       <div className="page-heading">
         <div>
           <div className="eyebrow muted">SERVER OVERVIEW</div>
