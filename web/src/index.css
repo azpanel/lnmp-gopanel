@@ -2522,6 +2522,16 @@ a {
 .screenshot-settings-fields .small-note {
   line-height: 1.7;
 }
+.screenshot-settings-fields
+  :is([data-slot="input"], [data-slot="select-trigger"], .screenshot-script) {
+  color-scheme: light;
+  background: #fff;
+  color: #20262b;
+}
+.screenshot-settings-fields
+  :is([data-slot="input"], .screenshot-script)::placeholder {
+  color: #6d747c;
+}
 .screenshot-field-label,
 .vhost-summary-toggle {
   display: flex;
