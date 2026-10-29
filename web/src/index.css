@@ -1091,8 +1091,7 @@ a {
   gap: 8px;
   min-width: 0;
 }
-.account-security-dialog .account-password-generate,
-.account-security-dialog .account-password-submit {
+.account-security-dialog [data-slot="button"] {
   font-size: 14px;
 }
 .account-password-generate {
