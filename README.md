@@ -83,7 +83,7 @@ sudo bash install.sh --archive ./lnmp-gopanel_linux_amd64.tar.gz
 
 Nginx 默认勾选 VTS、GeoIP2、FancyIndex 和 Substitutions Filter，支持逐项取消。所选模块从各自仓库的默认分支拉取并记录提交，使用 `--add-module` 静态编译，FancyIndex 不会重复添加。选择 GeoIP2 时，apt 系统自动安装 `libmaxminddb0 libmaxminddb-dev mmdb-bin`；dnf/yum 系统安装 `libmaxminddb libmaxminddb-devel`。Rocky、AlmaLinux、CentOS 8 在本次命令中启用官方 PowerTools 源，9 及以后启用 CRB 源，不永久更改源配置。软件源缺包或模块编译失败会明确终止，不会跳过。MMDB 数据库、统计访问入口和模块业务配置需自行配置。
 
-安装通过独立 systemd 服务运行，关闭页面或重启面板后继续执行。页面展示阶段、运行时间及编译输出，支持断线续传、轮询、历史日志和下载。任务状态与脱敏日志保存在 root 专属的 `/var/lib/lnmp-gopanel-install`，原始安装日志为 `/root/lnmp-install.log`。服务器重启后未完成的任务标记为中断，不自动恢复编译。成功后自动更新面板服务列表。
+安装通过独立 systemd 服务运行，关闭页面或重启面板后继续执行。页面展示阶段、安装耗时及编译输出，支持断线续传、轮询、历史日志和下载。安装耗时从后端接受“开始安装 LNMP”请求时起算，排除源码准备和填写配置时间，刷新页面后继续，安装结束后固定；尚未开始时显示提示，缺少起点的旧记录显示“安装耗时未知”。实时与历史日志自动折行，长路径及编译参数无需横向滚动，下载保留原始格式。任务状态与脱敏日志保存在 root 专属的 `/var/lib/lnmp-gopanel-install`，原始安装日志为 `/root/lnmp-install.log`。服务器重启后未完成的任务标记为中断，不自动恢复编译。成功后自动更新面板服务列表。
 
 在线安装仅用于无 LNMP 和冲突组件的服务器。已有组件、目录残留或端口冲突时会阻止安装；失败保留源码和日志，由管理员处理后重试，不自动删除数据库或网站。面板卸载保留上述安装记录、源码与 LNMP 环境。升级时请同时更新辅助程序及 sudoers：新增的 `lnmp-install inspect/prepare/start/read` 仅在面板安装自检中检查授权，不触发环境安装。
 

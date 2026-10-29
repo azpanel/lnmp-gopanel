@@ -4665,8 +4665,12 @@ body,
   border-radius: 8px;
   padding: 16px;
   height: 440px;
-  overflow: auto;
-  white-space: pre;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font:
     12px/1.7 ui-monospace,
     SFMono-Regular,

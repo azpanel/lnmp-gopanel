@@ -339,3 +339,59 @@ func TestInstallationLogTailAndResume(t *testing.T) {
 		t.Fatal("tail with cursor accepted")
 	}
 }
+
+func TestInstallationStartTimePersistsAcrossUpdatesAndDuplicateRequests(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("root-owned state trust check")
+	}
+	dir, err := os.MkdirTemp("/root", "lnmp-install-time-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	p := rootInstaller{state: dir}
+	id := "11111111-1111-4111-8111-111111111111"
+	if err := os.Mkdir(p.path(id, ""), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "current"), []byte(id), 0600); err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Millisecond)
+	r := lnmpinstall.Request{ID: id, Revision: strings.Repeat("a", 40), PHP: 14, Allocator: 1, Protection: "random", IPv4: "192.0.2.1", Modules: []string{}}
+	j := lnmpinstall.Job{ID: id, Status: "running", Phase: "模块准备", CreatedAt: startedAt.Add(-time.Hour), StartedAt: &startedAt,
+		Options: &lnmpinstall.Options{Revision: r.Revision, Databases: []lnmpinstall.Choice{{ID: 0, Name: "不安装数据库"}}, PHP: []lnmpinstall.Choice{{ID: 14, Name: "PHP 8.3.36"}}}}
+	if err := p.save(&j); err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []string{"running", "succeeded"} {
+		j.Status, j.Phase = status, "Nginx 编译"
+		if err := p.save(&j); err != nil {
+			t.Fatal(err)
+		}
+		before, err := os.ReadFile(p.path(id, "job.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		restored, err := (rootInstaller{state: dir}).start(context.Background(), r)
+		if err != nil || restored.StartedAt == nil || !restored.StartedAt.Equal(startedAt) {
+			t.Fatal(restored, err)
+		}
+		after, err := os.ReadFile(p.path(id, "job.json"))
+		if err != nil || string(before) != string(after) {
+			t.Fatal("duplicate request rewrote persisted task", err)
+		}
+	}
+	j.Status, j.StartedAt = "ready", nil
+	if err := p.save(&j); err != nil {
+		t.Fatal(err)
+	}
+	r.PHP = 99
+	if _, err := p.start(context.Background(), r); err == nil {
+		t.Fatal("invalid installation request accepted")
+	}
+	restored, err := p.load(id)
+	if err != nil || restored.StartedAt != nil || restored.Status != "ready" {
+		t.Fatal("rejected request started the timer", restored, err)
+	}
+}

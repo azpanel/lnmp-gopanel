@@ -1,9 +1,11 @@
 package lnmpinstall
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testOptions(t *testing.T) Options {
@@ -120,5 +122,32 @@ func TestMinimumPHPAndPersistedCatalog(t *testing.T) {
 	o.PHP = []Choice{{1, "PHP 5.2.17"}}
 	if RestrictPHP(&o) == nil {
 		t.Fatal("empty supported catalog accepted")
+	}
+}
+
+func TestJobStartTimeProtocolCompatibility(t *testing.T) {
+	var legacy Job
+	if err := json.Unmarshal([]byte(`{"id":"old","status":"succeeded","created_at":"2026-10-29T08:00:00Z","updated_at":"2026-10-29T10:10:00Z"}`), &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if legacy.StartedAt != nil {
+		t.Fatal("legacy job acquired a guessed start time")
+	}
+	data, err := json.Marshal(legacy)
+	if err != nil || strings.Contains(string(data), "started_at") {
+		t.Fatal(string(data), err)
+	}
+	startedAt := time.Date(2026, 10, 29, 10, 0, 0, 123000000, time.UTC)
+	legacy.StartedAt = &startedAt
+	data, err = json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored Job
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.StartedAt == nil || !restored.StartedAt.Equal(startedAt) {
+		t.Fatal("start time did not survive JSON round trip", string(data))
 	}
 }

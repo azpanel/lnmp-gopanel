@@ -329,6 +329,8 @@ func (p rootInstaller) start(ctx context.Context, r lnmpinstall.Request) (*lnmpi
 	if err = atomicInstallFile(p.path(j.ID, "request.json"), b, 0600); err != nil {
 		return nil, err
 	}
+	startedAt := time.Now().UTC()
+	j.StartedAt = &startedAt
 	j.Status, j.Phase, j.Modules = "running", "模块准备", r.Modules
 	if err = p.save(j); err != nil {
 		_ = os.Remove(p.path(j.ID, "request.json"))

@@ -3,6 +3,7 @@ import {
   binaryAllowed,
   defaultModules,
   initialInstallRequest,
+  installElapsedSeconds,
   type InstallJob,
 } from "./lnmp-install";
 
@@ -46,5 +47,84 @@ describe("installation form defaults", () => {
     expect(binaryAllowed(11, "arm64")).toBe(true);
     expect(binaryAllowed(4, "arm64")).toBe(false);
     expect(binaryAllowed(9, "386")).toBe(false);
+  });
+});
+
+describe("installation elapsed time", () => {
+  const start = Date.parse("2026-10-29T10:00:00Z");
+  const job: InstallJob = {
+    id: "job",
+    status: "running",
+    phase: "Nginx 编译",
+    created_at: "2026-10-29T08:00:00Z",
+    started_at: "2026-10-29T10:00:00Z",
+    updated_at: "2026-10-29T10:00:10Z",
+  };
+
+  it("starts at zero after preparation and configuration, and keeps the same anchor across updates and reloads", () => {
+    expect(installElapsedSeconds(job, start)).toBe(0);
+    expect(installElapsedSeconds(job, start + 65_999)).toBe(65);
+    const updated = {
+      ...job,
+      phase: "PHP 编译",
+      updated_at: "2026-10-29T10:01:30Z",
+    };
+    expect(installElapsedSeconds(updated, start + 100_000)).toBe(100);
+    expect(
+      installElapsedSeconds(
+        JSON.parse(JSON.stringify(updated)),
+        start + 120_000,
+      ),
+    ).toBe(120);
+  });
+
+  it.each(["preparing", "ready"] as const)(
+    "does not count time during %s",
+    (status) => {
+      expect(
+        installElapsedSeconds(
+          { ...job, status, started_at: undefined },
+          start + 3_600_000,
+        ),
+      ).toBeNull();
+    },
+  );
+
+  it.each(["succeeded", "failed", "interrupted"] as const)(
+    "freezes at the final update for %s",
+    (status) => {
+      expect(installElapsedSeconds({ ...job, status }, start + 60_000)).toBe(
+        10,
+      );
+      expect(installElapsedSeconds({ ...job, status }, start + 3_600_000)).toBe(
+        10,
+      );
+    },
+  );
+
+  it("handles legacy jobs and invalid timestamps without using creation time", () => {
+    expect(installElapsedSeconds(undefined, start)).toBeNull();
+    for (const started_at of [
+      undefined,
+      "",
+      "invalid",
+      "0001-01-01T00:00:00Z",
+    ]) {
+      expect(installElapsedSeconds({ ...job, started_at }, start)).toBeNull();
+    }
+    expect(
+      installElapsedSeconds(
+        { ...job, status: "succeeded", updated_at: "invalid" },
+        start,
+      ),
+    ).toBeNull();
+    expect(installElapsedSeconds(job, Number.NaN)).toBeNull();
+    expect(installElapsedSeconds(job, start - 10_000)).toBe(0);
+    expect(
+      installElapsedSeconds(
+        { ...job, status: "failed", updated_at: "2026-10-29T09:59:59Z" },
+        start,
+      ),
+    ).toBe(0);
   });
 });

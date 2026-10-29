@@ -11,6 +11,13 @@ test("installation defaults, module choices, restart recovery and polling output
   const streamCursors: string[] = [];
   let latest = 100;
   let failNextTail = false;
+  const wrappedOutput = [
+    "  https://example.com/source/" +
+      "very-long-source-archive-name".repeat(80),
+    "\t--add-module=/root/modules/" + "long-build-argument".repeat(100),
+    "中文编译输出".repeat(120),
+    ...Array.from({ length: 60 }, (_, i) => `    compiling source_${i}.c`),
+  ].join("\n");
   const options = {
     revision,
     architecture: "amd64",
@@ -60,15 +67,22 @@ test("installation defaults, module choices, restart recovery and polling output
       id,
       status: "ready",
       phase: "等待安装选项",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      created_at: new Date(Date.now() - 7_200_000).toISOString(),
+      updated_at: new Date(Date.now() - 3_600_000).toISOString(),
       options,
     };
     return route.fulfill({ status: 202, json: job });
   });
   await page.route(`**/api/v1/lnmp-installation/jobs/${id}/start`, (route) => {
     submission = route.request().postDataJSON();
-    job = { ...job, status: "running", phase: "Nginx 编译" };
+    const startedAt = new Date().toISOString();
+    job = {
+      ...job,
+      status: "running",
+      phase: "Nginx 编译",
+      started_at: startedAt,
+      updated_at: startedAt,
+    };
     return route.fulfill({ status: 202, json: job });
   });
   await page.route(
@@ -95,7 +109,7 @@ test("installation defaults, module choices, restart recovery and polling output
     if (!tail && after === 0) {
       return route.fulfill({
         json: {
-          lines: [{ id: 50, text: "old compilation output" }],
+          lines: [{ id: 50, text: "old compilation output\n" + wrappedOutput }],
           cursor: 50,
           more: true,
         },
@@ -111,9 +125,11 @@ test("installation defaults, module choices, restart recovery and polling output
                   time: new Date().toISOString(),
                   phase: "编译",
                   text:
-                    latest === 100
+                    (latest === 100
                       ? "make: compiling nginx with selected modules"
-                      : "make: latest compilation progress",
+                      : "make: latest compilation progress") +
+                    "\n" +
+                    wrappedOutput,
                 },
               ]
             : [],
@@ -130,6 +146,9 @@ test("installation defaults, module choices, restart recovery and polling output
   await page.getByRole("link", { name: "安装 LNMP" }).click();
   await expect(page.getByRole("heading", { name: "安装配置" })).toBeVisible();
   await page.getByRole("button", { name: "获取源码与安装选项" }).click();
+  await expect(page.getByLabel("安装耗时", { exact: true })).toHaveText(
+    "尚未开始安装",
+  );
   await expect(page.getByRole("combobox")).toHaveCount(5);
   for (const label of [
     "数据库",
@@ -248,6 +267,29 @@ test("installation defaults, module choices, restart recovery and polling output
   expect(submission?.database_password).toBe("");
   expect(submission?.revision).toBe(revision);
   expect(submission?.php).toBe(15);
+  const elapsed = page.getByLabel("安装耗时", { exact: true });
+  await expect(elapsed).toHaveText(/安装耗时 0 分 [0-5] 秒/);
+  const liveOutput = page.getByLabel("安装编译输出");
+  await expect(liveOutput).toContainText(wrappedOutput);
+  expect(await liveOutput.textContent()).toContain(wrappedOutput);
+  await expect(liveOutput).toHaveCSS("white-space", "pre-wrap");
+  await expect(liveOutput).toHaveCSS("overflow-wrap", "anywhere");
+  await expect
+    .poll(() =>
+      liveOutput.evaluate((node) => ({
+        horizontal: node.scrollWidth > node.clientWidth,
+        vertical: node.scrollHeight > node.clientHeight,
+      })),
+    )
+    .toEqual({ horizontal: false, vertical: true });
+  await expect
+    .poll(() =>
+      liveOutput.evaluate((node) =>
+        Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop),
+      ),
+    )
+    .toBeLessThan(2);
+
   const toolbar = page.locator(".install-log-toolbar");
   expect(await toolbar.locator(":scope > *").allTextContents()).toEqual([
     "读取历史日志",
@@ -260,11 +302,19 @@ test("installation defaults, module choices, restart recovery and polling output
   expect(logQueries).toContain("?tail=1");
   expect(logQueries).not.toContain("?after=0");
   await expect.poll(() => streamCursors).toContain("100");
+  const elapsedBeforeReload = Number(
+    (await elapsed.textContent())!.match(/分 (\d+) 秒/)![1],
+  );
   logQueries.length = 0;
   streamCursors.length = 0;
   failNextTail = true;
   await page.reload();
   await expect(page.getByText("Nginx 编译", { exact: true })).toBeVisible();
+  await expect(elapsed).toHaveText(/安装耗时 0 分 \d+ 秒/);
+  expect(
+    Number((await elapsed.textContent())!.match(/分 (\d+) 秒/)![1]),
+  ).toBeGreaterThanOrEqual(elapsedBeforeReload);
+
   await expect(page.getByLabel("安装编译输出")).toContainText(
     "compiling nginx",
   );
@@ -276,15 +326,49 @@ test("installation defaults, module choices, restart recovery and polling output
   await expect(page.getByLabel("安装编译输出")).not.toContainText(
     "old compilation output",
   );
+  const follow = page.getByRole("checkbox", { name: "跟随最新输出" });
+  await follow.uncheck();
+  await liveOutput.evaluate((node) => {
+    node.scrollTop = 0;
+  });
   latest = 200;
   await expect(page.getByLabel("安装编译输出")).toContainText(
     "latest compilation progress",
   );
   expect(logQueries).toContain("?after=100");
+  await expect
+    .poll(() => liveOutput.evaluate((node) => node.scrollTop))
+    .toBe(0);
+  await follow.check();
+  await expect
+    .poll(() =>
+      liveOutput.evaluate((node) =>
+        Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop),
+      ),
+    )
+    .toBeLessThan(2);
+
   await page.getByRole("button", { name: "读取历史日志" }).click();
   await expect(page.locator(".install-history")).toContainText(
     "old compilation output",
   );
+  await expect(page.locator(".install-history")).toContainText(wrappedOutput);
+  await expect(page.locator(".install-history")).toHaveCSS(
+    "white-space",
+    "pre-wrap",
+  );
+  await expect
+    .poll(() =>
+      page
+        .locator(".install-history")
+        .evaluate((node) => node.scrollWidth <= node.clientWidth),
+    )
+    .toBe(true);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
   await page.getByRole("button", { name: "下一页历史" }).click();
   await expect(page.locator(".install-history")).toContainText(
     "latest compilation progress",
@@ -300,12 +384,64 @@ test("installation defaults, module choices, restart recovery and polling output
     status: "succeeded",
     phase: "安装完成",
     result: "LNMP 与模块安装成功",
+    updated_at: new Date(
+      Date.parse(job!.started_at as string) + 302_000,
+    ).toISOString(),
   };
   await expect(page.getByText("LNMP 与模块安装成功")).toBeVisible({
     timeout: 15000,
   });
+  await expect(elapsed).toHaveText("安装耗时 5 分 2 秒");
   await page.screenshot({
     path: testInfo.outputPath("installation-completed.png"),
     fullPage: true,
   });
+});
+
+test("installation timer distinguishes preparation and legacy jobs without a start time", async ({
+  page,
+}) => {
+  const id = "22222222-2222-4222-8222-222222222222";
+  let status = "preparing";
+  await page.route("**/api/v1/lnmp-installation", (route) =>
+    route.fulfill({
+      json: {
+        installed: status === "succeeded",
+        blocked: [],
+        job: {
+          id,
+          status,
+          phase: "测试任务阶段",
+          created_at: "2026-10-29T08:00:00Z",
+          updated_at: "2026-10-29T10:00:00Z",
+        },
+      },
+    }),
+  );
+  await page.route(`**/api/v1/lnmp-installation/jobs/${id}/events*`, (route) =>
+    route.abort(),
+  );
+  await page.route(`**/api/v1/lnmp-installation/jobs/${id}/logs*`, (route) =>
+    route.fulfill({ json: { lines: [], cursor: 0, more: false } }),
+  );
+  await page.goto("/lnmp/install");
+  await page
+    .getByLabel("密码", { exact: true })
+    .fill("Test-Only-Panel-Password-2026");
+  await page.getByRole("button", { name: "登录面板" }).click();
+  const elapsed = page.getByLabel("安装耗时", { exact: true });
+  await expect(elapsed).toHaveText("尚未开始安装");
+  for (const next of [
+    "ready",
+    "running",
+    "succeeded",
+    "failed",
+    "interrupted",
+  ]) {
+    status = next;
+    await page.reload();
+    await expect(elapsed).toHaveText(
+      next === "ready" ? "尚未开始安装" : "安装耗时未知",
+    );
+  }
 });

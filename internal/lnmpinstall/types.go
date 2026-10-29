@@ -59,6 +59,7 @@ type Job struct {
 	Status          string            `json:"status"`
 	Phase           string            `json:"phase"`
 	CreatedAt       time.Time         `json:"created_at"`
+	StartedAt       *time.Time        `json:"started_at,omitempty"`
 	UpdatedAt       time.Time         `json:"updated_at"`
 	Error           string            `json:"error,omitempty"`
 	Options         *Options          `json:"options,omitempty"`

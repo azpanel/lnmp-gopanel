@@ -41,6 +41,7 @@ export interface InstallJob {
     "preparing" | "ready" | "running" | "succeeded" | "failed" | "interrupted";
   phase: string;
   created_at: string;
+  started_at?: string;
   updated_at: string;
   error?: string;
   options?: InstallOptions;
@@ -67,6 +68,25 @@ export interface InstallLogPage {
 export const installationKey = ["lnmp-installation"];
 export const activeInstall = (job?: InstallJob) =>
   job?.status === "preparing" || job?.status === "running";
+// Preparation and configuration are outside installation time. Legacy jobs
+// without a recorded start must not fall back to task creation time.
+export function installElapsedSeconds(
+  job: InstallJob | undefined,
+  now: number,
+): number | null {
+  if (
+    !job ||
+    job.status === "preparing" ||
+    job.status === "ready" ||
+    !job.started_at
+  )
+    return null;
+  const start = Date.parse(job.started_at);
+  const end = job.status === "running" ? now : Date.parse(job.updated_at);
+  if (!Number.isFinite(start) || start <= 0 || !Number.isFinite(end))
+    return null;
+  return Math.max(0, Math.floor((end - start) / 1000));
+}
 export function binaryAllowed(db: number, arch: string) {
   if (db === 0 || db === 1) return false;
   if (arch === "amd64" || arch === "x86_64") return true;

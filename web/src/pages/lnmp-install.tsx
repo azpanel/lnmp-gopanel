@@ -38,6 +38,7 @@ import {
   activeInstall,
   binaryAllowed,
   initialInstallRequest,
+  installElapsedSeconds,
   installationKey,
   useInstallation,
   type InstallJob,
@@ -693,16 +694,7 @@ export function LNMPInstall() {
   });
   const active = activeInstall(job);
   const blocked = Boolean(state.data?.installed || state.data?.blocked.length);
-  const seconds = job
-    ? Math.max(
-        0,
-        Math.floor(
-          ((active ? now : new Date(job.updated_at).getTime()) -
-            new Date(job.created_at).getTime()) /
-            1000,
-        ),
-      )
-    : 0;
+  const seconds = installElapsedSeconds(job, now);
   return (
     <>
       <div className="page-heading">
@@ -792,8 +784,12 @@ export function LNMPInstall() {
                 {statusNames[job.status]}
               </span>
               <strong>{job.phase}</strong>
-              <span className="small-note">
-                {Math.floor(seconds / 60)} 分 {seconds % 60} 秒
+              <span className="small-note" aria-label="安装耗时">
+                {job.status === "preparing" || job.status === "ready"
+                  ? "尚未开始安装"
+                  : seconds === null
+                    ? "安装耗时未知"
+                    : `安装耗时 ${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`}
               </span>
               {active && (
                 <span className="small-note">
