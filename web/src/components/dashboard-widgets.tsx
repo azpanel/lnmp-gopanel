@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, X } from "lucide-react";
+import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import {
   Bar,
@@ -574,10 +574,10 @@ function ProcessRanking({ snapshot }: { snapshot?: Snapshot }) {
             <YAxis
               type="category"
               dataKey="label"
-              width={120}
+              width={180}
               tick={{ fontSize: 11 }}
               tickFormatter={(value) =>
-                value.length > 18 ? `${value.slice(0, 17)}…` : value
+                value.length > 28 ? `${value.slice(0, 27)}…` : value
               }
               axisLine={false}
               tickLine={false}
@@ -623,32 +623,16 @@ function ProcessRanking({ snapshot }: { snapshot?: Snapshot }) {
 function WidgetCard({
   id,
   title,
-  control,
   children,
 }: {
   id: WidgetID;
   title: string;
-  control: WidgetControl;
   children: ReactNode;
 }) {
   return (
     <Card className="chart-card optional-widget" data-widget={id}>
       <CardHeader className="chart-header">
         <CardTitle>{title}</CardTitle>
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label={`移除${title}`}
-          disabled={control.mutation.isPending || control.query.isError}
-          onClick={() =>
-            void control
-              .save(control.enabled.filter((value) => value !== id))
-              .catch(() => {})
-          }
-        >
-          <X size={14} />
-          移除
-        </Button>
       </CardHeader>
       {children}
     </Card>
@@ -709,12 +693,7 @@ export function DashboardWidgets({
                   />
                 );
               return (
-                <WidgetCard
-                  key={option.id}
-                  id={option.id}
-                  title={option.title}
-                  control={control}
-                >
+                <WidgetCard key={option.id} id={option.id} title={option.title}>
                   {content}
                 </WidgetCard>
               );

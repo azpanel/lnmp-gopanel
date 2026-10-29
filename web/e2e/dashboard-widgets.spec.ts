@@ -118,6 +118,9 @@ test("optional widgets persist on the server and render on desktop and mobile", 
     await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(dialog).not.toBeVisible();
     await expect(page.locator(".optional-widget")).toHaveCount(8);
+    await expect(
+      page.locator(".optional-widget").getByRole("button", { name: /^移除/ }),
+    ).toHaveCount(0);
     for (const [index, id] of ids.entries())
       await expect(page.locator(`[data-widget="${id}"]`)).toContainText(
         titles[index],
@@ -145,7 +148,7 @@ test("optional widgets persist on the server and render on desktop and mobile", 
       .getByRole("button", { name: "内存", exact: true })
       .click();
     await expect(page.locator('[data-widget="processes"]')).toContainText(
-      "memory-worker",
+      "memory-worker (456)",
     );
     await expect(page.locator('[data-widget="processes"]')).toContainText(
       "排行可能不完整",
@@ -200,14 +203,17 @@ test("optional widgets persist on the server and render on desktop and mobile", 
       else await route.continue();
     });
     await page
-      .getByRole("button", { name: "移除磁盘读写速率", exact: true })
+      .getByRole("button", { name: "添加状态指标", exact: true })
       .click();
-    await expect(page.getByText("测试保存失败", { exact: true })).toBeVisible();
+    await dialog.getByRole("checkbox", { name: /磁盘读写速率/ }).uncheck();
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(
+      dialog.getByText("测试保存失败", { exact: true }),
+    ).toBeVisible();
     await expect(page.locator('[data-widget="disk_io"]')).toBeVisible();
     await page.unroute("**/api/v1/dashboard/widgets");
-    await page
-      .getByRole("button", { name: "移除磁盘读写速率", exact: true })
-      .click();
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
     await expect(page.locator(".optional-widget")).toHaveCount(7);
     await page.reload();
     await expect(page.locator(".optional-widget")).toHaveCount(7);
