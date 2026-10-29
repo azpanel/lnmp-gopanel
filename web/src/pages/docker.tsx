@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Container, HardDrive, Loader2, RefreshCw } from "lucide-react";
+import { Container, Copy, HardDrive, Loader2, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +22,8 @@ const diskTypes: Record<string, string> = {
   "Build Cache": "构建缓存",
 };
 
+const installCommand = "curl -fsSL https://get.docker.com | bash -s docker";
+
 export function Docker() {
   const client = useQueryClient();
   const query = useQuery({
@@ -41,6 +44,14 @@ export function Docker() {
   const diskUsage = data?.disk_usage ?? [];
   const unavailable = data?.status === "unavailable";
   const failed = data?.status === "failed";
+  async function copyInstallCommand() {
+    try {
+      await navigator.clipboard.writeText(installCommand);
+      toast.success("Docker 安装命令已复制");
+    } catch {
+      toast.error("复制失败，请手动选择并复制安装命令");
+    }
+  }
   return (
     <>
       <div className="page-heading">
@@ -82,6 +93,19 @@ export function Docker() {
             <Container size={40} />
             <h2>本机未安装 Docker</h2>
             <p>安装并启动 Docker 后，刷新此页即可查看。</p>
+            <div className="docker-install-command">
+              <code>{installCommand}</code>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="复制 Docker 安装命令"
+                onClick={() => void copyInstallCommand()}
+              >
+                <Copy size={14} />
+                复制命令
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : (

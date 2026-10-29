@@ -2854,6 +2854,28 @@ a {
 .docker-space-card {
   margin-bottom: 22px;
 }
+.docker-install-command {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 640px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--foreground);
+  text-align: left;
+}
+.docker-install-command code {
+  flex: 1 1 320px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+}
 .docker-containers-table {
   min-width: 1050px;
 }
