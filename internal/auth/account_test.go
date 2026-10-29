@@ -346,3 +346,69 @@ func TestPrivateStorageAndExclusiveLock(t *testing.T) {
 		}
 	})
 }
+
+func TestOfflinePasswordResetClearsFactorsAtomically(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "auth")
+	hash := legacyHash(t)
+	a, err := OpenAccount(dir, "admin", hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup, err := a.StartSetup("session", oldPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := totp.GenerateCode(setup.Secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes, err := a.ConfirmSetup("session", setup.ID, code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	challenge, err := a.StartLogin(oldPassword)
+	if err != nil || challenge == "" {
+		t.Fatal(challenge, err)
+	}
+	if err := a.ResetPasswordOffline("weak"); err == nil {
+		t.Fatal("accepted weak password")
+	}
+	if !a.Security().TOTPEnabled {
+		t.Fatal("weak password removed TOTP")
+	}
+	a.persist = func(accountState) error { return errors.New("disk full") }
+	nextPassword := "fH8!zW2_pN6+vK4=qR9#sD7"
+	if err := a.ResetPasswordOffline(nextPassword); err == nil {
+		t.Fatal("ignored persistence failure")
+	}
+	if a.state.SecretCipher == "" || len(a.state.RecoveryHashes) != len(codes) || bcrypt.CompareHashAndPassword([]byte(a.state.PasswordHash), []byte(oldPassword)) != nil {
+		t.Fatal("failed write partially applied reset")
+	}
+	a.Close()
+	a, err = OpenAccount(dir, "admin", hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.ResetPasswordOffline(nextPassword); err != nil {
+		t.Fatal(err)
+	}
+	if a.Security().TOTPEnabled || a.Security().RecoveryRemaining != 0 || len(a.logins) != 0 || len(a.setups) != 0 {
+		t.Fatal("reset retained authentication factors or pending proofs")
+	}
+	a.Close()
+	restored, err := OpenAccount(dir, "admin", hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	if _, err := restored.StartLogin(oldPassword); err == nil {
+		t.Fatal("old password survived reset")
+	}
+	if challenge, err := restored.StartLogin(nextPassword); err != nil || challenge != "" {
+		t.Fatal(challenge, err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "auth-state.json"))
+	if err != nil || strings.Contains(string(data), nextPassword) || strings.Contains(string(data), setup.Secret) {
+		t.Fatal("secret persisted in plaintext", err)
+	}
+}

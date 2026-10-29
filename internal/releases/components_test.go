@@ -16,8 +16,9 @@ func TestComponentOfficialReleases(t *testing.T) {
 		"https://raw.githubusercontent.com/nodejs/node/v26.12.1/doc/changelogs/CHANGELOG_V26.md": "# preamble\n<a>26.12.1</a>\n## 2026-10-21, Version 26.12.1 (Current)\nlatest fixes\n## Version 26.12.0 (Current)\nold fixes",
 		"https://api.github.com/repos/openai/codex/releases/latest":                              `{"tag_name":"rust-v0.164.0","body":"latest fixes","prerelease":false,"draft":false}`,
 		"https://api.github.com/repos/composer/composer/releases/latest":                         `{"tag_name":"2.10.3","body":"latest fixes","prerelease":false,"draft":false}`,
+		"https://api.github.com/repos/phpmyadmin/phpmyadmin/releases/latest":                     `{"tag_name":"RELEASE_5_2_3","body":"latest fixes","prerelease":false,"draft":false}`,
 	}
-	for name, want := range map[string]string{"python3": "3.15.2", "go": "1.27.3", "node": "26.12.1", "codex": "0.164.0", "composer": "2.10.3"} {
+	for name, want := range map[string]string{"python3": "3.15.2", "go": "1.27.3", "node": "26.12.1", "codex": "0.164.0", "composer": "2.10.3", "phpmyadmin": "5.2.3"} {
 		t.Run(name, func(t *testing.T) {
 			r, err := fixtureFetcher(t, fixtures).Fetch(context.Background(), name)
 			if err != nil || r.Version != want || r.ChangelogError != "" || !strings.Contains(r.Changelog, "latest fixes") || r.ChangelogURL == "" {
@@ -57,6 +58,19 @@ func TestComponentReleaseFailures(t *testing.T) {
 	}
 	r, err = fixtureFetcher(t, map[string]string{"https://go.dev/dl/?mode=json": `[{"version":"go1.28","stable":true}]`, "https://go.dev/doc/devel/release": `<h2>go1.28</h2><p>major fixes</p><h3>Minor revisions</h3><p>old fixes</p>`}).Fetch(context.Background(), "go")
 	if err != nil || r.Version != "1.28" || !strings.Contains(r.Changelog, "major fixes") || strings.Contains(r.Changelog, "old fixes") {
+		t.Fatal(r, err)
+	}
+}
+
+func TestPHPMyAdminReleaseFailures(t *testing.T) {
+	const source = "https://api.github.com/repos/phpmyadmin/phpmyadmin/releases/latest"
+	for _, body := range []string{`{"tag_name":"RELEASE_5_2_3","draft":true}`, `{"tag_name":"RELEASE_5_3_0","prerelease":true}`, `{"tag_name":"RELEASE_5_3_0_RC1"}`, `{"tag_name":"5.2.3"}`, `{}`} {
+		if _, err := fixtureFetcher(t, map[string]string{source: body}).Fetch(context.Background(), "phpmyadmin"); err == nil {
+			t.Fatal("accepted invalid release", body)
+		}
+	}
+	r, err := fixtureFetcher(t, map[string]string{source: `{"tag_name":"RELEASE_5_2_3","body":" "}`}).Fetch(context.Background(), "phpmyadmin")
+	if err != nil || r.ChangelogError == "" || r.Version != "5.2.3" {
 		t.Fatal(r, err)
 	}
 }

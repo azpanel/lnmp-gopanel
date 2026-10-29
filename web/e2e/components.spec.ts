@@ -11,6 +11,14 @@ test("programming component versions, changelogs and refresh without services", 
     status: failed ? "partial" : "ready",
     items: [
       {
+        name: "phpmyadmin",
+        status: "ready",
+        version: "5.2.2",
+        path: "/home/wwwroot/default/" + "a".repeat(32),
+        access_url: "https://192.0.2.1/" + "a".repeat(32) + "/",
+        checked_at: now,
+      },
+      {
         name: "python3",
         status: "ready",
         version: "3.13.5",
@@ -50,6 +58,7 @@ test("programming component versions, changelogs and refresh without services", 
       ["node", "26.12.1"],
       ["codex", "0.164.0"],
       ["composer", "2.10.3"],
+      ["phpmyadmin", "5.2.3"],
     ].map(([name, version]) => [
       name,
       {
@@ -102,7 +111,7 @@ test("programming component versions, changelogs and refresh without services", 
   await expect(
     page.getByRole("heading", { name: "编程组件", exact: true }),
   ).toBeVisible();
-  await expect(page.locator("[data-component]")).toHaveCount(5);
+  await expect(page.locator("[data-component]")).toHaveCount(6);
   const componentGrid = page.locator(".programming-components .service-cards");
   const columnCount = () =>
     componentGrid.evaluate(
@@ -117,7 +126,14 @@ test("programming component versions, changelogs and refresh without services", 
     await page.setViewportSize({ width: 1440, height: 1000 });
     await expect.poll(columnCount).toBe(3);
   }
-  for (const name of ["python3", "go", "node", "codex", "composer"]) {
+  for (const name of [
+    "python3",
+    "go",
+    "node",
+    "codex",
+    "composer",
+    "phpmyadmin",
+  ]) {
     const logo = page.locator(`[data-component="${name}"] .component-logo img`);
     await expect(logo).toBeVisible();
     await expect
@@ -141,6 +157,15 @@ test("programming component versions, changelogs and refresh without services", 
   await expect(go).toContainText("未安装");
   await expect(node).toContainText("22.23.4");
   await expect(codex).toContainText("0.164.0");
+  const phpMyAdmin = page.locator('[data-component="phpmyadmin"]');
+  await expect(phpMyAdmin).toContainText("5.2.2");
+  await expect(phpMyAdmin).toContainText("5.2.3");
+  await expect(
+    phpMyAdmin.getByRole("link", { name: "打开 phpMyAdmin" }),
+  ).toHaveAttribute("href", "https://192.0.2.1/" + "a".repeat(32) + "/");
+  await expect(
+    phpMyAdmin.getByRole("link", { name: "打开 phpMyAdmin" }),
+  ).toHaveAttribute("target", "_blank");
   const composer = page.locator('[data-component="composer"]');
   await expect(composer).toContainText("2.10.2");
   await expect(composer).toContainText("2.10.3");
@@ -182,10 +207,12 @@ test("component helper and upstream failures display errors", async ({
   await page.route("**/api/v1/services/releases", (route) =>
     route.fulfill({
       json: Object.fromEntries(
-        ["python3", "go", "node", "codex", "composer"].map((name) => [
-          name,
-          { status: "failed", error: "连接官方发布源失败或超时" },
-        ]),
+        ["python3", "go", "node", "codex", "composer", "phpmyadmin"].map(
+          (name) => [
+            name,
+            { status: "failed", error: "连接官方发布源失败或超时" },
+          ],
+        ),
       ),
     }),
   );
@@ -199,11 +226,54 @@ test("component helper and upstream failures display errors", async ({
   ).toBeVisible();
   await page.goto("/services");
   await expect(page.getByRole("alert")).toContainText("组件查询辅助程序不可用");
-  await expect(page.locator("[data-component]")).toHaveCount(5);
+  await expect(page.locator("[data-component]")).toHaveCount(6);
   await expect(page.locator('[data-component="python3"]')).toContainText(
     "读取失败",
   );
   await expect(page.locator('[data-component="python3"]')).toContainText(
     "暂不可用",
   );
+});
+
+test("phpMyAdmin saved Basic Auth link and missing location", async ({
+  page,
+}) => {
+  let access = "https://192.0.2.2/phpmyadmin/";
+  const snapshot = () => ({
+    status: "ready",
+    items: [
+      {
+        name: "phpmyadmin",
+        status: "ready",
+        version: "5.2.3",
+        path: "/home/wwwroot/default/phpmyadmin",
+        access_url: access,
+        checked_at: new Date().toISOString(),
+      },
+    ],
+  });
+  await page.route("**/api/v1/components", (route) =>
+    route.fulfill({ json: snapshot() }),
+  );
+  await page.route("**/api/v1/components/refresh", (route) => {
+    access = "";
+    return route.fulfill({ status: 202, json: snapshot() });
+  });
+  await page.route("**/api/v1/services/releases", (route) =>
+    route.fulfill({ json: {} }),
+  );
+  await page.goto("/services");
+  await page
+    .getByLabel("密码", { exact: true })
+    .fill("Test-Only-Panel-Password-2026");
+  await page.getByRole("button", { name: "登录面板" }).click();
+  const card = page.locator('[data-component="phpmyadmin"]');
+  await expect(
+    card.getByRole("link", { name: "打开 phpMyAdmin" }),
+  ).toHaveAttribute("href", access);
+  await page.getByRole("button", { name: "刷新状态", exact: true }).click();
+  await expect(card.getByRole("link", { name: "打开 phpMyAdmin" })).toHaveCount(
+    0,
+  );
+  await expect(card).toContainText("未找到已保存的访问地址");
 });

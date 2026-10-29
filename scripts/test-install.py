@@ -126,6 +126,20 @@ fi
 printf '{"status":"unavailable","message":"Docker not installed"}\\n'
 """
 PANEL = """#!/bin/bash
+if [[ "$1" == auth && "$2" == reset-password ]]; then
+  if [[ "$3" == --help ]]; then
+    printf 'Usage of auth reset-password:\\n  -password-stdin\\n' >&2
+    exit 1
+  fi
+  printf '%s\\n' "$*" >> /run/auth.log
+  [[ ! -f /run/fail-password-reset ]] || exit 1
+  IFS= read -r password
+  [[ ${#password} -ge 15 && ${#password} -le 72 ]] || exit 65
+  mkdir -p /var/lib/lnmp-gopanel
+  printf 'reset-password-and-clear-totp\\n' > /var/lib/lnmp-gopanel/auth-state.json
+  printf '管理员密码已重置，TOTP 及恢复码已清除。\\n'
+  exit 0
+fi
 if [[ "$1" == init && "$2" == --help ]]; then
   printf 'Usage of init:\\n  -tls-dir string\\n  -certificate-dir string\\n' >&2
   exit 1
@@ -441,10 +455,10 @@ printf '%s\\n' "$*" >> /run/apparmor.log
         lock = self.root / "run/lnmp-gopanel-install.lock"
         with lock.open("w") as handle:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            for options in (("--install",), ("--update",), ("--uninstall", "--yes")):
+            for options in (("--install",), ("--update",), ("--uninstall", "--yes"), ("--reset-password", "--password-stdin")):
                 with self.subTest(options=options):
                     result = self.run_script(*options, success=False)
-                    self.assertIn("Another panel installation, update or uninstall", result.stderr)
+                    self.assertIn("Another panel installation, update, uninstall or password reset", result.stderr)
         self.assertFalse((self.root / "run/downloads.log").exists())
         self.assertFalse((self.root / "run/systemctl.log").exists())
 
@@ -509,6 +523,61 @@ printf '%s\\n' "$*" >> /run/apparmor.log
         self.assertNotIn('"name":"python3"', result.stdout)
         self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\ncomponents snapshot\n")
         self.assertIn("show lnmp-gopanel --property=MainPID --value\n", (self.root / "run/systemctl.log").read_text())
+
+    def test_reset_password_stdin_preserves_config_and_restores_service(self):
+        self.run_installer("--password-stdin")
+        config = (self.root / "etc/lnmp-gopanel/config.yaml").read_bytes()
+        services = (self.root / "etc/lnmp-gopanel/services.yaml").read_bytes()
+        (self.root / "run/systemctl.log").write_text("")
+        result = self.run_script("--reset-password", "--password-stdin", input_text="new-random-admin-password!42\n")
+        self.assertIn("TOTP", result.stdout)
+        self.assertEqual((self.root / "etc/lnmp-gopanel/config.yaml").read_bytes(), config)
+        self.assertEqual((self.root / "etc/lnmp-gopanel/services.yaml").read_bytes(), services)
+        self.assertTrue((self.root / "run/panel.active").exists())
+        self.assertEqual((self.root / "var/lib/lnmp-gopanel/auth-state.json").read_text(), "reset-password-and-clear-totp\n")
+        self.assertIn("stop lnmp-gopanel", (self.root / "run/systemctl.log").read_text())
+        self.assertIn("restart lnmp-gopanel", (self.root / "run/systemctl.log").read_text())
+        self.assertNotIn("new-random-admin-password", (self.root / "run/sudo.log").read_text())
+        self.assertIn("-n -u lnmp-panel -- /usr/local/bin/lnmp-gopanel auth reset-password --config", (self.root / "run/sudo.log").read_text())
+        self.assertFalse((self.root / "run/downloads.log").exists())
+
+    def test_reset_password_keeps_stopped_service_stopped_and_menu_works(self):
+        self.run_installer("--password-stdin", "--no-start")
+        (self.root / "run/systemctl.log").write_text("")
+        self.run_script(input_text="4\nnew-random-admin-password!42\n", terminal=True)
+        self.assertFalse((self.root / "run/panel.active").exists())
+        self.assertNotIn("restart", (self.root / "run/systemctl.log").read_text())
+
+    def test_reset_password_failure_restores_running_service(self):
+        self.run_installer("--password-stdin")
+        state = write(self.root, "/var/lib/lnmp-gopanel/auth-state.json", "previous-state\n", 0o600)
+        write(self.root, "/run/fail-password-reset", "")
+        self.run_script("--reset-password", "--password-stdin", input_text="new-random-admin-password!42\n", success=False)
+        self.assertTrue((self.root / "run/panel.active").exists())
+        self.assertEqual(state.read_text(), "previous-state\n")
+        (self.root / "run/fail-password-reset").unlink()
+        self.run_script("--reset-password", "--password-stdin", input_text="weak\n", success=False)
+        self.assertTrue((self.root / "run/panel.active").exists())
+        self.assertEqual(state.read_text(), "previous-state\n")
+
+    def test_reset_password_reports_saved_password_when_restart_fails(self):
+        self.run_installer("--password-stdin")
+        write(self.root, "/run/fail-restart", "")
+        result = self.run_script("--reset-password", "--password-stdin", input_text="new-random-admin-password!42\n", success=False)
+        self.assertIn("密码已重置且二步验证已清除，但面板启动失败", result.stderr)
+        self.assertEqual((self.root / "var/lib/lnmp-gopanel/auth-state.json").read_text(), "reset-password-and-clear-totp\n")
+
+    def test_reset_password_rejects_missing_old_panel_and_conflicting_flags(self):
+        self.run_script("--reset-password", "--password-stdin", input_text="new-random-admin-password!42\n", success=False)
+        for options in (("--reset-password", "--install"), ("--reset-password", "--yes"), ("--reset-password", "--archive", "/tmp/archive"), ("--reset-password", "--no-start")):
+            self.run_script(*options, success=False)
+        self.run_installer("--password-stdin")
+        write(self.root, "/usr/local/bin/lnmp-gopanel", "#!/bin/bash\nprintf 'unknown auth command\\n' >&2\nexit 1\n", 0o755)
+        (self.root / "run/systemctl.log").write_text("")
+        result = self.run_script("--reset-password", "--password-stdin", input_text="new-random-admin-password!42\n", success=False)
+        self.assertIn("update the panel first", result.stderr)
+        self.assertNotIn("stop", (self.root / "run/systemctl.log").read_text())
+        self.assertTrue((self.root / "run/panel.active").exists())
 
     def test_upgrade_preserves_credentials_and_no_start(self):
         previous = self.old_installation(https=True)

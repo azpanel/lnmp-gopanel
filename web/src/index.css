@@ -4551,19 +4551,23 @@ body,
   font-weight: 400;
   overflow-wrap: anywhere;
 }
-.install-select {
-  height: 36px;
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0 10px;
-  color: var(--foreground);
-  background: var(--card);
-  font: inherit;
+.install-configuration input,
+.install-configuration [data-slot="select-trigger"],
+.install-select-content [data-slot="select-item"] {
+  font-size: 14px;
 }
-.install-select:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
+.install-password-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 20px;
+}
+.install-password-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 26px;
 }
 .install-check {
   display: inline-flex;
@@ -4682,8 +4686,13 @@ body,
 }
 @media (max-width: 720px) {
   .install-form-grid,
+  .install-password-row,
   .install-module-grid {
     grid-template-columns: 1fr;
+  }
+  .install-password-actions {
+    padding-top: 0;
+    flex-wrap: wrap;
   }
   .install-notice {
     flex-wrap: wrap;

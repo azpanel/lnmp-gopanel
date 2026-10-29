@@ -228,6 +228,7 @@ export interface CronPreview {
 }
 
 export type ProgrammingComponent = {
+  access_url?: string;
   name: string;
   status: "loading" | "ready" | "missing" | "failed";
   version: string;

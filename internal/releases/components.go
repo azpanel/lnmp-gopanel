@@ -186,3 +186,25 @@ func (f *Fetcher) composer(ctx context.Context) (Release, error) {
 	}
 	return r, nil
 }
+
+func (f *Fetcher) phpMyAdmin(ctx context.Context) (Release, error) {
+	var release struct {
+		Tag        string `json:"tag_name"`
+		Body       string `json:"body"`
+		Prerelease bool   `json:"prerelease"`
+		Draft      bool   `json:"draft"`
+	}
+	if err := f.json(ctx, "https://api.github.com/repos/phpmyadmin/phpmyadmin/releases/latest", &release); err != nil {
+		return Release{}, err
+	}
+	version := strings.TrimPrefix(release.Tag, "RELEASE_")
+	version = strings.ReplaceAll(version, "_", ".")
+	if !strings.HasPrefix(release.Tag, "RELEASE_") || release.Draft || release.Prerelease || !stableVersion.MatchString(version) {
+		return Release{}, fmt.Errorf("未找到 phpMyAdmin 正式版本")
+	}
+	r := Release{Version: version, SourceURL: "https://github.com/phpmyadmin/phpmyadmin/releases", ChangelogURL: "https://github.com/phpmyadmin/phpmyadmin/releases/tag/" + release.Tag, Changelog: release.Body}
+	if strings.TrimSpace(r.Changelog) == "" {
+		r.ChangelogError = "官方发布未提供更新日志，请查看官方原文"
+	}
+	return r, nil
+}

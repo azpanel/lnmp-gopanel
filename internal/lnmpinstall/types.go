@@ -129,8 +129,10 @@ func (r Request) Validate(o Options) error {
 	if !has(o.Databases, r.Database) || !has(o.PHP, r.PHP) || r.Allocator < 1 || r.Allocator > 3 {
 		return errors.New("安装版本或内存分配器选项无效")
 	}
-	if r.PHP == 1 && r.Database == 0 {
-		return errors.New("PHP 5.2 需要安装数据库")
+	for _, c := range o.PHP {
+		if c.ID == r.PHP && !SupportedPHP(c.Name) {
+			return errors.New("仅支持高于 PHP 8.1.34 的稳定版本，请重新选择 PHP 版本")
+		}
 	}
 	if r.Binary && !BinaryAllowed(r.Database, o.Architecture) {
 		return errors.New("该数据库版本或服务器架构不支持二进制安装")

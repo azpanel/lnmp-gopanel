@@ -598,6 +598,26 @@ func (a *Account) disable(next accountState) error {
 	return nil
 }
 
+// ResetPasswordOffline holds the daemon's exclusive state lock. The password
+// change and second-factor removal are committed together; bootstrap config is untouched.
+func (a *Account) ResetPasswordOffline(password string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.storageFailed {
+		return ErrStorage
+	}
+	if err := ValidatePassword(password, a.state.Username); err != nil {
+		return err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		return err
+	}
+	next := a.state
+	next.PasswordHash = string(hash)
+	return a.disable(next)
+}
+
 // DisableTOTPOffline requires the same exclusive file lock as the running daemon.
 func (a *Account) DisableTOTPOffline() error {
 	a.mu.Lock()

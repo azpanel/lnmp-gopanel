@@ -131,6 +131,8 @@ func (f *Fetcher) Fetch(ctx context.Context, name string) (Release, error) {
 		release, err = f.node(ctx)
 	case "codex":
 		release, err = f.codex(ctx)
+	case "phpmyadmin":
+		release, err = f.phpMyAdmin(ctx)
 	case "composer":
 		release, err = f.composer(ctx)
 	default:

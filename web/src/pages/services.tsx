@@ -347,6 +347,25 @@ export function Services({
                       </strong>
                     </span>
                   </div>
+                  {name === "phpmyadmin" &&
+                    item?.status === "ready" &&
+                    item.access_url &&
+                    !components.error &&
+                    !components.data?.error && (
+                      <a
+                        className="install-link mt-3"
+                        href={item.access_url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        打开 phpMyAdmin <ExternalLink size={14} />
+                      </a>
+                    )}
+                  {name === "phpmyadmin" &&
+                    item?.status === "ready" &&
+                    !item.access_url && (
+                      <p className="small-note mt-3">未找到已保存的访问地址</p>
+                    )}
                   {item?.path && (
                     <p className="component-path font-mono" title={item.path}>
                       {item.path}
@@ -451,6 +470,7 @@ export function Services({
 }
 
 const componentDefinitions = [
+  { name: "phpmyadmin", title: "phpMyAdmin", subtitle: "数据库管理工具" },
   { name: "python3", title: "Python 3", subtitle: "Python 解释器" },
   { name: "go", title: "Go", subtitle: "Go 工具链" },
   { name: "node", title: "Node.js", subtitle: "JavaScript 运行时" },

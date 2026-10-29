@@ -12,6 +12,9 @@ import {
   ArrowLeft,
   CheckCircle2,
   Download,
+  Copy,
+  Eye,
+  EyeOff,
   Loader2,
   Play,
   RefreshCw,
@@ -21,6 +24,14 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { generateStrongPassword } from "@/lib/password";
 import { Checkbox } from "@/components/ui/checkbox";
 import { api, fetchSession, refreshStreamSession } from "@/lib/api";
 import {
@@ -68,6 +79,37 @@ function Field({
     </div>
   );
 }
+function InstallSelect({
+  id,
+  "aria-describedby": description,
+  value,
+  onValueChange,
+  disabled,
+  options,
+}: {
+  id?: string;
+  "aria-describedby"?: string;
+  value: string;
+  onValueChange: (value: string) => void;
+  disabled: boolean;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+      <SelectTrigger id={id} aria-describedby={description}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="install-select-content">
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function InstallForm({
   job,
   blocked,
@@ -81,6 +123,7 @@ function InstallForm({
     initialInstallRequest(job),
   );
   const [dbConfirmation, setDBConfirmation] = useState("");
+  const [showDBPassword, setShowDBPassword] = useState(false);
   const [authConfirmation, setAuthConfirmation] = useState("");
   const client = useQueryClient();
   const o = job.options!;
@@ -108,8 +151,9 @@ function InstallForm({
     },
     onError: (e) => toast.error(e.message),
   });
+  const disabled = start.isPending || blocked;
   return (
-    <Card>
+    <Card className="install-configuration">
       <CardHeader>
         <CardTitle>安装配置</CardTitle>
         <p className="small-note">
@@ -152,66 +196,118 @@ function InstallForm({
           >
             <div className="install-form-grid">
               <Field label="数据库">
-                <select
-                  className="install-select"
-                  value={form.database}
-                  onChange={(e) => {
-                    const db = Number(e.target.value);
+                <InstallSelect
+                  value={String(form.database)}
+                  disabled={disabled}
+                  onValueChange={(value) => {
+                    const db = Number(value);
                     setForm((old) => ({
                       ...old,
                       database: db,
                       binary: binaryAllowed(db, o.architecture),
                     }));
                   }}
-                >
-                  {o.databases.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                  options={o.databases.map((c) => ({
+                    value: String(c.id),
+                    label: c.name,
+                  }))}
+                />
               </Field>
               {form.database !== 0 && (
                 <>
                   <Field label="数据库安装方式">
-                    <select
-                      className="install-select"
+                    <InstallSelect
                       value={form.binary ? "binary" : "source"}
-                      onChange={(e) =>
-                        change("binary", e.target.value === "binary")
+                      disabled={disabled}
+                      onValueChange={(value) =>
+                        change("binary", value === "binary")
                       }
+                      options={[
+                        ...(binaryAllowed(form.database, o.architecture)
+                          ? [{ value: "binary", label: "通用二进制包" }]
+                          : []),
+                        { value: "source", label: "源码编译" },
+                      ]}
+                    />
+                  </Field>
+                  <div className="install-password-row">
+                    <Field
+                      label="数据库 root 密码"
+                      hint="12–72 位：英文字母、数字及 !@#$%^&*()_+=.,:?-"
                     >
-                      {binaryAllowed(form.database, o.architecture) && (
-                        <option value="binary">通用二进制包</option>
-                      )}
-                      <option value="source">源码编译</option>
-                    </select>
-                  </Field>
-                  <Field
-                    label="数据库 root 密码"
-                    hint="12–72 位：英文字母、数字及 !@#$%^&*()_+=.,:?-"
-                  >
-                    <Input
-                      type="password"
-                      required
-                      minLength={12}
-                      maxLength={72}
-                      autoComplete="new-password"
-                      value={form.database_password}
-                      onChange={(e) =>
-                        change("database_password", e.target.value)
-                      }
-                    />
-                  </Field>
-                  <Field label="确认数据库密码">
-                    <Input
-                      type="password"
-                      required
-                      autoComplete="new-password"
-                      value={dbConfirmation}
-                      onChange={(e) => setDBConfirmation(e.target.value)}
-                    />
-                  </Field>
+                      <Input
+                        type={showDBPassword ? "text" : "password"}
+                        required
+                        minLength={12}
+                        maxLength={72}
+                        autoComplete="new-password"
+                        value={form.database_password}
+                        onChange={(e) =>
+                          change("database_password", e.target.value)
+                        }
+                      />
+                    </Field>
+                    <Field label="确认数据库密码">
+                      <Input
+                        type={showDBPassword ? "text" : "password"}
+                        required
+                        autoComplete="new-password"
+                        value={dbConfirmation}
+                        onChange={(e) => setDBConfirmation(e.target.value)}
+                      />
+                    </Field>
+                    <div className="install-password-actions">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          try {
+                            const password = generateStrongPassword();
+                            change("database_password", password);
+                            setDBConfirmation(password);
+                          } catch {
+                            toast.error("无法生成安全随机密码，请手动输入");
+                          }
+                        }}
+                      >
+                        随机生成强密码
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label={
+                          showDBPassword ? "隐藏数据库密码" : "显示数据库密码"
+                        }
+                        onClick={() => setShowDBPassword(!showDBPassword)}
+                      >
+                        {showDBPassword ? (
+                          <EyeOff size={15} />
+                        ) : (
+                          <Eye size={15} />
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label="复制数据库密码"
+                        disabled={!form.database_password || disabled}
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(
+                              form.database_password,
+                            );
+                            toast.success("已复制数据库密码");
+                          } catch {
+                            toast.error("无法复制，请显示密码后手动保存");
+                          }
+                        }}
+                      >
+                        <Copy size={15} />
+                      </Button>
+                    </div>
+                  </div>
                   <label className="install-check">
                     <Checkbox
                       checked={form.innodb}
@@ -222,32 +318,27 @@ function InstallForm({
                 </>
               )}
               <Field label="PHP 版本">
-                <select
-                  className="install-select"
-                  value={form.php}
-                  onChange={(e) => change("php", Number(e.target.value))}
-                >
-                  {o.php.map((c) => (
-                    <option
-                      key={c.id}
-                      value={c.id}
-                      disabled={c.id === 1 && form.database === 0}
-                    >
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                <InstallSelect
+                  value={String(form.php)}
+                  disabled={disabled}
+                  onValueChange={(value) => change("php", Number(value))}
+                  options={o.php.map((c) => ({
+                    value: String(c.id),
+                    label: c.name,
+                  }))}
+                />
               </Field>
               <Field label="内存分配器">
-                <select
-                  className="install-select"
-                  value={form.allocator}
-                  onChange={(e) => change("allocator", Number(e.target.value))}
-                >
-                  <option value={1}>不安装</option>
-                  <option value={2}>Jemalloc</option>
-                  <option value={3}>TCMalloc</option>
-                </select>
+                <InstallSelect
+                  value={String(form.allocator)}
+                  disabled={disabled}
+                  onValueChange={(value) => change("allocator", Number(value))}
+                  options={[
+                    { value: "1", label: "不安装" },
+                    { value: "2", label: "Jemalloc" },
+                    { value: "3", label: "TCMalloc" },
+                  ]}
+                />
               </Field>
               <Field
                 label="默认站点 IPv4"
@@ -260,16 +351,17 @@ function InstallForm({
                 />
               </Field>
               <Field label="phpMyAdmin 保护">
-                <select
-                  className="install-select"
+                <InstallSelect
                   value={form.protection}
-                  onChange={(e) =>
-                    change("protection", e.target.value as "random" | "basic")
+                  disabled={disabled}
+                  onValueChange={(value) =>
+                    change("protection", value as "random" | "basic")
                   }
-                >
-                  <option value="random">随机访问路径</option>
-                  <option value="basic">固定路径 + Basic Auth</option>
-                </select>
+                  options={[
+                    { value: "random", label: "随机访问路径" },
+                    { value: "basic", label: "固定路径 + Basic Auth" },
+                  ]}
+                />
               </Field>
               {form.protection === "basic" && (
                 <>
@@ -516,13 +608,6 @@ function InstallationOutput({ job }: { job: InstallJob }) {
       </CardHeader>
       <CardContent>
         <div className="install-log-toolbar">
-          <label className="install-check">
-            <Checkbox
-              checked={follow}
-              onCheckedChange={(v) => setFollow(v === true)}
-            />
-            跟随最新输出
-          </label>
           <Button
             variant="outline"
             size="sm"
@@ -536,6 +621,13 @@ function InstallationOutput({ job }: { job: InstallJob }) {
             )}
             {history ? "下一页历史" : "读取历史日志"}
           </Button>
+          <label className="install-check">
+            <Checkbox
+              checked={follow}
+              onCheckedChange={(v) => setFollow(v === true)}
+            />
+            跟随最新输出
+          </label>
           <a
             className="install-link"
             href={`/api/v1/lnmp-installation/jobs/${job.id}/logs?download=1`}
@@ -616,7 +708,7 @@ export function LNMPInstall() {
       <div className="page-heading">
         <div>
           <div className="eyebrow muted">LNMP INSTALLATION</div>
-          <h1>在线安装 LNMP</h1>
+          <h1>安装配置</h1>
           <p>配置运行环境，实时查看安装与编译输出。</p>
         </div>
         <Link className="install-link" to="/services">

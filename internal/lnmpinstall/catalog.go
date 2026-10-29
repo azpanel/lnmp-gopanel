@@ -88,5 +88,66 @@ func ParseOptions(main, install, security, revision, arch, ip string) (Options, 
 	if !strings.Contains(install, "Dispaly_Selection") || !strings.Contains(install, "LNMP_Stack") || !strings.Contains(security, "PhpMyAdmin_Auth_Password") || !strings.Contains(security, "Default_Server_IP") || !revisionPattern.MatchString(revision) {
 		return o, errProtocol
 	}
+	if err := RestrictPHP(&o); err != nil {
+		return o, err
+	}
 	return o, nil
+}
+
+var phpVersionPattern = regexp.MustCompile(`^PHP ([0-9]+)\.([0-9]+)\.([0-9]+)$`)
+
+func phpVersion(name string) ([3]int, bool) {
+	var version [3]int
+	match := phpVersionPattern.FindStringSubmatch(name)
+	if len(match) != 4 {
+		return version, false
+	}
+	for i := range version {
+		n, err := strconv.Atoi(match[i+1])
+		if err != nil {
+			return version, false
+		}
+		version[i] = n
+	}
+	return version, true
+}
+func newerPHP(a, b [3]int) bool {
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] > b[i]
+		}
+	}
+	return false
+}
+func SupportedPHP(name string) bool {
+	version, ok := phpVersion(name)
+	return ok && newerPHP(version, [3]int{8, 1, 34})
+}
+
+// RestrictPHP also handles persisted catalogs created before the minimum version policy.
+// Preserve the upstream IDs: PHPSelect is an index in its original, complete array.
+func RestrictPHP(o *Options) error {
+	choices := make([]Choice, 0, len(o.PHP))
+	defaultAllowed := false
+	var highest [3]int
+	highestID := 0
+	for _, c := range o.PHP {
+		if !SupportedPHP(c.Name) {
+			continue
+		}
+		choices = append(choices, c)
+		defaultAllowed = defaultAllowed || c.ID == o.DefaultPHP
+		version, _ := phpVersion(c.Name)
+		if newerPHP(version, highest) {
+			highest, highestID = version, c.ID
+		}
+	}
+	o.PHP = choices
+	if len(choices) == 0 {
+		return errors.New("安装源码没有高于 PHP 8.1.34 的可用稳定版本，请更新源码")
+	}
+	if !defaultAllowed {
+		o.DefaultPHP = highestID
+	}
+	return nil
 }

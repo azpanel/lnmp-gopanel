@@ -9,7 +9,7 @@ import (
 
 const Timeout = 10 * time.Second
 
-func Names() []string { return []string{"python3", "go", "node", "codex", "composer"} }
+func Names() []string { return []string{"python3", "go", "node", "codex", "composer", "phpmyadmin"} }
 func ValidName(name string) bool {
 	for _, n := range Names() {
 		if name == n {
@@ -20,6 +20,7 @@ func ValidName(name string) bool {
 }
 
 type Item struct {
+	AccessURL string     `json:"access_url,omitempty"`
 	Name      string     `json:"name"`
 	Status    string     `json:"status"`
 	Version   string     `json:"version"`

@@ -22,7 +22,10 @@ test("installation defaults, module choices, restart recovery and polling output
       { id: 0, name: "不安装数据库" },
       { id: 11, name: "MySQL 8.4 LTS" },
     ],
-    php: [{ id: 14, name: "PHP 8.3" }],
+    php: [
+      { id: 14, name: "PHP 8.3.36" },
+      { id: 15, name: "PHP 8.4.27" },
+    ],
     modules: [
       {
         id: "vts",
@@ -125,16 +128,101 @@ test("installation defaults, module choices, restart recovery and polling output
     .fill("Test-Only-Panel-Password-2026");
   await page.getByRole("button", { name: "登录面板" }).click();
   await page.getByRole("link", { name: "安装 LNMP" }).click();
-  await expect(
-    page.getByRole("heading", { name: "在线安装 LNMP" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "安装配置" })).toBeVisible();
   await page.getByRole("button", { name: "获取源码与安装选项" }).click();
+  await expect(page.getByRole("combobox")).toHaveCount(5);
+  for (const label of [
+    "数据库",
+    "数据库安装方式",
+    "PHP 版本",
+    "内存分配器",
+    "phpMyAdmin 保护",
+  ]) {
+    await expect(
+      page.getByRole("combobox", { name: label, exact: true }),
+    ).toHaveCSS("font-size", "14px");
+  }
+  const php = page.getByRole("combobox", { name: "PHP 版本", exact: true });
+  await php.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("option", { name: "PHP 8.3.36" })).toHaveCSS(
+    "font-size",
+    "14px",
+  );
+  await expect(
+    page.getByRole("option", { name: "PHP 8.3.36", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(
+    page.getByRole("option", { name: "PHP 8.4.27", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(php).toContainText("PHP 8.4.27");
+  await page
+    .getByRole("combobox", { name: "phpMyAdmin 保护", exact: true })
+    .click();
+  await page
+    .getByRole("option", { name: "固定路径 + Basic Auth", exact: true })
+    .click();
+  await expect(page.getByLabel("Basic Auth 用户名", { exact: true })).toHaveCSS(
+    "font-size",
+    "14px",
+  );
+  await page
+    .getByRole("combobox", { name: "phpMyAdmin 保护", exact: true })
+    .click();
+  await page.getByRole("option", { name: "随机访问路径", exact: true }).click();
+  await expect(
+    page.getByLabel("Basic Auth 用户名", { exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "随机生成强密码", exact: true })
+    .click();
+  const passwordInput = page.getByLabel("数据库 root 密码", { exact: true });
+  const confirmationInput = page.getByLabel("确认数据库密码", { exact: true });
+  const generated = await passwordInput.inputValue();
+  expect(generated).toMatch(/^[a-zA-Z0-9!@#$%^&*()_+=.,:?-]{24}$/);
+  expect(generated).toMatch(/[A-Z]/);
+  expect(generated).toMatch(/[a-z]/);
+  expect(generated).toMatch(/[0-9]/);
+  expect(generated).toMatch(/[!@#$%^&*()_+=.,:?-]/);
+  await expect(confirmationInput).toHaveValue(generated);
+  await expect(passwordInput).toHaveCSS("font-size", "14px");
+  await page
+    .getByRole("button", { name: "显示数据库密码", exact: true })
+    .click();
+  await expect(passwordInput).toHaveAttribute("type", "text");
+  await page
+    .getByRole("button", { name: "隐藏数据库密码", exact: true })
+    .click();
+  await expect(passwordInput).toHaveAttribute("type", "password");
+  const passwordBox = await passwordInput.boundingBox();
+  const confirmationBox = await confirmationInput.boundingBox();
+  const generateBox = await page
+    .getByRole("button", { name: "随机生成强密码", exact: true })
+    .boundingBox();
+  expect(passwordBox && confirmationBox && generateBox).toBeTruthy();
+  if (testInfo.project.name === "desktop") {
+    expect(Math.abs(passwordBox!.y - confirmationBox!.y)).toBeLessThan(2);
+    expect(Math.abs(passwordBox!.y - generateBox!.y)).toBeLessThan(4);
+  } else {
+    expect(confirmationBox!.y).toBeGreaterThan(
+      passwordBox!.y + passwordBox!.height,
+    );
+    expect(generateBox!.y).toBeGreaterThan(confirmationBox!.y);
+  }
   const modules = page.locator(".install-modules").getByRole("checkbox");
   await expect(modules).toHaveCount(4);
   for (let n = 0; n < 4; n++) await expect(modules.nth(n)).toBeChecked();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth && scrollX === 0,
+    ),
+  ).toBe(true);
   await page.screenshot({
     path: testInfo.outputPath("installation-form.png"),
     fullPage: true,
+    animations: "disabled",
   });
   await page
     .getByLabel("数据库 root 密码", { exact: true })
@@ -147,7 +235,8 @@ test("installation defaults, module choices, restart recovery and polling output
       .getByLabel("数据库 root 密码", { exact: true })
       .evaluate((input: HTMLInputElement) => input.validity.valid),
   ).toBe(true);
-  await page.getByLabel("数据库", { exact: true }).selectOption("0");
+  await page.getByRole("combobox", { name: "数据库", exact: true }).click();
+  await page.getByRole("option", { name: "不安装数据库", exact: true }).click();
   await expect(page.getByLabel("确认数据库密码", { exact: true })).toHaveCount(
     0,
   );
@@ -158,6 +247,13 @@ test("installation defaults, module choices, restart recovery and polling output
     .toEqual(["vts", "fancyindex", "substitutions_filter"]);
   expect(submission?.database_password).toBe("");
   expect(submission?.revision).toBe(revision);
+  expect(submission?.php).toBe(15);
+  const toolbar = page.locator(".install-log-toolbar");
+  expect(await toolbar.locator(":scope > *").allTextContents()).toEqual([
+    "读取历史日志",
+    "跟随最新输出",
+    "下载完整日志",
+  ]);
   await expect(page.getByLabel("安装编译输出")).toContainText(
     "compiling nginx",
   );

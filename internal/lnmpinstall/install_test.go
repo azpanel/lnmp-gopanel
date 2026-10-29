@@ -15,7 +15,11 @@ func testOptions(t *testing.T) Options {
 		}
 		return name + "=(" + strings.Join(v, " ") + ")\n"
 	}
-	main := array("DB_Info", 13) + array("PHP_Info", 16) + `DBSelect="11"
+	php := []string{"5.2.17", "5.3.29", "5.4.45", "5.5.38", "5.6.40", "7.0.33", "7.1.33", "7.2.34", "7.3.33", "7.4.33", "8.0.30", "8.1.34", "8.2.35", "8.3.36", "8.4.27", "8.5.12"}
+	for i := range php {
+		php[i] = "'PHP " + php[i] + "'"
+	}
+	main := array("DB_Info", 13) + "PHP_Info=(" + strings.Join(php, " ") + ")\n" + `DBSelect="11"
 PHPSelect="14"
 SelectMalloc="1"
 Database_Selection PHP_Selection MemoryAllocator_Selection Default_Security_Selection LNMP_Auto DB_Root_Password InstallInnodb`
@@ -32,7 +36,7 @@ func validRequest(t *testing.T) (Request, Options) {
 }
 func TestCatalogAndValidation(t *testing.T) {
 	r, o := validRequest(t)
-	if len(o.Databases) != 14 || len(o.PHP) != 16 || o.DefaultDatabase != 11 || o.DefaultPHP != 14 || o.DefaultAllocator != 1 {
+	if len(o.Databases) != 14 || len(o.PHP) != 4 || o.DefaultDatabase != 11 || o.DefaultPHP != 14 || o.DefaultAllocator != 1 {
 		t.Fatalf("wrong catalog: %+v", o)
 	}
 	if err := r.Validate(o); err != nil {
@@ -87,5 +91,34 @@ func TestBinaryArchitecture(t *testing.T) {
 func TestCatalogRejectsUnknownProtocol(t *testing.T) {
 	if _, err := ParseOptions("DB_Info=($(evil))", "", "", strings.Repeat("a", 40), "amd64", ""); err == nil {
 		t.Fatal("executable shell accepted")
+	}
+}
+
+func TestMinimumPHPAndPersistedCatalog(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		allowed bool
+	}{
+		{"PHP 7.4.33", false}, {"PHP 8.0.99", false}, {"PHP 8.1.33", false},
+		{"PHP 8.1.34", false}, {"PHP 8.1.35", true}, {"PHP 8.2.0", true}, {"PHP 8.10.0", true},
+		{"PHP 8.5.0RC1", false}, {"PHP 8.3", false}, {"Version 14", false},
+	} {
+		if SupportedPHP(tc.name) != tc.allowed {
+			t.Fatal(tc)
+		}
+	}
+	r, o := validRequest(t)
+	o.PHP = append(o.PHP, Choice{12, "PHP 8.1.34"})
+	r.PHP = 12
+	if r.Validate(o) == nil {
+		t.Fatal("persisted catalog bypassed minimum PHP")
+	}
+	o.DefaultPHP = 12
+	if err := RestrictPHP(&o); err != nil || o.DefaultPHP != 16 || len(o.PHP) != 4 || o.PHP[0].ID != 13 {
+		t.Fatal(o, err)
+	}
+	o.PHP = []Choice{{1, "PHP 5.2.17"}}
+	if RestrictPHP(&o) == nil {
+		t.Fatal("empty supported catalog accepted")
 	}
 }

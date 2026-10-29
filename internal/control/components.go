@@ -213,6 +213,10 @@ func ComponentSnapshot(ctx context.Context) components.Snapshot {
 				items[i] = components.Item{Name: name, Status: "failed", Error: nvmErr.Error(), CheckedAt: &now}
 				return
 			}
+			if name == "phpmyadmin" {
+				items[i] = probePHPMyAdmin()
+				return
+			}
 			items[i] = probeComponent(ctx, name, componentProgram(name, nvmBin), componentCommand, TrustedPath)
 		}(i, name)
 	}

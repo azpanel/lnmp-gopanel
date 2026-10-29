@@ -7,6 +7,7 @@ repository="azpanel/lnmp-gopanel"
 action=""
 auto_confirm=false
 install_options=false
+reset_incompatible=false
 show_menu=false
 if (($# == 0)); then show_menu=true; fi
 release_version="latest"
@@ -43,6 +44,7 @@ Usage: sudo bash install.sh [options]
 
   --install              Install the panel (existing installations are upgraded)
   --update               Update an installed panel from GitHub Release
+  --reset-password       Reset administrator password and clear TOTP/recovery codes
   --uninstall            Completely remove the panel, configuration, data and backups
   --yes                  Confirm --uninstall without prompting
   --version TAG          Install a release tag such as v0.1.0 (default: latest)
@@ -67,7 +69,7 @@ EOF
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 need_value() { [[ $# -ge 2 && -n "$2" ]] || die "$1 requires a value"; }
 set_action() {
-  [[ -z "$action" || "$action" == "$1" ]] || die "Choose only one of --install, --update and --uninstall"
+  [[ -z "$action" || "$action" == "$1" ]] || die "Choose only one of --install, --update, --uninstall and --reset-password"
   action="$1"
 }
 while (($#)); do
@@ -75,12 +77,13 @@ while (($#)); do
     --install) set_action install; shift; continue ;;
     --update) set_action update; shift; continue ;;
     --uninstall) set_action uninstall; shift; continue ;;
+    --reset-password) set_action reset-password; shift; continue ;;
     --yes) auto_confirm=true; shift; continue ;;
     --version) need_value "$@"; release_version="$2"; shift 2 ;;
     --archive) need_value "$@"; archive_path="$2"; shift 2 ;;
     --checksum-file) need_value "$@"; checksum_path="$2"; shift 2 ;;
     --username) need_value "$@"; admin_username="$2"; shift 2 ;;
-    --password-stdin) password_stdin=true; shift ;;
+    --password-stdin) password_stdin=true; install_options=true; shift; continue ;;
     --no-start) start_service=false; shift ;;
     --check) check_only=true; shift ;;
     --with-screenshots) with_screenshots=true; shift ;;
@@ -90,23 +93,28 @@ while (($#)); do
     *) die "Unknown argument: $1" ;;
   esac
   install_options=true
+  reset_incompatible=true
 done
 if "$show_menu"; then
-  [[ -t 0 ]] || die "Use --install, --update or --uninstall --yes without a terminal"
-  printf 'LNMP GoPanel 管理\n  1) 安装面板\n  2) 从 GitHub Release 更新\n  3) 完全卸载\n  0) 退出\n'
+  [[ -t 0 ]] || die "Use --install, --update, --reset-password --password-stdin or --uninstall --yes without a terminal"
+  printf 'LNMP GoPanel 管理\n  1) 安装面板\n  2) 从 GitHub Release 更新\n  3) 完全卸载\n  4) 重置管理员密码（同时清除二步验证）\n  0) 退出\n'
   while true; do
-    read -r -p '请选择 [0/1/2/3]：' choice || die "Menu cancelled"
+    read -r -p '请选择 [0/1/2/3/4]：' choice || die "Menu cancelled"
     case "$choice" in
       1) action=install; break ;;
       2) action=update; break ;;
       3) action=uninstall; break ;;
+      4) action=reset-password; break ;;
       0) exit 0 ;;
-      *) printf '请输入 0、1、2 或 3。\n' ;;
+      *) printf '请输入 0、1、2、3 或 4。\n' ;;
     esac
   done
 fi
 action="${action:-install}"
-if [[ "$action" == uninstall ]]; then
+if [[ "$action" == reset-password ]]; then
+  ! "$reset_incompatible" || die "--reset-password only accepts --password-stdin"
+  ! "$auto_confirm" || die "--yes is only valid with --uninstall"
+elif [[ "$action" == uninstall ]]; then
   ! "$install_options" || die "--uninstall cannot be combined with installation options"
 else
   ! "$auto_confirm" || die "--yes is only valid with --uninstall"
@@ -138,7 +146,7 @@ if ! "$check_only"; then
   done
   [[ ! -L /run/lnmp-gopanel-install.lock ]] || die "Refusing a symlink lock file"
   exec 9>/run/lnmp-gopanel-install.lock
-  flock -n 9 || die "Another panel installation, update or uninstall is running"
+  flock -n 9 || die "Another panel installation, update, uninstall or password reset is running"
 fi
 uninstall_panel() {
   local destination parent load_state confirmation
@@ -198,6 +206,51 @@ uninstall_panel() {
 }
 if [[ "$action" == uninstall ]]; then
   uninstall_panel
+  exit 0
+fi
+reset_panel_password() (
+  local reset_was_active=false reset_saved=false reset_help
+  local -a reset_args=(auth reset-password --config /etc/lnmp-gopanel/config.yaml)
+  [[ -x /usr/local/bin/lnmp-gopanel && -f /etc/lnmp-gopanel/config.yaml ]] || die "Panel is not installed"
+  [[ -x /usr/bin/sudo ]] || die "Install sudo first"
+  getent passwd lnmp-panel >/dev/null || die "Panel service account does not exist"
+  # Probe before stopping the service: older binaries do not have this subcommand.
+  reset_help="$(/usr/bin/sudo -n -u lnmp-panel -- /usr/local/bin/lnmp-gopanel auth reset-password --help 2>&1 || true)"
+  [[ "$reset_help" == *'Usage of auth reset-password:'* && "$reset_help" == *'-password-stdin'* ]] || \
+    die "Installed panel does not support password reset; update the panel first"
+  if "$password_stdin"; then
+    reset_args+=(--password-stdin)
+  else
+    [[ -t 0 ]] || die "Password reset needs a terminal or --password-stdin"
+  fi
+  printf '将重置管理员密码，同时清除 TOTP 和恢复码。\n'
+  if systemctl is-active --quiet lnmp-gopanel; then reset_was_active=true; fi
+  # Invoked indirectly by the EXIT trap below.
+  # shellcheck disable=SC2317
+  restore_reset_service() {
+    local reset_status=$?
+    trap - EXIT INT TERM
+    if "$reset_was_active"; then
+      if ! systemctl restart lnmp-gopanel; then
+        if "$reset_saved"; then
+          printf '密码已重置且二步验证已清除，但面板启动失败；请检查服务后使用新密码登录。\n' >&2
+        else
+          printf '密码重置失败，恢复面板运行状态也失败；请检查服务。\n' >&2
+        fi
+        reset_status=1
+      fi
+    fi
+    exit "$reset_status"
+  }
+  trap restore_reset_service EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  systemctl stop lnmp-gopanel || die "Cannot stop panel for offline password reset"
+  /usr/bin/sudo -n -u lnmp-panel -- /usr/local/bin/lnmp-gopanel "${reset_args[@]}" || die "Administrator password reset failed"
+  reset_saved=true
+)
+if [[ "$action" == reset-password ]]; then
+  reset_panel_password
   exit 0
 fi
 if [[ "$action" == update ]]; then

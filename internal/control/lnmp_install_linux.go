@@ -210,6 +210,11 @@ func (p rootInstaller) inspect(ctx context.Context) (lnmpinstall.Snapshot, error
 			return lnmpinstall.Snapshot{}, err
 		}
 	}
+	if j != nil && j.Status == "ready" && j.Options != nil {
+		if err := lnmpinstall.RestrictPHP(j.Options); err != nil {
+			return lnmpinstall.Snapshot{}, err
+		}
+	}
 	return lnmpinstall.Snapshot{Installed: installedLNMP(), Blocked: installBlockers(), Job: j}, nil
 }
 func (p rootInstaller) launch(ctx context.Context, j *lnmpinstall.Job, mode string) (launchErr error) {
@@ -878,10 +883,21 @@ func (p rootInstaller) install(ctx context.Context, j *lnmpinstall.Job, r lnmpin
 		}
 		_ = db.Close()
 	}
+	location, e := loadPHPMyAdminLocation(phpMyAdminSecurity, TrustedPath)
+	if e != nil {
+		return fmt.Errorf("组件已安装，但 phpMyAdmin 访问路径保存结果校验失败：%w", e)
+	}
+	if location.Mode != r.Protection || location.IPv4 != r.IPv4 {
+		return errors.New("phpMyAdmin 访问路径记录与安装选项不一致")
+	}
+	phpMyAdmin := probePHPMyAdmin()
+	if phpMyAdmin.Status != "ready" || phpMyAdmin.AccessURL == "" {
+		return errors.New("phpMyAdmin 安装结果校验失败：" + phpMyAdmin.Error)
+	}
 	if err = p.mergeServices(ctx); err != nil {
 		return fmt.Errorf("组件已安装，更新面板服务配置失败：%w", err)
 	}
-	j.Result = "LNMP 已安装，所选 Nginx 模块已校验。默认站点：https://" + r.IPv4 + "/（使用自签名证书）"
+	j.Result = "LNMP 已安装，所选 Nginx 模块已校验。默认站点：https://" + r.IPv4 + "/（使用自签名证书）。phpMyAdmin：" + phpMyAdmin.AccessURL
 	return nil
 }
 

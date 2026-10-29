@@ -24,13 +24,14 @@ curl -fsSL https://raw.githubusercontent.com/azpanel/lnmp-gopanel/main/install.s
 sudo bash install.sh
 ```
 
-直接运行会显示中文管理菜单，可选择安装、从 GitHub Release 更新、完全卸载或退出。也可以显式使用 `--install`、`--update`、`--uninstall`；已有带安装参数的调用方式继续有效。
+直接运行会显示中文管理菜单，可选择安装、从 GitHub Release 更新、完全卸载、重置管理员密码或退出。也可以显式使用 `--install`、`--update`、`--uninstall`、`--reset-password`；已有带安装参数的调用方式继续有效。
 
 管理脚本从主分支下载，面板安装包仍从 GitHub Release 下载并校验 SHA-256。
 
 管理脚本与安装包需要兼容。旧版 Release（如 `v0.1.1`）尚不支持 HTTPS 初始化，仅替换脚本后安装会在选择证书后出现 `run as a dedicated unprivileged user`。当前脚本会在询问证书和密码前检查兼容性（`--check` 也会检查），并明确拒绝旧包。遇到该错误需使用包含 HTTPS 功能的新 Release，或按下文从当前源码打包后使用 `--archive` 安装。
 
 ```bash
+sudo bash install.sh --reset-password            # 重置管理员密码，同时清除 TOTP 和恢复码
 sudo bash install.sh --update                    # 从 GitHub Release 更新到最新版本
 sudo bash install.sh --update --version v0.1.0   # 更新到指定 Release
 sudo bash install.sh --uninstall                 # 列出清理范围，输入 yes 确认
@@ -78,7 +79,7 @@ sudo bash install.sh --archive ./lnmp-gopanel_linux_amd64.tar.gz
 
 ## 在线安装 LNMP
 
-在“LNMP 服务”或系统概览中点击“安装 LNMP”，进入 `/lnmp/install`。先从 [azpanel/lnmp2.3-offline](https://github.com/azpanel/lnmp2.3-offline) 的 `main` 分支获取最新源码到 `/root/lnmp2.3-offline`，再按实际脚本选择数据库、PHP、内存分配器与默认站点保护方式。准备完成后固定该提交安装；上游选项结构不兼容时会停止并提示。
+在“LNMP 服务”或系统概览中点击“安装 LNMP”，进入 `/lnmp/install`。先从 [azpanel/lnmp2.3-offline](https://github.com/azpanel/lnmp2.3-offline) 的 `main` 分支获取最新源码到 `/root/lnmp2.3-offline`，再按实际脚本选择数据库、PHP、内存分配器与默认站点保护方式。安装页标题为“安装配置”，仅提供高于 PHP 8.1.34 的稳定版本（不含 8.1.34）；数据库密码支持安全随机生成、显示和复制。准备完成后固定该提交安装；上游选项结构不兼容时会停止并提示。
 
 Nginx 默认勾选 VTS、GeoIP2、FancyIndex 和 Substitutions Filter，支持逐项取消。所选模块从各自仓库的默认分支拉取并记录提交，使用 `--add-module` 静态编译，FancyIndex 不会重复添加。选择 GeoIP2 时，apt 系统自动安装 `libmaxminddb0 libmaxminddb-dev mmdb-bin`；dnf/yum 系统安装 `libmaxminddb libmaxminddb-devel`。Rocky、AlmaLinux、CentOS 8 在本次命令中启用官方 PowerTools 源，9 及以后启用 CRB 源，不永久更改源配置。软件源缺包或模块编译失败会明确终止，不会跳过。MMDB 数据库、统计访问入口和模块业务配置需自行配置。
 
@@ -241,6 +242,10 @@ sudo systemctl start lnmp-gopanel
 
 命令使用与面板相同的独占文件锁，运行中的面板会阻止离线修改。自定义部署以状态目录所属的服务账号执行，指定实际配置文件路径。此命令用于验证器丢失，不重置忘记的登录密码。
 
+忘记面板登录密码时，标准安装运行 `sudo bash install.sh --reset-password`，或直接运行脚本后选择“重置管理员密码”。输入并确认新密码，规则与账户安全设置一致：至少 15 个字符、最多 72 个 UTF-8 字节，且强度评分至少 3。重置会同时清除 TOTP 和全部恢复码，保留管理员用户名与其他配置；脚本自动停止服务并恢复原先的运行状态，旧会话随重启失效。支持 `--reset-password --password-stdin` 从标准输入读取一行新密码，密码不接受命令行参数。不需要联网或下载安装包；已安装二进制尚不支持此命令时需先升级面板。
+
+自定义部署先停止面板，再以认证状态目录所属账号执行 `lnmp-gopanel auth reset-password --config PATH`（可加 `--password-stdin`），完成后自行启动服务。密码及二步验证状态原子保存到认证状态文件，不回写 `config.yaml` 的初始化哈希；写入失败时保留原认证信息。若提示密码已重置但服务启动失败，请修复服务后使用新密码登录。
+
 账户安全和登录日志端到端测试使用独立实例，避免修改凭据及真实登录限流影响其他测试。构建面板后，在 `web/` 分别执行 `npm run test:e2e:account` 和 `npm run test:e2e:login-logs`；原有浏览器测试继续使用 `npm run test:e2e`。
 
 账户安全接口均位于 `/api/v1`。`GET /auth/security` 只返回 TOTP 状态、剩余恢复码数和密码规则；`POST /auth/password` 接收 `current_password`、`new_password`，启用 TOTP 后再提供 `code` 或 `recovery_code`，成功返回 204 并撤销会话。`POST /auth/totp/setup` 接收 `current_password`，返回 `setup_id`、`secret`、本地二维码 `qr_code` 和 `expires_at`；`POST /auth/totp/confirm` 接收 `setup_id`、`code`，确认启用；`DELETE /auth/totp/setup` 取消未完成的绑定。`DELETE /auth/totp` 和 `POST /auth/totp/recovery-codes` 接收当前密码及二次验证凭据。启用、关闭和重新生成响应包含更新后的 `session`，生成恢复码时额外返回仅此一次的 `recovery_codes`。这些接口需要有效会话，写操作要求 CSRF 和同源校验，参数错误返回 400，重新确认身份失败返回 403，状态过期或冲突返回 409，存储错误返回 503。
@@ -261,7 +266,7 @@ sudo systemctl start lnmp-gopanel
 | GET | `/api/v1/metrics/stream` | SSE：`connected`、`metrics`、`heartbeat`、`auth_expired` |
 | GET | `/api/v1/services` | 服务状态、可用动作、检查时间与忙碌状态 |
 | GET | `/api/v1/services/releases` | 立即返回服务及编程组件的版本查询缓存，首次或过期时后台联网查询 |
-| GET | `/api/v1/components` | 异步读取本机 Python 3、Go、Node.js、Codex CLI、Composer 版本 |
+| GET | `/api/v1/components` | 异步读取本机 phpMyAdmin、Python 3、Go、Node.js、Codex CLI、Composer 版本 |
 | POST | `/api/v1/components/refresh` | 手动刷新本机编程组件版本（需要 CSRF，返回 202） |
 | POST | `/api/v1/services/releases/refresh` | 手动异步检查最新稳定版本（需要 CSRF，返回 202） |
 | GET | `/api/v1/docker` | Docker 只读快照，首次及过期时后台刷新 |
@@ -295,11 +300,13 @@ Go 测试覆盖指标差分、采集与推送、认证、CSRF、SSE、服务白�
 
 ## 编程组件
 
-“LNMP 服务”页面的“编程组件”分组固定展示 Python 3、Go、Node.js、Codex CLI、Composer 的本机版本、可执行路径、检查时间、最新正式版本及对应 Changelog。即使未配置任何 LNMP 服务，也可查看组件信息。仅查询版本，不提供安装、升级或启停操作。
+“LNMP 服务”页面的“编程组件”分组固定展示 phpMyAdmin、Python 3、Go、Node.js、Codex CLI、Composer 的本机版本、安装路径、检查时间、最新正式版本及对应 Changelog。即使未配置任何 LNMP 服务，也可查看组件信息。仅查询版本，不提供安装、升级或启停操作。
 
 本机版本通过固定的 `components snapshot` 辅助命令读取，检查程序及其父目录的 root 所有权和写权限，不加载 shell 配置。Python、Go 检查标准系统安装目录；Node.js、Codex 优先选择 `/root/.nvm/alias/default` 指定的已安装版本，再检查系统安装。支持数字版本前缀、`node`、`stable`、`lts/*` 和 LTS 名称别名；不跟踪临时终端的 `nvm use`，不扫描其他用户目录。Codex 的 npm 启动脚本使用安装目录中的 Node。Composer 检查 `/usr/local/bin/composer`、`/usr/bin/composer`、`/usr/local/php/bin/composer`，通过受信任的 PHP CLI（优先 `/usr/local/php/bin/php`，其次 `/usr/local/bin/php`、`/usr/bin/php`）仅读取版本，并禁用插件、脚本和交互；不扫描网站内的项目级 Composer。未安装和读取失败分别展示，读取失败保留上次成功版本。
 
-采集异步执行，每个程序最多 8 秒，结果缓存 1 分钟，手动刷新间隔至少 5 秒。最新版本排除预发布，Node.js 按最高正式版本查询，可能高于 LTS 分支；Python 使用 python.org 发布列表与 CPython 对应标签的 NEWS，Go 使用 go.dev 下载接口及发布历史，Node.js 使用官方版本索引与对应标签 Changelog，Codex CLI 和 Composer 分别使用各自官方仓库的正式 GitHub Release。联网查询与服务共用缓存、限流和失败处理。
+phpMyAdmin 静态读取应用版本文件，不执行站点 PHP 代码。安装时生成的随机路径或 Basic Auth 固定路径由 LNMP 保存在 `/usr/local/etc/lnmp/security.conf`；辅助程序只解析该文件的数据，结合安装时填写的 IPv4 生成 `https://IPv4/实际路径/`，在卡片中提供“打开 phpMyAdmin”链接。配置和应用目录校验成功才显示链接，面板重启及升级后仍可恢复。旧安装缺少保护配置时检测 `/home/wwwroot/default/phpmyadmin`，显示版本但不猜测访问地址。组件 API 的 phpMyAdmin 条目增加可选 `access_url` 字段，未安装或路径无效时不返回该字段。
+
+采集异步执行，每个程序最多 8 秒，结果缓存 1 分钟，手动刷新间隔至少 5 秒。最新版本排除预发布，Node.js 按最高正式版本查询，可能高于 LTS 分支；Python 使用 python.org 发布列表与 CPython 对应标签的 NEWS，Go 使用 go.dev 下载接口及发布历史，Node.js 使用官方版本索引与对应标签 Changelog，Codex CLI、Composer 和 phpMyAdmin 分别使用各自官方仓库的正式 GitHub Release。联网查询与服务共用缓存、限流和失败处理。
 
 已有安装需要同步更新面板、辅助程序和 sudoers，新增精确授权 `lnmp-gopanel-control components snapshot`；安装脚本会验证该权限，并以面板账号执行只读组件自检；工具未安装不阻止安装，辅助程序执行失败则回滚升级。无需修改 `services.yaml` 或放宽 `/root` 目录权限。
 
