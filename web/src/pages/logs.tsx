@@ -164,15 +164,16 @@ export function Logs() {
     setStatusFilters([]);
   }, [path]);
   const lines = useMemo(() => logLines(reader.pages), [reader.pages]);
-  const formatted = table && isNginxLog(path);
+  const nginx = isNginxLog(path);
+  const formatted = table && nginx;
   const accessEntries = useMemo(
     () =>
-      formatted
+      nginx
         ? new Map(
             lines.map((line) => [line.offset, parseNginxAccess(line.text)]),
           )
         : undefined,
-    [formatted, lines],
+    [nginx, lines],
   );
   const statusCodes = useMemo(
     () =>
@@ -511,6 +512,7 @@ export function Logs() {
             follow={reader.follow}
             onFollow={reader.setFollow}
             accessEntries={accessEntries}
+            formatted={formatted}
           />
           <p className="small-note log-meta">
             {first && last

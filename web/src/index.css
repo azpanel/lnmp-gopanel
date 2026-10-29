@@ -3069,6 +3069,23 @@ a {
 .log-mark {
   color: var(--muted-foreground);
 }
+.log-user-agent-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  vertical-align: -3px;
+  object-fit: contain;
+}
+.dark .log-user-agent-icon[data-monochrome] {
+  filter: invert(1);
+}
+.log-user-agent-icon[data-brand="okhttp"] {
+  filter: invert(1);
+}
+.dark .log-user-agent-icon[data-brand="okhttp"] {
+  filter: none;
+}
 .log-empty {
   padding: 32px 16px;
   color: var(--muted-foreground);

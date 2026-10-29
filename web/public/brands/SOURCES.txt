@@ -9,3 +9,22 @@ Codex vector from Lobe Icons (MIT): https://github.com/lobehub/lobe-icons/blob/m
 
 composer.svg: https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/composer.svg
 Composer vector from Simple Icons (CC0-1.0): https://github.com/simple-icons/simple-icons/blob/develop/LICENSE.md
+
+User-Agent identifiers (bundled locally; no runtime requests to these sources):
+chrome.svg: https://raw.githubusercontent.com/alrra/browser-logos/58881b84c4d73adc03c06fa2c275a7abee02d935/src/chrome/chrome.svg
+edge.svg: https://raw.githubusercontent.com/alrra/browser-logos/58881b84c4d73adc03c06fa2c275a7abee02d935/src/edge/edge.svg
+firefox.svg: https://raw.githubusercontent.com/alrra/browser-logos/58881b84c4d73adc03c06fa2c275a7abee02d935/src/firefox/firefox.svg
+safari.svg: https://raw.githubusercontent.com/alrra/browser-logos/58881b84c4d73adc03c06fa2c275a7abee02d935/src/safari/safari.svg
+opera.svg: https://raw.githubusercontent.com/alrra/browser-logos/58881b84c4d73adc03c06fa2c275a7abee02d935/src/opera/opera.svg
+curl.svg: https://raw.githubusercontent.com/simple-icons/simple-icons/90646e4bf7f3b89df6c37e65baf3e7bc759a517c/icons/curl.svg
+wget.svg: https://raw.githubusercontent.com/simple-icons/simple-icons/90646e4bf7f3b89df6c37e65baf3e7bc759a517c/icons/gnu.svg
+axios.svg: https://raw.githubusercontent.com/simple-icons/simple-icons/90646e4bf7f3b89df6c37e65baf3e7bc759a517c/icons/axios.svg
+okhttp.png: https://raw.githubusercontent.com/square/okhttp/a11e55f858474dc72d6788addff07b4188d2a6c6/docs/assets/images/icon-square.png
+LICENSE-browser-logos.txt: https://raw.githubusercontent.com/alrra/browser-logos/58881b84c4d73adc03c06fa2c275a7abee02d935/LICENSE.txt
+LICENSE-simple-icons.txt: https://raw.githubusercontent.com/simple-icons/simple-icons/90646e4bf7f3b89df6c37e65baf3e7bc759a517c/LICENSE.md
+LICENSE-okhttp.txt: https://raw.githubusercontent.com/square/okhttp/a11e55f858474dc72d6788addff07b4188d2a6c6/LICENSE.txt
+
+Browser Logos: logos and trademarks remain the property of their respective owners; the repository licenses other material under MIT (LICENSE-browser-logos.txt).
+curl.svg, wget.svg and axios.svg: Simple Icons, CC0-1.0 (LICENSE-simple-icons.txt). wget.svg is the GNU mark used to identify GNU Wget.
+okhttp.png: upstream OkHttp project icon, distributed with Apache-2.0 (LICENSE-okhttp.txt); trademarks remain the property of their respective owners.
+Python requests and Go HTTP Client reuse python3.svg and go.svg above.

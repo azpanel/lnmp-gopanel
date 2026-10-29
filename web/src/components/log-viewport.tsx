@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { LogLine } from "@/lib/logs";
 import type { NginxAccessEntry } from "@/lib/nginx-access";
+import { UserAgentIcon } from "@/components/user-agent-icon";
 
 const rowHeight = 30;
 const overscan = 240;
@@ -60,11 +61,13 @@ export function LogViewport({
   follow,
   onFollow,
   accessEntries,
+  formatted = false,
 }: {
   lines: LogLine[];
   follow: boolean;
   onFollow: (value: boolean) => void;
   accessEntries?: ReadonlyMap<string, NginxAccessEntry | null>;
+  formatted?: boolean;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const rows = useRef(new Map<string, HTMLDivElement>());
@@ -156,7 +159,7 @@ export function LogViewport({
       className="log-viewport"
       tabIndex={0}
       aria-label="日志内容"
-      role={accessEntries ? "rowgroup" : undefined}
+      role={formatted ? "rowgroup" : undefined}
       onScroll={(event) => {
         const node = event.currentTarget;
         const index = rowAt(layout, node.scrollTop);
@@ -172,10 +175,10 @@ export function LogViewport({
       }}
     >
       {lines.length === 0 ? (
-        <div className="log-empty" role={accessEntries ? "row" : undefined}>
+        <div className="log-empty" role={formatted ? "row" : undefined}>
           <div
-            role={accessEntries ? "cell" : undefined}
-            aria-colspan={accessEntries ? accessHeaders.length : undefined}
+            role={formatted ? "cell" : undefined}
+            aria-colspan={formatted ? accessHeaders.length : undefined}
           >
             当前范围没有可显示的日志行
           </div>
@@ -186,9 +189,9 @@ export function LogViewport({
             const entry = accessEntries?.get(line.offset);
             return (
               <div
-                className={`log-line${accessEntries ? " log-access-row" : ""}`}
-                role={accessEntries ? "row" : undefined}
-                aria-rowindex={accessEntries ? first + i + 2 : undefined}
+                className={`log-line${formatted ? " log-access-row" : ""}`}
+                role={formatted ? "row" : undefined}
+                aria-rowindex={formatted ? first + i + 2 : undefined}
                 key={line.offset}
                 ref={(node) => {
                   if (node) rows.current.set(line.offset, node);
@@ -200,11 +203,11 @@ export function LogViewport({
                 <span
                   className="log-offset"
                   title="文件字节偏移"
-                  role={accessEntries ? "cell" : undefined}
+                  role={formatted ? "cell" : undefined}
                 >
                   {line.offset}
                 </span>
-                {accessEntries ? (
+                {formatted ? (
                   entry ? (
                     <>
                       <span role="cell">{entry.client}</span>
@@ -228,7 +231,10 @@ export function LogViewport({
                       </span>
                       <span role="cell">{entry.bytes}</span>
                       <span role="cell">{entry.referer}</span>
-                      <span role="cell">{entry.userAgent}</span>
+                      <span role="cell">
+                        <UserAgentIcon userAgent={entry.userAgent} />
+                        {entry.userAgent}
+                      </span>
                     </>
                   ) : (
                     <span
@@ -242,6 +248,7 @@ export function LogViewport({
                   )
                 ) : (
                   <span className="log-text">
+                    {entry && <UserAgentIcon userAgent={entry.userAgent} />}
                     <LogText line={line} />
                   </span>
                 )}
@@ -253,7 +260,7 @@ export function LogViewport({
     </div>
   );
 
-  if (!accessEntries) return content;
+  if (!formatted) return content;
   return (
     <div
       className="log-table-scroll"
