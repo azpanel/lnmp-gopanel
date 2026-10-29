@@ -28,8 +28,10 @@ import {
   Settings2,
   ShieldCheck,
   Sun,
+  Tag,
   X,
 } from "lucide-react";
+import { Tooltip } from "radix-ui";
 import { toast, Toaster } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Login } from "@/pages/login";
@@ -150,6 +152,10 @@ function Workspace({
     return () => media.removeEventListener("change", change);
   }, []);
   const sidebarVisible = mobileViewport ? mobileOpen : !sidebarHidden;
+  const [buildOpen, setBuildOpen] = useState(false);
+  useEffect(() => {
+    setBuildOpen(false);
+  }, [sidebarVisible, pathname]);
   const build = useQuery({
     queryKey: ["build"],
     queryFn: () => api<BuildInfo>("/build"),
@@ -281,20 +287,55 @@ function Workspace({
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <dl className="sidebar-build" aria-label="构建信息">
-            <div>
-              <dt>版本</dt>
-              <dd className="build-version">{buildVersion}</dd>
-            </div>
-            <div>
-              <dt>构建时间</dt>
-              <dd className="build-time">{buildTime}</dd>
-            </div>
-          </dl>
           <div className="sidebar-profile">
-            <div className="avatar">
-              {session.username.slice(0, 1).toUpperCase()}
-            </div>
+            <Tooltip.Provider delayDuration={150}>
+              <Tooltip.Root
+                open={buildOpen && sidebarVisible}
+                onOpenChange={setBuildOpen}
+              >
+                <Tooltip.Trigger asChild>
+                  <button
+                    type="button"
+                    className="avatar"
+                    aria-label="查看版本和构建时间"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setBuildOpen(true);
+                    }}
+                  >
+                    {session.username.slice(0, 1).toUpperCase()}
+                  </button>
+                </Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content
+                    className="profile-build-tooltip"
+                    aria-hidden={!buildOpen || !sidebarVisible}
+                    side="top"
+                    align="start"
+                    sideOffset={10}
+                    collisionPadding={16}
+                  >
+                    <dl className="profile-build-info" aria-label="构建信息">
+                      <div>
+                        <dt>
+                          <Tag size={14} aria-hidden="true" />
+                          版本
+                        </dt>
+                        <dd className="build-version">{buildVersion}</dd>
+                      </div>
+                      <div>
+                        <dt>
+                          <Clock3 size={14} aria-hidden="true" />
+                          构建时间
+                        </dt>
+                        <dd className="build-time">{buildTime}</dd>
+                      </div>
+                    </dl>
+                    <Tooltip.Arrow className="profile-build-arrow" />
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+            </Tooltip.Provider>
             <div>
               <strong>{session.username}</strong>
               <span>系统管理员</span>
@@ -417,9 +458,7 @@ function Workspace({
           </div>
         </main>
         <footer className="main-footer">
-          <span>
-            LNMP GoPanel <span className="version">{buildVersion}</span>
-          </span>
+          <span>LNMP GoPanel</span>
           <span>
             <ShieldCheck size={13} />
             本机管理 · 会话已保护

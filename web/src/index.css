@@ -241,25 +241,20 @@ a {
 .sidebar-bottom {
   margin-top: auto;
 }
-.sidebar-build {
-  margin: 16px 5px 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--muted-foreground);
-}
-.sidebar-build > div + div {
+.profile-build-info > div + div {
   margin-top: 8px;
 }
-.sidebar-build dt {
+.profile-build-info dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-foreground);
   font-weight: 500;
 }
-.sidebar-build dd {
-  margin: 0;
+.profile-build-info dd {
+  margin: 2px 0 0 20px;
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
-}
-.sidebar-build .build-version {
-  color: var(--foreground);
 }
 .sidebar-profile {
   margin-top: 12px;
@@ -279,6 +274,12 @@ a {
   display: grid;
   place-items: center;
   font-size: 15px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.avatar:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
 }
 .sidebar-profile strong {
   font-size: 15px;
@@ -291,7 +292,7 @@ a {
   display: block;
   margin-top: 3px;
 }
-.sidebar-profile button {
+.sidebar-profile > button:last-child {
   margin-left: auto;
   color: var(--muted-foreground);
 }
@@ -375,6 +376,7 @@ a {
 }
 .page-heading [data-variant][data-size],
 [data-slot="card-header"] [data-variant][data-size],
+.custom-log-form [data-slot="dialog-footer"] [data-variant][data-size],
 .vhost-toolbar [data-variant][data-size] {
   font-size: 14px;
 }
@@ -751,12 +753,6 @@ a {
   display: flex;
   align-items: center;
   gap: 5px;
-}
-.version {
-  font-family: var(--font-mono);
-  color: var(--muted-foreground);
-  opacity: 0.65;
-  margin-left: 6px;
 }
 .notice {
   border: 1px solid #bc925f44;
@@ -3580,7 +3576,8 @@ a {
   color: var(--muted-foreground);
 }
 .create-help-tooltip,
-.log-location-tooltip {
+.log-location-tooltip,
+.profile-build-tooltip {
   z-index: 80;
   max-width: min(360px, calc(100vw - 32px));
   padding: 12px;
@@ -3597,7 +3594,8 @@ a {
   margin-top: 8px;
 }
 .create-help-arrow,
-.log-location-arrow {
+.log-location-arrow,
+.profile-build-arrow {
   fill: var(--card);
 }
 .create-grid {
@@ -3873,7 +3871,7 @@ body,
 [data-slot="dialog-content"]:not(.log-rules-drawer)[data-state="open"],
 [data-slot="select-content"][data-state="open"],
 .cron-preview[data-state="open"],
-:is(.create-help-tooltip, .log-location-tooltip):is(
+:is(.create-help-tooltip, .log-location-tooltip, .profile-build-tooltip):is(
   [data-state="delayed-open"],
   [data-state="instant-open"]
 ) {
@@ -3882,14 +3880,19 @@ body,
 [data-slot="dialog-content"]:not(.log-rules-drawer)[data-state="closed"],
 [data-slot="select-content"][data-state="closed"],
 .cron-preview[data-state="closed"],
-:is(.create-help-tooltip, .log-location-tooltip)[data-state="closed"] {
+:is(
+  .create-help-tooltip,
+  .log-location-tooltip,
+  .profile-build-tooltip
+)[data-state="closed"] {
   animation: surface-exit var(--motion-overlay) var(--motion-ease);
 }
 [data-slot="select-content"] {
   transform-origin: var(--radix-select-content-transform-origin);
 }
 .create-help-tooltip,
-.log-location-tooltip {
+.log-location-tooltip,
+.profile-build-tooltip {
   transform-origin: var(--radix-tooltip-content-transform-origin);
 }
 .cron-preview {
@@ -3898,7 +3901,8 @@ body,
 :is(
   .cron-preview,
   .create-help-tooltip,
-  .log-location-tooltip
+  .log-location-tooltip,
+  .profile-build-tooltip
 )[data-state="closed"] {
   pointer-events: none;
 }

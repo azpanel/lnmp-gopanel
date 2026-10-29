@@ -107,7 +107,7 @@ make build
 
 生成 `bin/lnmp-gopanel` 和 `bin/lnmp-gopanel-control`。生产面板使用 `-tags embed` 将前端嵌入 Go 二进制；服务辅助程序为独立二进制。
 
-侧栏底部展示实际版本与构建时间，页脚同步展示版本。`make build` 和未指定版本的打包默认使用 `dev-<Git短提交号>`；`bash scripts/package.sh amd64 v0.1.0` 使用指定版本，并与包内 `VERSION` 保持一致。构建时间以 UTC 注入程序，页面固定显示北京时间（UTC+8）；可用 `VERSION`（Makefile）与 `BUILD_TIME`（格式 `YYYY-MM-DDTHH:MM:SSZ`）覆盖构建信息。CI 同一轮的两个架构共用构建时间。普通 `go run` 显示 `dev` 和未知构建时间。`GET /api/v1/build` 需要登录，返回 `version`、`built_at`。
+鼠标悬停或键盘聚焦侧栏用户头像（手机点击）可在带图标的提示中查看实际版本与构建时间。`make build` 和未指定版本的打包默认使用 `dev-<Git短提交号>`；`bash scripts/package.sh amd64 v0.1.0` 使用指定版本，并与包内 `VERSION` 保持一致。构建时间以 UTC 注入程序，页面固定显示北京时间（UTC+8）；可用 `VERSION`（Makefile）与 `BUILD_TIME`（格式 `YYYY-MM-DDTHH:MM:SSZ`）覆盖构建信息。CI 同一轮的两个架构共用构建时间。普通 `go run` 显示 `dev` 和未知构建时间。`GET /api/v1/build` 需要登录，返回 `version`、`built_at`。
 
 生产页面由独立脚本检测 CSS／JS 资源更新：打开页面、重新聚焦、返回前台及每分钟检查一次最新入口，发现资源版本变化后自动刷新当前地址；旧脚本加载失败时也可恢复。网络失败或无效响应不触发刷新，同一目标版本每个标签页只自动刷新一次，避免代理缓存导致循环。HTML 不缓存，带哈希文件名的构建资源长期缓存。首次升级到支持此功能的版本时，已打开的旧页面需要先手动刷新一次。
 

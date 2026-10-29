@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowDownToLine,
   FileText,
   CircleHelp,
   History,
@@ -354,6 +355,7 @@ export function Logs() {
                     <Button
                       type="button"
                       variant="outline"
+                      size="sm"
                       disabled={add.isPending}
                       onClick={() => setAddOpen(false)}
                     >
@@ -361,6 +363,7 @@ export function Logs() {
                     </Button>
                     <Button
                       type="submit"
+                      size="sm"
                       disabled={add.isPending || !customPath.trim()}
                     >
                       {add.isPending ? "正在添加…" : "添加并读取"}
@@ -420,6 +423,7 @@ export function Logs() {
               disabled={!file?.available || reader.busy}
               onClick={() => void reader.latest()}
             >
+              <ArrowDownToLine size={14} aria-hidden="true" />
               回到最新
             </Button>
           </div>

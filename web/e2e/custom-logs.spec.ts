@@ -63,9 +63,22 @@ test("custom logs validate paths, survive refresh and can be removed from the ca
     .fill("Test-Only-Panel-Password-2026");
   await page.getByRole("button", { name: "登录面板" }).click();
   await expect(page.locator(".log-line")).toContainText(builtin);
+  await expect(
+    page.getByRole("button", { name: "回到最新" }).locator("svg"),
+  ).toHaveCount(1);
+  const toolbarFont = await page
+    .getByRole("button", { name: "添加日志", exact: true })
+    .evaluate((node) => getComputedStyle(node).fontSize);
+  expect(toolbarFont).toBe("14px");
   await expect(page.getByRole("button", { name: "移除日志" })).toHaveCount(0);
   await page.getByRole("button", { name: "添加日志", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "添加日志文件" });
+  await expect(
+    dialog.getByRole("button", { name: "取消", exact: true }),
+  ).toHaveCSS("font-size", toolbarFont);
+  await expect(
+    dialog.getByRole("button", { name: "添加并读取", exact: true }),
+  ).toHaveCSS("font-size", toolbarFont);
   const input = dialog.getByLabel("日志文件绝对路径");
   await input.fill("relative.log");
   await dialog.getByRole("button", { name: "添加并读取" }).click();
