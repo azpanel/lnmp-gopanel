@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/auth"
@@ -25,7 +26,6 @@ import (
 	"github.com/azpanel/lnmp-gopanel/internal/storage"
 	"github.com/azpanel/lnmp-gopanel/internal/vhosts"
 	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type Server struct {
@@ -50,6 +50,10 @@ type Server struct {
 	limiter         auth.Limiter
 	streams         chan struct{}
 	logReads        chan struct{}
+	Account         *auth.Account
+	accountOnce     sync.Once
+	authMu          sync.Mutex
+	securityLimiter auth.Limiter
 }
 
 func New(c config.Config, m *metrics.Collector, svc *control.Manager, assets fs.FS) *Server {
@@ -87,6 +91,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	api := r.Group("/api/v1")
 	api.POST("/auth/login", s.origin, s.login)
+	api.POST("/auth/login/totp", s.origin, s.loginTOTP)
 	private := api.Group("")
 	private.Use(s.requireAuth)
 	private.GET("/build", func(c *gin.Context) { c.JSON(200, buildinfo.Current()) })
@@ -95,11 +100,15 @@ func (s *Server) Handler() http.Handler {
 		c.JSON(200, gin.H{"username": s.Config.Username, "csrf_token": v.CSRF, "expires_at": v.Expires})
 	})
 	private.POST("/auth/logout", s.csrf, func(c *gin.Context) {
+		s.authMu.Lock()
+		defer s.authMu.Unlock()
 		id, _ := c.Cookie(auth.CookieName)
+		s.account().DiscardSetup(id)
 		s.Sessions.Delete(id)
 		s.cookie(c, "", -1)
 		c.Status(204)
 	})
+	s.registerAccountSecurity(private)
 	private.GET("/host", func(c *gin.Context) { c.JSON(200, s.Host) })
 	private.GET("/metrics", func(c *gin.Context) {
 		v := s.Metrics.Latest()
@@ -345,6 +354,8 @@ func (s *Server) cookie(c *gin.Context, id string, age int) {
 	http.SetCookie(c.Writer, &http.Cookie{Name: auth.CookieName, Value: id, Path: "/", MaxAge: age, HttpOnly: true, Secure: s.Config.SecureCookie, SameSite: http.SameSiteStrictMode})
 }
 func (s *Server) login(c *gin.Context) {
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
 	if !s.limiter.Allow() {
 		c.Header("Retry-After", "60")
 		fail(c, 429, "尝试次数过多，请稍后再试")
@@ -362,11 +373,23 @@ func (s *Server) login(c *gin.Context) {
 		fail(c, 400, "登录参数无效")
 		return
 	}
-	passwordOK := bcrypt.CompareHashAndPassword([]byte(s.Config.PasswordHash), []byte(req.Password)) == nil
-	if !auth.Equal(req.Username, s.Config.Username) || !passwordOK {
+	// Verify the password even for an incorrect username to avoid a timing oracle.
+	challenge, err := s.account().StartLogin(req.Password)
+	if !auth.Equal(req.Username, s.Config.Username) || errors.Is(err, auth.ErrProof) {
 		fail(c, 401, "用户名或密码错误")
 		return
 	}
+	if err != nil {
+		s.securityError(c, err)
+		return
+	}
+	if challenge != "" {
+		c.JSON(200, gin.H{"totp_required": true, "challenge_token": challenge, "expires_in": int(auth.PendingTTL.Seconds())})
+		return
+	}
+	s.loginSession(c)
+}
+func (s *Server) loginSession(c *gin.Context) {
 	if old, e := c.Cookie(auth.CookieName); e == nil {
 		s.Sessions.Delete(old)
 	}

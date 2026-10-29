@@ -24,6 +24,10 @@ type Config struct {
 	Screenshots  ScreenshotConfig `yaml:"screenshots"`
 	Logs         LogConfig        `yaml:"logs"`
 	Vhosts       VhostConfig      `yaml:"vhosts"`
+	Auth         AuthConfig       `yaml:"auth"`
+}
+type AuthConfig struct {
+	StateDir string `yaml:"state_dir"`
 }
 type VhostConfig struct {
 	PublicIPs []string `yaml:"public_ips"`
@@ -132,6 +136,20 @@ func Load(path string) (Config, error) {
 			return c, errors.New("public_origin must be an https origin without credentials, path, query or fragment")
 		}
 		c.PublicOrigin = strings.TrimSuffix(c.PublicOrigin, "/")
+	}
+	if c.Auth.StateDir == "" {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return c, err
+		}
+		if filepath.Dir(absolute) == "/etc/lnmp-gopanel" {
+			c.Auth.StateDir = "/var/lib/lnmp-gopanel"
+		} else {
+			c.Auth.StateDir = filepath.Join(filepath.Dir(absolute), "auth-state")
+		}
+	}
+	if !filepath.IsAbs(c.Auth.StateDir) || filepath.Clean(c.Auth.StateDir) != c.Auth.StateDir {
+		return c, errors.New("auth.state_dir must be a clean absolute path")
 	}
 	return c, nil
 }

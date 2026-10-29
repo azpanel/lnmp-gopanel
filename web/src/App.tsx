@@ -48,6 +48,7 @@ import type { BuildInfo, Host, Service, Session } from "@/lib/types";
 import { formatBuildTime } from "@/lib/build-info";
 import { useMonitor } from "@/lib/use-monitor";
 import { cn } from "@/lib/utils";
+import { AccountSecurity } from "@/components/account-security";
 
 type Theme = "light" | "dark";
 
@@ -69,7 +70,7 @@ export default function App() {
   const client = useQueryClient();
   const session = useQuery({
     queryKey: ["session"],
-    queryFn: fetchSession,
+    queryFn: () => fetchSession(),
     retry: false,
     staleTime: 60000,
     refetchOnWindowFocus: true,
@@ -120,7 +121,7 @@ function Workspace({
   theme: Theme;
   setTheme: (theme: Theme) => void;
 }) {
-  const monitor = useMonitor(),
+  const monitor = useMonitor(session.csrf_token),
     client = useQueryClient();
   const { pathname } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false),
@@ -340,6 +341,7 @@ function Workspace({
               <strong>{session.username}</strong>
               <span>系统管理员</span>
             </div>
+            <AccountSecurity username={session.username} />
             <Button
               variant="ghost"
               size="icon"

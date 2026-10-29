@@ -54,7 +54,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { api, fetchSession } from "@/lib/api";
+import { api, fetchSession, refreshStreamSession } from "@/lib/api";
 import {
   certificateCovers,
   generateDatabasePassword,
@@ -322,7 +322,8 @@ export function VhostCreate() {
     });
     source.addEventListener("auth_expired", () => {
       source.close();
-      window.dispatchEvent(new Event("session-expired"));
+      setLive(false);
+      void refreshStreamSession().catch(() => {});
     });
     source.onerror = () => {
       setLive(false);

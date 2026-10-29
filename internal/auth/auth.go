@@ -64,6 +64,7 @@ func (s *Store) Get(id string) (Session, bool) {
 	return v, ok
 }
 func (s *Store) Delete(id string) { s.mu.Lock(); defer s.mu.Unlock(); delete(s.sessions, id) }
+func (s *Store) DeleteAll()       { s.mu.Lock(); defer s.mu.Unlock(); clear(s.sessions) }
 func Equal(a, b string) bool {
 	return len(a) > 0 && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }

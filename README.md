@@ -10,7 +10,7 @@
 - Docker 只读概览：运行中容器的基础信息、可写层与虚拟大小，以及镜像、容器、数据卷和构建缓存的空间占用。
 - 定时任务只读查看 root crontab，展示执行周期、命令和原文，支持刷新。
 - 日志读取支持网站、MariaDB 慢查询及 PHP 错误日志，按需加载大文件、实时追踪和多条关键词／正则筛选。
-- 单管理员、bcrypt 密码、内存 Session、CSRF 校验；独立特权辅助程序和精确 sudoers 规则。
+- 单管理员、bcrypt 密码、TOTP 双重验证、内存 Session、CSRF 校验；独立特权辅助程序和精确 sudoers 规则。
 - 中文、默认亮色、深浅主题切换、移动端导航。登录页、工作区及通知使用一致的主题。主题偏好及每个日志文件的筛选规则写入 localStorage，日志内容不保存到浏览器持久存储。
 
 ## 安装、更新与卸载
@@ -207,9 +207,35 @@ public_origin: https://panel.example.com
 - 会话最长 8 小时，重启面板会清空会话。登录每分钟最多 10 次，系统最多 32 条 SSE 连接；慢连接写入限时，单个订阅仅缓存最新一份快照。
 - 必要运行和服务操作记录写入标准日志（systemd journal），不记录密码、令牌、指标样本或服务命令原始输出。`journalctl -u lnmp-gopanel` 可查看部署错误。
 
+## 账户安全
+
+左下角管理员区域的“账户安全”按钮可修改登录密码、绑定或关闭 TOTP，并重新生成恢复码。新密码至少 15 个 Unicode 字符、最多 72 个 UTF-8 字节，不含控制字符，且必须通过 zxcvbn 强度检测（最低 3 分）；支持空格和长口令，不要求固定字符组合。“随机生成强密码”在浏览器本地生成 24 位密码，可显示、隐藏和复制。修改密码需验证当前密码，启用 TOTP 后还需新的验证码或未使用的恢复码；成功后全部会话退出。已有密码仍可登录，初始化命令的原有 12–72 字节规则保持不变。
+
+每个管理员支持一组 TOTP。输入当前密码后扫描二维码或手动录入密钥，再输入验证码确认启用；未确认的绑定在 5 分钟后失效，退出或取消也会清除。使用 SHA-1、6 位数字和 30 秒周期，允许前后各一个周期的时间偏差；服务器应保持时间同步。验证码成功使用后不能再次使用，需要等待下一组数字。启用后，密码正确只进入第二步，验证码或恢复码验证完成后才获得登录会话；登录挑战有效期 5 分钟，最多尝试 5 次。登录两个步骤合计每分钟最多 10 次；账户安全写操作有独立的每分钟 10 次限流。
+
+启用及重新生成时一次展示 10 个恢复码，支持复制、下载，每个只能使用一次，服务端仅保存哈希。重新生成后所有旧码失效。启用、关闭 TOTP 或重新生成恢复码需重新确认身份，操作后撤销其他浏览器的会话并更新当前会话。恢复码也可代替验证码执行敏感操作；刚用于登录的恢复码不能再用于关闭 TOTP，请使用另一个未使用的恢复码。
+
+认证状态由普通面板账号保存在 `auth.state_dir`：标准安装默认 `/var/lib/lnmp-gopanel`，自定义配置默认使用配置文件同级的 `auth-state/`。目录权限必须为 `0700`，`auth-state.json`、`auth.key` 和 `auth.lock` 为 `0600`，由面板账号所有，不能是链接。首次运行从 `config.yaml` 导入管理员及 bcrypt 哈希，此后以认证状态文件为准，修改密码不会回写 root 管理的配置。TOTP 密钥使用 AES-GCM 加密；备份与恢复时必须一起保存 `auth-state.json` 和 `auth.key`，不要分别覆盖或删除。状态或密钥部分缺失、损坏时拒绝启动，不会回退接受配置中的旧密码；写入失败时停止接受新登录，需要修复存储后重启。升级保留认证状态；改密或启用 TOTP 后，不要直接降级到忽略认证状态的旧版本。
+
+验证器和恢复码全部丢失时，可通过服务器关闭 TOTP，登录密码保持不变。标准安装执行：
+
+```bash
+sudo systemctl stop lnmp-gopanel
+sudo -u lnmp-panel /usr/local/bin/lnmp-gopanel auth disable-totp --config /etc/lnmp-gopanel/config.yaml
+sudo systemctl start lnmp-gopanel
+```
+
+命令使用与面板相同的独占文件锁，运行中的面板会阻止离线修改。自定义部署以状态目录所属的服务账号执行，指定实际配置文件路径。此命令用于验证器丢失，不重置忘记的登录密码。
+
+账户安全端到端测试使用独立实例，避免修改凭据及真实登录限流影响其他测试。构建面板后，在 `web/` 执行 `npm run test:e2e:account`；原有浏览器测试继续使用 `npm run test:e2e`。
+
+账户安全接口均位于 `/api/v1`。`GET /auth/security` 只返回 TOTP 状态、剩余恢复码数和密码规则；`POST /auth/password` 接收 `current_password`、`new_password`，启用 TOTP 后再提供 `code` 或 `recovery_code`，成功返回 204 并撤销会话。`POST /auth/totp/setup` 接收 `current_password`，返回 `setup_id`、`secret`、本地二维码 `qr_code` 和 `expires_at`；`POST /auth/totp/confirm` 接收 `setup_id`、`code`，确认启用；`DELETE /auth/totp/setup` 取消未完成的绑定。`DELETE /auth/totp` 和 `POST /auth/totp/recovery-codes` 接收当前密码及二次验证凭据。启用、关闭和重新生成响应包含更新后的 `session`，生成恢复码时额外返回仅此一次的 `recovery_codes`。这些接口需要有效会话，写操作要求 CSRF 和同源校验，参数错误返回 400，重新确认身份失败返回 403，状态过期或冲突返回 409，存储错误返回 503。
+
+`POST /auth/login` 未开启 TOTP 时保留原有响应；开启时返回 `totp_required`、`challenge_token`、`expires_in`，不签发 Cookie。随后向 `POST /auth/login/totp` 发送 `challenge_token` 及 `code` 或 `recovery_code` 完成登录。登录两步无需已有会话及 CSRF，但均校验来源并限流。密码、TOTP 密钥、二维码、验证码和恢复码不会写入日志或浏览器持久存储。
+
 ## API
 
-所有数据接口要求 Cookie 会话。响应禁止缓存；写操作要求 `X-CSRF-Token`，其值从登录响应或当前会话获得。跨源 Origin 被拒绝，不开启 CORS。
+除登录两步外，所有数据接口要求 Cookie 会话。响应禁止缓存；写操作要求 `X-CSRF-Token`，其值从登录响应或当前会话获得。跨源 Origin 被拒绝，不开启 CORS。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|

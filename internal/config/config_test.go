@@ -133,3 +133,27 @@ func TestLogStateConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthStateConfig(t *testing.T) {
+	hash, _ := bcrypt.GenerateFromPassword([]byte("legacy-password"), bcrypt.MinCost)
+	file := filepath.Join(t.TempDir(), "config.yaml")
+	for _, dir := range []string{"", "/var/lib/lnmp-gopanel", "relative", "/tmp/../auth"} {
+		data, _ := yaml.Marshal(Config{Username: "admin", PasswordHash: string(hash), TLS: TLSConfig{CertFile: "/tls/cert", KeyFile: "/tls/key"}, Auth: AuthConfig{StateDir: dir}})
+		if err := os.WriteFile(file, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		c, err := Load(file)
+		if dir == "relative" || dir == "/tmp/../auth" {
+			if err == nil {
+				t.Fatal("invalid authentication path accepted")
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dir == "" && c.Auth.StateDir != filepath.Join(filepath.Dir(file), "auth-state") {
+			t.Fatal("wrong auth state default")
+		}
+	}
+}

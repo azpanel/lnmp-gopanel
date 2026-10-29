@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/azpanel/lnmp-gopanel/internal/auth"
 	"github.com/azpanel/lnmp-gopanel/internal/components"
 	"github.com/azpanel/lnmp-gopanel/internal/config"
 	"github.com/azpanel/lnmp-gopanel/internal/control"
@@ -43,6 +44,9 @@ func main() {
 	}
 }
 func run() error {
+	if len(os.Args) > 1 && os.Args[1] == "auth" {
+		return configureAuth(os.Args[2:])
+	}
 	if len(os.Args) > 1 && os.Args[1] == "init" {
 		return initialize(os.Args[2:])
 	}
@@ -66,6 +70,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	account, err := auth.OpenAccount(c.Auth.StateDir, c.Username, c.PasswordHash)
+	if err != nil {
+		return fmt.Errorf("账户认证状态：%w", err)
+	}
+	defer account.Close()
 	certificate, err := paneltls.Load(c.TLS.CertFile, c.TLS.KeyFile)
 	if err != nil {
 		return fmt.Errorf("HTTPS certificate: %w", err)
@@ -81,6 +90,7 @@ func run() error {
 	go collector.Run(ctx)
 	go manager.Run(ctx)
 	app := server.New(c, collector, manager, web.Assets())
+	app.Account = account
 	app.CustomLogs, err = logs.OpenRegistry(c.Logs.StateDir)
 	if err != nil {
 		app.CustomLogsError = "自定义日志列表不可用，请检查状态目录及文件"

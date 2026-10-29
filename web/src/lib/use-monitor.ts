@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { fetchSession } from "./api";
+import { fetchSession, refreshStreamSession } from "./api";
 import { appendSample } from "./history";
 import type { Snapshot } from "./types";
 
-export function useMonitor() {
+export function useMonitor(sessionToken?: string) {
+  const [reconnect, setReconnect] = useState(0);
   const [samples, setSamples] = useState<Snapshot[]>([]);
   const [connection, setConnection] = useState<
     "connecting" | "live" | "offline"
@@ -33,7 +34,12 @@ export function useMonitor() {
     });
     source.addEventListener("auth_expired", () => {
       source.close();
-      window.dispatchEvent(new Event("session-expired"));
+      // An old stream can expire after this browser has rotated its session.
+      void refreshStreamSession()
+        .then((session) => {
+          if (alive && session) setReconnect((value) => value + 1);
+        })
+        .catch(() => {});
     });
     source.onerror = () => {
       if (!alive) return;
@@ -44,7 +50,7 @@ export function useMonitor() {
       alive = false;
       source.close();
     };
-  }, [paused]);
+  }, [paused, sessionToken, reconnect]);
   const latest = samples.at(-1);
   // Connection liveness uses local receipt time, independent of server clock skew.
   const stale = lastReceived === null || now - lastReceived > 7000;

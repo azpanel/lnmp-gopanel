@@ -286,6 +286,17 @@ a {
   display: block;
   font-weight: 550;
 }
+.sidebar-profile > div {
+  min-width: 0;
+}
+.sidebar-profile strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-profile > button {
+  flex-shrink: 0;
+}
 .sidebar-profile span {
   font-size: 14px;
   color: var(--muted-foreground);
@@ -1020,6 +1031,92 @@ a {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+.account-security-dialog {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+.account-security-content,
+.account-security-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.account-security-content
+  > .account-security-section
+  + .account-security-section {
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.account-security-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.account-security-section .form-field {
+  margin-bottom: 0;
+}
+.account-password-heading,
+.account-password-input,
+.account-security-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.account-password-heading,
+.account-security-actions {
+  flex-wrap: wrap;
+}
+.account-password-heading {
+  justify-content: space-between;
+}
+.account-password-input > input {
+  flex: 1;
+}
+.account-password-input > button {
+  flex-shrink: 0;
+}
+.account-password-strength {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.account-strength-bars {
+  display: flex;
+  gap: 4px;
+  margin-block: 8px;
+}
+.account-strength-bars span {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+}
+.account-strength-bars [data-filled="true"] {
+  background: #bf832b;
+}
+.account-password-strength[data-score="3"] [data-filled="true"],
+.account-password-strength[data-score="4"] [data-filled="true"] {
+  background: var(--primary);
+}
+.totp-qr {
+  align-self: center;
+  width: min(240px, 100%);
+  height: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: white;
+}
+.recovery-codes {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--secondary);
+  font-size: 12px;
+  overflow-x: auto;
+  line-height: 1.9;
 }
 .load-grid {
   display: grid;

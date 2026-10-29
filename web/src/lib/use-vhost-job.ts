@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, fetchSession } from "./api";
+import { api, fetchSession, refreshStreamSession } from "./api";
 import type { VhostJob, VhostJobLine } from "./vhost-create";
 
 export function useVhostJob(id: string | null, open: boolean) {
@@ -57,7 +57,8 @@ export function useVhostJob(id: string | null, open: boolean) {
     });
     source.addEventListener("auth_expired", () => {
       source.close();
-      window.dispatchEvent(new Event("session-expired"));
+      setLive(false);
+      void refreshStreamSession().catch(() => {});
     });
     source.onerror = () => {
       setLive(false);

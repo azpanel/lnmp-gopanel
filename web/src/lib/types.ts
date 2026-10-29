@@ -58,6 +58,24 @@ export type Session = {
   csrf_token: string;
   expires_at: string;
 };
+export type LoginChallenge = {
+  totp_required: true;
+  challenge_token: string;
+  expires_in: number;
+};
+export type AccountSecurity = {
+  totp_enabled: boolean;
+  recovery_remaining: number;
+  min_characters: number;
+  max_bytes: number;
+  min_score: number;
+};
+export type TOTPSetup = {
+  setup_id: string;
+  secret: string;
+  qr_code: string;
+  expires_at: string;
+};
 
 export type StorageMount = {
   path: string;

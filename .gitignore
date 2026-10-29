@@ -4,6 +4,7 @@
 /web/*.tsbuildinfo
 /web/playwright-report/
 /web/test-results/
+/web/account-test-results/
 /dist/
 /.tmp-*/
 /playwright-report/
@@ -11,6 +12,10 @@
 /config.yaml
 /tls/
 /services.yaml
+/auth-state/
+auth-state.json
+auth.key
+auth.lock
 *.log
 .env
 .env.*
