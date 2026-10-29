@@ -292,10 +292,10 @@ test("rotating the showcase preserves TOTP and recovery code input", async ({
   await page.getByLabel("密码", { exact: true }).fill("demo-password");
   await page.getByRole("button", { name: "登录面板", exact: true }).click();
   const code = page.getByLabel("动态验证码", { exact: true });
-  await code.fill("123456");
+  await code.fill("12345");
   await page.clock.runFor(5000);
   await expect(current(page)).toHaveAttribute("data-theme", "services");
-  await expect(code).toHaveValue("123456");
+  await expect(code).toHaveValue("12345");
   await expect(code).toBeFocused();
   await page.getByRole("button", { name: "使用恢复码", exact: true }).click();
   const recovery = page.getByLabel("恢复码", { exact: true });

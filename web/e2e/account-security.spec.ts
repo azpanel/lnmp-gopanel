@@ -144,7 +144,6 @@ test("password changes, TOTP enrollment, recovery and session rotation work toge
   await passwordLogin(page, password);
   await expect(page.getByLabel("动态验证码", { exact: true })).toBeVisible();
   await page.getByLabel("动态验证码", { exact: true }).fill(enrollmentCode);
-  await page.getByRole("button", { name: "验证并登录" }).click();
   await expect(page.getByRole("alert")).toContainText("验证码错误");
   await page.getByRole("button", { name: "使用恢复码", exact: true }).click();
   await page.getByLabel("恢复码", { exact: true }).fill(codes[0]);

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Activity,
   ArrowLeft,
@@ -26,6 +26,12 @@ export function Login() {
   const [challenge, setChallenge] = useState<LoginChallenge | null>(null);
   const [code, setCode] = useState("");
   const [recovery, setRecovery] = useState(false);
+  const loginButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!recovery && /^[0-9]{6}$/.test(code)) {
+      loginButton.current?.click();
+    }
+  }, [code, recovery]);
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError("");
@@ -161,7 +167,12 @@ export function Login() {
                   {error}
                 </p>
               )}
-              <Button type="submit" disabled={pending} className="w-full mt-3">
+              <Button
+                ref={loginButton}
+                type="submit"
+                disabled={pending}
+                className="w-full mt-3"
+              >
                 {pending ? (
                   <Loader2 className="animate-spin" />
                 ) : (
