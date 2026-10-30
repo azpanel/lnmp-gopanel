@@ -61,6 +61,8 @@ func OpenRegistry(dir string) (*Registry, error) {
 		return nil, errors.New("自定义日志列表文件无效，请检查或恢复备份")
 	}
 	seen := map[string]bool{}
+	// Keep legacy extensions removable; Add and read boundaries enforce the new
+	// extension restriction without making the entire catalog unavailable.
 	for _, path := range r.paths {
 		if err := ValidatePath(path); err != nil || seen[path] {
 			return nil, errors.New("自定义日志列表包含重复或禁止读取的路径")
@@ -86,7 +88,7 @@ func (r *Registry) Contains(path string) bool {
 }
 
 func (r *Registry) Add(path string) error {
-	if err := ValidatePath(path); err != nil {
+	if err := ValidateLogPath(path); err != nil {
 		return err
 	}
 	r.mu.Lock()

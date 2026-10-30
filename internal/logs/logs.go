@@ -126,7 +126,7 @@ func compile(rules []Rule) ([]matcher, error) {
 	return out, nil
 }
 func Validate(r Request) error {
-	if err := ValidatePath(r.Path); err != nil {
+	if err := ValidateLogPath(r.Path); err != nil {
 		return err
 	}
 	return validateWindow(r)

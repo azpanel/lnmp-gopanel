@@ -201,6 +201,9 @@ func (m *Manager) commit(name string, r *record) error {
 		next[name] = *r
 	}
 	if err := m.store.save(next); err != nil {
+		if errors.Is(err, ErrStateTooLarge) {
+			return err
+		}
 		return errors.New("无法保存截图状态，请检查状态目录权限和磁盘空间")
 	}
 	m.items = next

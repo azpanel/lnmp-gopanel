@@ -15,6 +15,12 @@ import (
 	"syscall"
 )
 
+// MaxStateSize bounds the JSON-encoded settings file on both reads and writes.
+const MaxStateSize = 16 * 1024 * 1024
+
+// ErrStateTooLarge leaves the previous settings file intact when saving fails.
+var ErrStateTooLarge = errors.New("截图设置超过 16 MiB 上限，请减少站点设置或截图前 JavaScript 内容")
+
 type store struct {
 	dir  string
 	aead cipher.AEAD
@@ -91,9 +97,12 @@ func openStore(dir string) (*store, map[string]record, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		data, err := io.ReadAll(io.LimitReader(f, 16*1024*1024+1))
+		data, err := io.ReadAll(io.LimitReader(f, MaxStateSize+1))
 		_ = f.Close()
-		if err != nil || len(data) > 16*1024*1024 || json.Unmarshal(data, &items) != nil || items == nil {
+		if len(data) > MaxStateSize {
+			return nil, nil, ErrStateTooLarge
+		}
+		if err != nil || json.Unmarshal(data, &items) != nil || items == nil {
 			return nil, nil, errors.New("截图设置文件无效")
 		}
 	}
@@ -162,6 +171,9 @@ func (s *store) save(items map[string]record) error {
 	b, err := json.Marshal(items)
 	if err != nil {
 		return err
+	}
+	if len(b) > MaxStateSize {
+		return ErrStateTooLarge
 	}
 	return s.atomic("screenshot-settings.json", b)
 }

@@ -35,3 +35,22 @@ func TestCustomPathPolicy(t *testing.T) {
 		}
 	}
 }
+
+func TestLogExtensionPolicy(t *testing.T) {
+	for _, path := range []string{"/srv/app.log", "/srv/app.txt", "/srv/app.LOG", "/srv/app.TxT", MySQL, PHP} {
+		if err := ValidateLogPath(path); err != nil {
+			t.Errorf("valid log path %q: %v", path, err)
+		}
+	}
+	for _, path := range []string{
+		"/var/log/syslog", "/srv/database.php", "/srv/app.log.1", "/srv/app.txt.bak",
+		"/srv/app.log~", "/srv/app.log/secret", "/srv/app.log.php", "/srv/app.txt ",
+		"/etc/secret.txt", "/root/private.log", "/srv/.env.txt", "/srv/.ssh/debug.log",
+	} {
+		for _, mode := range []string{"stat", "tail"} {
+			if err := Validate(Request{Path: path, Mode: mode}); !errors.Is(err, ErrInvalid) {
+				t.Errorf("invalid log path %q (%s) accepted: %v", path, mode, err)
+			}
+		}
+	}
+}

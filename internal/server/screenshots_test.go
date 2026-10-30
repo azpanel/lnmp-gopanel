@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/jpeg"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -15,7 +16,17 @@ import (
 	"github.com/azpanel/lnmp-gopanel/internal/auth"
 	"github.com/azpanel/lnmp-gopanel/internal/screenshots"
 	"github.com/azpanel/lnmp-gopanel/internal/vhosts"
+	"github.com/gin-gonic/gin"
 )
+
+func TestScreenshotStateSizeErrorResponse(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	screenshotFailure(c, screenshots.ErrStateTooLarge)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "16 MiB") {
+		t.Fatalf("unexpected state limit response: %d %s", w.Code, w.Body.String())
+	}
+}
 
 type screenshotRenderer struct{}
 

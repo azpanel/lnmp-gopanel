@@ -338,6 +338,10 @@ export function Logs() {
                       setAddError("请输入日志文件的绝对路径");
                       return;
                     }
+                    if (!/\.(log|txt)$/i.test(path)) {
+                      setAddError("自定义日志仅支持 .log 或 .txt 文件");
+                      return;
+                    }
                     setAddError("");
                     add.mutate(path);
                   }}
@@ -345,14 +349,15 @@ export function Logs() {
                   <DialogHeader>
                     <DialogTitle>添加日志文件</DialogTitle>
                     <DialogDescription className="sr-only">
-                      输入绝对路径以添加服务器上已有的日志文件。
+                      输入绝对路径以添加服务器上已有的 .log 或 .txt 日志文件。
                     </DialogDescription>
                   </DialogHeader>
                   <div className="custom-log-alerts">
                     <div className="custom-log-alert" role="alert">
                       <Info size={16} aria-hidden="true" />
                       <p>
-                        输入服务器上已有日志文件的绝对路径。添加后保存在服务器上，可继续实时追踪与筛选。
+                        输入服务器上已有 .log 或 .txt
+                        文件的绝对路径，扩展名不区分大小写。添加后保存在服务器上，可继续实时追踪与筛选。
                       </p>
                     </div>
                     <div
@@ -369,7 +374,7 @@ export function Logs() {
                     <Label htmlFor="custom-log-path">日志文件绝对路径</Label>
                     <Input
                       id="custom-log-path"
-                      placeholder="/var/log/syslog"
+                      placeholder="/var/log/application.log"
                       autoComplete="off"
                       required
                       maxLength={2048}

@@ -44,7 +44,7 @@ func TestOpenRegularRejectsSymlinksAndSpecialFiles(t *testing.T) {
 
 func TestCustomStoreReadsAndRejectsUnsafeFiles(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "server log")
+	path := filepath.Join(dir, "server log.txt")
 	if err := os.WriteFile(path, []byte("hello\nworld\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -81,5 +81,20 @@ func TestCustomStoreReadsAndRejectsUnsafeFiles(t *testing.T) {
 	}
 	if _, err := store.Read(context.Background(), Request{Path: link, Mode: "stat"}); err == nil {
 		t.Fatal("symlink accepted")
+	}
+}
+
+func TestStoreRejectsNonLogExtensions(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"syslog", "database.php", "app.log.1", "app.txt.bak"} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("private content\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		for _, mode := range []string{"stat", "tail"} {
+			if _, err := (Store{}).Read(context.Background(), Request{Path: path, Mode: mode}); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("disallowed extension read: %s, %s, %v", name, mode, err)
+			}
+		}
 	}
 }

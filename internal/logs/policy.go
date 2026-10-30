@@ -74,6 +74,20 @@ func ValidatePath(path string) error {
 
 func ValidPath(path string) bool { return ValidatePath(path) == nil }
 
+// ValidateLogPath applies the extension restriction at every read boundary.
+// ValidatePath remains available for loading and removing legacy catalog entries.
+func ValidateLogPath(path string) error {
+	if err := ValidatePath(path); err != nil {
+		return err
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".log", ".txt":
+		return nil
+	default:
+		return fmt.Errorf("%w：自定义日志仅支持 .log 或 .txt 文件", ErrInvalid)
+	}
+}
+
 // BuiltinPath describes auto-discovery only; other permitted paths must first
 // be explicitly added to the server's custom catalog.
 func BuiltinPath(path string) bool {

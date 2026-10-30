@@ -1,12 +1,47 @@
 package logs
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestRegistryKeepsLegacyPathsRemovable(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{"/var/log/syslog", "/srv/app.log.1", "/srv/database.php", "/srv/app.txt"}
+	data, err := json.Marshal(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "custom-logs.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := OpenRegistry(dir)
+	if err != nil || len(r.Paths()) != len(paths) {
+		t.Fatal("legacy catalog could not load", err)
+	}
+	for _, path := range paths[:3] {
+		if err := r.Add(path); !errors.Is(err, ErrInvalid) {
+			t.Fatal("legacy path could be added again", path, err)
+		}
+		if err := r.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.Add("/srv/another.LOG"); err != nil {
+		t.Fatal(err)
+	}
+	r, err = OpenRegistry(dir)
+	if err != nil || len(r.Paths()) != 2 || !r.Contains("/srv/app.txt") || !r.Contains("/srv/another.LOG") {
+		t.Fatal("catalog removal or addition did not persist", err)
+	}
+}
 
 func TestRegistryPersistsAndBoundsCustomFiles(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state")

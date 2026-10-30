@@ -29,3 +29,19 @@ func TestLogsRejectOtherArguments(t *testing.T) {
 		}
 	}
 }
+
+func TestDecodeLogRequestExtensionRestriction(t *testing.T) {
+	for i, name := range []string{"app.log", "app.txt", "app.LOG", "app.TxT", "syslog", "database.php", "app.log.1", "app.txt.bak"} {
+		for _, mode := range []string{"stat", "tail"} {
+			raw := `{"path":"/srv/` + name + `","mode":"` + mode + `"}`
+			_, err := decodeLogRequest(strings.NewReader(raw))
+			if i < 4 {
+				if err != nil {
+					t.Fatal("valid extension rejected", name, err)
+				}
+			} else if !errors.Is(err, logs.ErrInvalid) {
+				t.Fatal("invalid extension accepted", name, err)
+			}
+		}
+	}
+}

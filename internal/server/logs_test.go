@@ -35,7 +35,7 @@ func TestCustomLogEndpoints(t *testing.T) {
 	h := s.Handler()
 	id, session := s.Sessions.Create()
 	cookie := &http.Cookie{Name: auth.CookieName, Value: id}
-	path := filepath.Join(t.TempDir(), "custom log")
+	path := filepath.Join(t.TempDir(), "custom log.txt")
 	if err := os.WriteFile(path, []byte("custom entry\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -116,6 +116,75 @@ func TestCustomLogEndpoints(t *testing.T) {
 	}
 	if w := request(h, "POST", "/api/v1/logs/read", readBody, cookie, session.CSRF, ""); w.Code != 400 {
 		t.Fatal("removed custom path still readable", w.Code)
+	}
+}
+
+func TestLegacyCustomLogsStayVisibleButCannotBeRead(t *testing.T) {
+	s, _ := testServer(t)
+	reader := &stubLogs{}
+	s.Logs = reader
+	s.logReads = make(chan struct{}, 1)
+	dir := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{"/var/log/syslog", "/srv/database.php", "/srv/app.log.1", "/srv/app.txt"}
+	data, err := json.Marshal(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "custom-logs.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.CustomLogs, err = logs.OpenRegistry(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := s.Handler()
+	id, session := s.Sessions.Create()
+	cookie := &http.Cookie{Name: auth.CookieName, Value: id}
+	w := request(h, "GET", "/api/v1/logs", "", cookie, "", "")
+	var catalog logs.Catalog
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &catalog) != nil || len(catalog.Files) != len(paths) {
+		t.Fatalf("legacy catalog failed: %d %s", w.Code, w.Body.String())
+	}
+	// Only the built-in catalog and the compliant custom file reach the backend.
+	if reader.calls != 2 {
+		t.Fatal("legacy metadata reached backend", reader.calls)
+	}
+	for i, file := range catalog.Files {
+		if !file.Custom || file.Path != paths[i] {
+			t.Fatal("legacy entry lost", file)
+		}
+		if i < 3 && (file.Available || !strings.Contains(file.Error, ".log 或 .txt")) {
+			t.Fatal("legacy entry not marked unreadable", file)
+		}
+		if i == 3 && !file.Available {
+			t.Fatal("compliant entry unavailable", file)
+		}
+	}
+	for _, path := range paths[:3] {
+		before := reader.calls
+		body := fmt.Sprintf(`{"path":%q}`, path)
+		for _, endpoint := range []struct{ path, body string }{
+			{"/api/v1/logs/custom", body},
+			{"/api/v1/logs/read", fmt.Sprintf(`{"path":%q,"mode":"tail"}`, path)},
+		} {
+			w := request(h, "POST", endpoint.path, endpoint.body, cookie, session.CSRF, "")
+			if w.Code != 400 || !strings.Contains(w.Body.String(), ".log 或 .txt") {
+				t.Fatalf("legacy path accepted: %d %s", w.Code, w.Body.String())
+			}
+		}
+		if reader.calls != before {
+			t.Fatal("rejected path reached backend")
+		}
+		if w := request(h, "DELETE", "/api/v1/logs/custom", body, cookie, session.CSRF, ""); w.Code != 204 {
+			t.Fatalf("legacy removal failed: %d %s", w.Code, w.Body.String())
+		}
+	}
+	reloaded, err := logs.OpenRegistry(dir)
+	if err != nil || len(reloaded.Paths()) != 1 || !reloaded.Contains(paths[3]) {
+		t.Fatal("legacy removal did not persist", err)
 	}
 }
 

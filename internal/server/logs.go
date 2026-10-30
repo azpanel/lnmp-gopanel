@@ -101,6 +101,9 @@ func (s *Server) logList(c *gin.Context) {
 
 func (s *Server) logFileInfo(ctx context.Context, path string) (logs.File, error) {
 	file := logs.File{Path: path}
+	if err := logs.ValidateLogPath(path); err != nil {
+		return file, err
+	}
 	if err := ctx.Err(); err != nil {
 		return file, err
 	}
@@ -139,6 +142,10 @@ func (s *Server) logAdd(c *gin.Context) {
 	}
 	if s.isLoginLog(path) {
 		fail(c, 400, "登录日志是内置日志，无需添加")
+		return
+	}
+	if err := logs.ValidateLogPath(path); err != nil {
+		fail(c, 400, err.Error())
 		return
 	}
 	if s.CustomLogs == nil || s.Logs == nil {

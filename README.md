@@ -418,6 +418,8 @@ screenshots:
 
 标准部署的状态目录为 `/var/lib/lnmp-gopanel`，由安装脚本和 systemd 为 `lnmp-panel` 创建；自定义配置文件默认在其同级 `screenshots-state/` 保存状态，也可以显式指定目录。目录必须由面板账号所有、权限 `0700`，状态文件和图片权限为 `0600`。密码使用 AES-GCM 加密保存，`screenshots.key` 与 `screenshot-settings.json` 必须一起备份、恢复，密钥丢失不会自动覆盖重建。设置与最后成功截图在升级及重启后保留；它们不会写入 Nginx 配置或打包进 Release。缺失浏览器或状态目录不可用时，其他功能继续工作。
 
+截图设置文件 `screenshot-settings.json` 按实际 JSON 编码后的大小统一限制为 16 MiB（包含 JSON 转义），图片独立保存，不计入该上限。超限保存返回 HTTP 400 及容量提示，保留原设置、队列和正在执行的任务；后台截图完成时若设置超限，清理新图片并保留上次成功截图。JPEG 质量参数维持 80。旧版本已产生的超限设置文件会在启动时明确报错，不会自动截断、清空或更换密钥。恢复时先停止面板服务，备份原设置文件和密钥，使用保留 UTF-8 和 JSON 格式的编辑工具删除不再需要的站点记录或缩短 `javascript` 字段，使文件不超过 16 MiB；保留其余记录和加密凭据，维持文件所有者及 `0600` 权限后再启动服务。自定义部署使用实际配置的状态目录。
+
 部署后可用 `sudo -u lnmp-panel /usr/local/bin/lnmp-gopanel check-screenshots` 检查截图组件，仅访问临时本地测试页面，不访问业务站点。源码集成测试使用 `SCREENSHOT_TEST_BROWSER=/path/to/chromium go test -race ./internal/screenshots -run TestChromiumIntegration`，所有目标都是本地测试服务器；仅隔离的 root 测试进程会关闭浏览器沙箱，生产代码不提供该开关。
 
 新增接口：`GET /api/v1/vhosts/screenshots`、`PUT /api/v1/vhosts/screenshot?name=…`、`POST /api/v1/vhosts/screenshot/refresh?name=…`、`DELETE /api/v1/vhosts/screenshot?name=…`、`GET /api/v1/vhosts/screenshot/image?name=…`。均需登录，写操作需 CSRF；设置与刷新返回 202，图片通过面板鉴权后读取且禁止缓存。设置输入及返回数据包含 `viewport_width`、`viewport_height`、`zoom_percent`、`javascript`；宽高同时省略或均为 0 时使用默认尺寸，只提供一项非零尺寸会报错。`zoom_percent` 为 25–200 的整数，省略时默认 100，显式传入 0 或超出范围会报错。截图设置 PUT 请求体上限为 128 KiB，以容纳脚本和 JSON 转义，建站相关 POST 为 32 KiB，批量 SSL 续签及预检查 POST 为 1 MiB，其他 API 为 4 KiB。
@@ -444,7 +446,7 @@ screenshots:
 
 登录日志文件元数据包含 `format: "login"`，不依赖文件路径或显示名称识别。读取时从 JSON 的 `ip` 字段提取地址，使用下述纯真数据库离线补充 `ip_location`，同批重复 IP 复用查询结果。IPv6 显示“暂不支持”，无效地址及查询失败显示“未知”；原文件不修改，历史记录同样可展示属地。
 
-点击“添加日志”，输入服务器上已有普通文本日志的绝对路径，例如 `/var/log/syslog`、`/opt/app/logs/server.log`；不要求 `.log` 扩展名，也可显式添加轮转后的普通文本文件。添加前由辅助程序检查文件，成功后自动选中读取。最多保存 64 个自定义路径，刷新、重新登录和面板重启后保留；文件暂时消失或不可读时保留条目并显示错误。“移除日志”只移除自定义列表条目，不删除或修改原文件，内置日志不能移除。
+点击“添加日志”，输入服务器上已有普通文本日志的绝对路径，例如 `/opt/app/logs/server.log`、`/opt/app/logs/output.txt`；最终扩展名仅允许 `.log` 或 `.txt`，不区分大小写。无扩展名、`.php`、`.log.1`、`.txt.bak` 等文件禁止添加及读取；API 与辅助程序均校验，不能绕过页面限制直接读取。添加前由辅助程序检查文件，成功后自动选中读取。最多保存 64 个自定义路径，刷新、重新登录和面板重启后保留；文件暂时消失或不可读时保留条目并显示错误。旧版本已登记但扩展名不合规的条目仍会显示在列表中并提示不可读取，可通过“移除日志”清理，不影响其他合规条目及内置日志。“移除日志”只移除自定义列表条目，不删除或修改原文件，内置日志不能移除。升级时同步更新面板及日志辅助程序。
 
 系统配置（`/etc`）、`/root`、`/proc`、`/sys`、`/dev`、`/run`、`/boot`、备份和面板状态目录、常见 MySQL／MariaDB／PostgreSQL／Redis 数据目录，以及 Nginx／PHP 等组件的配置目录禁止读取。任意路径中的 `.ssh`、`.aws`、`.kube`、`.docker`、`.gnupg`、`.git` 等凭据或版本库目录，`.env*`、常见密码配置、私钥证书和数据库文件也会拒绝。路径必须规范，不能包含 `..`、重复分隔符、控制字符或反斜杠。添加及每次读取都重新校验，逐段禁止符号链接，并拒绝硬链接、特殊文件、包含 NUL 或私钥头的文件；格式检查仅检查前 4 KiB，不对应用日志中可能记录的敏感业务内容进行脱敏。
 
