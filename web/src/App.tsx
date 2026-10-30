@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { LoadBoundary } from "@/components/load-boundary";
 import { fetchSession } from "@/lib/api";
 import { Login } from "@/pages/login";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -61,16 +62,22 @@ export default function App() {
   return (
     <>
       {session.data ? (
-        <Suspense
-          fallback={
-            <div className="app-loading">
-              <Activity size={28} />
-              <p>正在加载工作空间…</p>
-            </div>
-          }
-        >
-          <Workspace session={session.data} theme={theme} setTheme={setTheme} />
-        </Suspense>
+        <LoadBoundary message="工作空间加载失败，请重新加载页面。">
+          <Suspense
+            fallback={
+              <div className="app-loading">
+                <Activity size={28} />
+                <p>正在加载工作空间…</p>
+              </div>
+            }
+          >
+            <Workspace
+              session={session.data}
+              theme={theme}
+              setTheme={setTheme}
+            />
+          </Suspense>
+        </LoadBoundary>
       ) : (
         <Login />
       )}

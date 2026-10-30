@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { LoadBoundary } from "@/components/load-boundary";
 import { Pause, Play } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 const Demo = lazy(() => import("@/components/login-demo"));
@@ -125,17 +126,25 @@ export function LoginShowcase() {
             </p>
             {desktop && index === active && (
               <div className="login-demo" aria-label={`${slide.name}演示数据`}>
-                <Suspense
+                <LoadBoundary
                   fallback={
-                    <div
-                      className="login-demo-card"
-                      role="status"
-                      aria-label="正在加载演示"
-                    />
+                    <div className="login-demo-card p-6" role="status">
+                      演示暂不可用
+                    </div>
                   }
                 >
-                  <Demo theme={slide.id} />
-                </Suspense>
+                  <Suspense
+                    fallback={
+                      <div
+                        className="login-demo-card"
+                        role="status"
+                        aria-label="正在加载演示"
+                      />
+                    }
+                  >
+                    <Demo theme={slide.id} />
+                  </Suspense>
+                </LoadBoundary>
               </div>
             )}
           </div>

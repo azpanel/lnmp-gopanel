@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { LoadBoundary } from "@/components/load-boundary";
 import {
   Dialog,
   DialogContent,
@@ -42,13 +43,15 @@ export function AccountSecurity({ username }: { username: string }) {
           <DialogDescription>管理登录密码和 TOTP 双重验证。</DialogDescription>
         </DialogHeader>
         {open && (
-          <Suspense fallback={<p role="status">正在加载账户设置…</p>}>
-            <SecurityContents
-              username={username}
-              busy={busy}
-              setBusy={setBusy}
-            />
-          </Suspense>
+          <LoadBoundary message="账户设置加载失败，请重新加载页面。">
+            <Suspense fallback={<p role="status">正在加载账户设置…</p>}>
+              <SecurityContents
+                username={username}
+                busy={busy}
+                setBusy={setBusy}
+              />
+            </Suspense>
+          </LoadBoundary>
         )}
       </DialogContent>
     </Dialog>

@@ -1,4 +1,5 @@
 import { AccountSecurity } from "@/components/account-security";
+import { LoadBoundary } from "@/components/load-boundary";
 import { Button } from "@/components/ui/button";
 import { api, logout } from "@/lib/api";
 import { formatBuildTime } from "@/lib/build-info";
@@ -379,48 +380,50 @@ export default function Workspace({
         </header>
         <main className="main-content">
           <div className="page-transition" key={pathname}>
-            <Suspense fallback={<p role="status">正在加载页面…</p>}>
-              <Routes>
-                <Route path="/lnmp/install" element={<LNMPInstall />} />
-                <Route
-                  path="/"
-                  element={
-                    <Dashboard
-                      monitor={monitor}
-                      host={host.data}
-                      services={services.data}
-                      serviceError={services.error?.message}
-                    />
-                  }
-                />
-                <Route
-                  path="/services"
-                  element={
-                    <Services
-                      services={services.data}
-                      error={services.error?.message}
-                      loading={services.isFetching}
-                    />
-                  }
-                />
-                <Route
-                  path="/system"
-                  element={
-                    <System
-                      host={host.data}
-                      snapshot={monitor.latest}
-                      error={host.error?.message}
-                    />
-                  }
-                />
-                <Route path="/storage" element={<Storage />} />
-                <Route path="/vhosts" element={<Vhosts />} />
-                <Route path="/docker" element={<Docker />} />
-                <Route path="/cron" element={<Cron />} />
-                <Route path="/logs" element={<Logs />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </Suspense>
+            <LoadBoundary>
+              <Suspense fallback={<p role="status">正在加载页面…</p>}>
+                <Routes>
+                  <Route path="/lnmp/install" element={<LNMPInstall />} />
+                  <Route
+                    path="/"
+                    element={
+                      <Dashboard
+                        monitor={monitor}
+                        host={host.data}
+                        services={services.data}
+                        serviceError={services.error?.message}
+                      />
+                    }
+                  />
+                  <Route
+                    path="/services"
+                    element={
+                      <Services
+                        services={services.data}
+                        error={services.error?.message}
+                        loading={services.isFetching}
+                      />
+                    }
+                  />
+                  <Route
+                    path="/system"
+                    element={
+                      <System
+                        host={host.data}
+                        snapshot={monitor.latest}
+                        error={host.error?.message}
+                      />
+                    }
+                  />
+                  <Route path="/storage" element={<Storage />} />
+                  <Route path="/vhosts" element={<Vhosts />} />
+                  <Route path="/docker" element={<Docker />} />
+                  <Route path="/cron" element={<Cron />} />
+                  <Route path="/logs" element={<Logs />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </Suspense>
+            </LoadBoundary>
           </div>
         </main>
         <footer className="main-footer">
