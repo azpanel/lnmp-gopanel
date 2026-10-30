@@ -62,7 +62,7 @@ func TestVhostCreationAPIAuthenticationValidationAndEvents(t *testing.T) {
 	if w := request(h, "POST", "/api/v1/vhosts/check-dns", `{"domains":["example.com"]}`, cookie, session.CSRF, ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"matched"`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	for _, body := range []string{`{"request_id":"request-1234","domain":"example.com;bad","ssl":{"mode":"none"}}`, `{"request_id":"request-1234","domain":"example.com","ssl":{"mode":"none"},"unknown":true}`, `{} {}`} {
+	for _, body := range []string{`{"request_id":"request-1234","domain":"example.com;bad","ssl":{"mode":"none"}}`, `{"request_id":"request-1234","domain":"example.com","ssl":{"mode":"none"},"unknown":true}`, `{"request_id":"request-1234","domain":"example.com","root":"/etc/systemd/system/nginx.service.d","ssl":{"mode":"none"}}`, `{"request_id":"request-1234","domain":"example.com","root":"/home/wwwroot","ssl":{"mode":"none"}}`, `{} {}`} {
 		if w := request(h, "POST", "/api/v1/vhosts", body, cookie, session.CSRF, ""); w.Code != 400 {
 			t.Fatal("invalid body accepted", body, w.Code)
 		}

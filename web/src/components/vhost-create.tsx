@@ -775,7 +775,7 @@ export function VhostCreate() {
                           </span>
                         </div>
                         <span id="site-root-help" className="small-note">
-                          根据主域名生成，可自行修改绝对路径
+                          根据主域名生成，仅支持 /home/wwwroot/ 下的子目录
                         </span>
                       </div>
                     </fieldset>

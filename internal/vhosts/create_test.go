@@ -24,13 +24,33 @@ import (
 func createInput() CreateRequest {
 	return CreateRequest{RequestID: "request-1234", Domain: "Example.COM.", PHP: "none", SSL: SSLInput{Mode: "none"}}
 }
+
+func TestCreateRootBoundary(t *testing.T) {
+	for _, path := range []string{"", "/home/wwwroot/example.com", "/home/wwwroot/project/public", `/home/wwwroot/space "quoted"; folder`} {
+		r := createInput()
+		r.Root = path
+		if err := r.Validate(); err != nil {
+			t.Errorf("valid root %q: %v", path, err)
+		}
+		if path == "" && r.Root != "/home/wwwroot/example.com" {
+			t.Fatalf("unexpected default root: %s", r.Root)
+		}
+	}
+	for _, path := range []string{"/", "/etc/systemd/system/nginx.service.d", "/home/wwwroot", "/home/wwwroot/", "/home/wwwroot-other/site", "/home/wwwroot/../outside", "/home/wwwroot/a/../../outside", "/home/wwwroot//site", "/home/wwwroot/site/", "/home/wwwroot/$host", "/home/wwwroot/a\nb", "/home/wwwroot/a\\b"} {
+		r := createInput()
+		r.Root = path
+		if r.Validate() == nil {
+			t.Errorf("outside or invalid root accepted: %q", path)
+		}
+	}
+}
 func TestCreateValidationAndEscapedConfig(t *testing.T) {
 	if AccessLogDirectory != logs.Directory || !logs.ValidPath(AccessLogDirectory+"/site.log") {
 		t.Fatal("default access logs are not readable by the log viewer")
 	}
 	r := createInput()
 	r.Aliases = []string{"WWW.Example.COM", "example.com", "www.example.com"}
-	r.Root = `/home/space "quoted"; folder`
+	r.Root = `/home/wwwroot/space "quoted"; folder`
 	if err := r.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +58,7 @@ func TestCreateValidationAndEscapedConfig(t *testing.T) {
 		t.Fatal(r)
 	}
 	content := RenderSite(r, PHPRuntime{}, "", "")
-	if !strings.Contains(content, `root "/home/space \"quoted\"; folder";`) || !strings.Contains(content, "location ^~ /.well-known/acme-challenge/") {
+	if !strings.Contains(content, `root "/home/wwwroot/space \"quoted\"; folder";`) || !strings.Contains(content, "location ^~ /.well-known/acme-challenge/") {
 		t.Fatal(content)
 	}
 	r.AccessLog = true
@@ -192,7 +212,7 @@ func TestGeneratedNginxConfiguration(t *testing.T) {
 	for _, mode := range []string{"http", "https", "redirect", "php"} {
 		t.Run(mode, func(t *testing.T) {
 			r := createInput()
-			r.Root = filepath.Join(dir, "website with spaces")
+			r.Root = "/home/wwwroot/website with spaces"
 			r.IPv6 = true
 			if err := r.Validate(); err != nil {
 				t.Fatal(err)

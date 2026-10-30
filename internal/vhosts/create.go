@@ -17,6 +17,7 @@ import (
 )
 
 const CreateTimeout = 20 * time.Minute
+const SiteRootDirectory = "/home/wwwroot"
 const AccessLogDirectory = "/home/wwwlogs"
 const ChallengeDirectory = Prefix + "/conf/gopanel-acme"
 
@@ -134,6 +135,9 @@ func ValidateSSL(s SSLInput) error {
 func SafeAbsolutePath(path string) bool {
 	return len(path) > 1 && len(path) <= 4096 && filepath.IsAbs(path) && filepath.Clean(path) == path && !strings.ContainsAny(path, "\x00\r\n\t$\\")
 }
+func ValidSiteRoot(path string) bool {
+	return SafeAbsolutePath(path) && strings.HasPrefix(path, SiteRootDirectory+"/")
+}
 func (r *CreateRequest) Validate() error {
 	if !safeID.MatchString(r.RequestID) {
 		return errors.New("提交标识无效，请重新提交")
@@ -170,10 +174,10 @@ func (r *CreateRequest) Validate() error {
 	r.Aliases = aliases
 	r.Name = r.Domain + ".conf"
 	if r.Root == "" {
-		r.Root = "/home/wwwroot/" + r.Domain
+		r.Root = SiteRootDirectory + "/" + r.Domain
 	}
-	if !SafeAbsolutePath(r.Root) {
-		return errors.New("站点目录必须是规范的绝对路径")
+	if !ValidSiteRoot(r.Root) {
+		return errors.New("站点目录必须是 /home/wwwroot/ 下的规范绝对路径")
 	}
 	if r.PHP == "" {
 		r.PHP = "default"

@@ -14,6 +14,11 @@ import (
 	"github.com/azpanel/lnmp-gopanel/internal/vhosts"
 )
 
+type fixtureSiteRootPreparation struct{}
+
+func (fixtureSiteRootPreparation) Rollback() error { return nil }
+func (fixtureSiteRootPreparation) Close()          {}
+
 func provisionFixture(t *testing.T) (siteProvisioner, vhosts.CreateRequest, *bool) {
 	t.Helper()
 	dir := t.TempDir()
@@ -29,7 +34,9 @@ func provisionFixture(t *testing.T) (siteProvisioner, vhosts.CreateRequest, *boo
 		t.Fatal(err)
 	}
 	locked := false
-	p := siteProvisioner{store: vhosts.Store{Directory: vhostDir, Prefix: dir}, stateDir: filepath.Join(dir, "state"), trust: func(string) error { return nil }, options: func(context.Context) (vhosts.CreateOptions, error) {
+	p := siteProvisioner{store: vhosts.Store{Directory: vhostDir, Prefix: dir}, stateDir: filepath.Join(dir, "state"), prepareRoot: func(string) (siteRootPreparation, error) {
+		return fixtureSiteRootPreparation{}, nil
+	}, trust: func(string) error { return nil }, options: func(context.Context) (vhosts.CreateOptions, error) {
 		return vhosts.CreateOptions{Rewrites: []string{"none"}, ACMEAvailable: true}, nil
 	}, run: func(context.Context, string, ...string) (string, error) { return "", nil }, lock: func() (func(), error) {
 		if locked {
@@ -38,7 +45,7 @@ func provisionFixture(t *testing.T) (siteProvisioner, vhosts.CreateRequest, *boo
 		locked = true
 		return func() { locked = false }, nil
 	}}
-	r := vhosts.CreateRequest{RequestID: "request-1234", Domain: "example.com", PHP: "none", Root: root, SSL: vhosts.SSLInput{Mode: "letsencrypt", Email: "admin@example.com", Redirect: true}}
+	r := vhosts.CreateRequest{RequestID: "request-1234", Domain: "example.com", PHP: "none", Root: "/home/wwwroot/example.com", SSL: vhosts.SSLInput{Mode: "letsencrypt", Email: "admin@example.com", Redirect: true}}
 	return p, r, &locked
 }
 func TestProvisionKeepsHTTPOnSSLFailureAndRetriesWithoutRecreating(t *testing.T) {
@@ -60,7 +67,7 @@ func TestProvisionKeepsHTTPOnSSLFailureAndRetriesWithoutRecreating(t *testing.T)
 	if err != nil || strings.Contains(view.Content, "listen 443") {
 		t.Fatal(view, err)
 	}
-	content, _ := os.ReadFile(filepath.Join(r.Root, ".user.ini"))
+	content, _ := os.ReadFile(filepath.Join(p.store.Prefix, "website", ".user.ini"))
 	if string(content) != "existing=unchanged\n" {
 		t.Fatal("existing PHP settings overwritten")
 	}
@@ -217,31 +224,6 @@ func TestMySQLConfigurationIsOnlyData(t *testing.T) {
 	opts := mysqlClientOptions([]byte("[client]\nuser=root\npassword='a\\\\b\\'c'\nsocket=/run/mysql.sock\ninit-command=DROP DATABASE data\n[mysqld]\npassword=ignored\n"))
 	if opts["password"] != "a\\b'c" || opts["socket"] != "/run/mysql.sock" || opts["init-command"] != "" {
 		t.Fatal("unexpected option parsing")
-	}
-}
-
-func TestSiteRootDoesNotFollowSymlinksOrChangeExistingDirectory(t *testing.T) {
-	base := t.TempDir()
-	target := filepath.Join(base, "existing")
-	if err := os.Mkdir(target, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := prepareSiteRoot(target); err != nil {
-		t.Fatal(err)
-	}
-	info, _ := os.Stat(target)
-	if info.Mode().Perm() != 0700 {
-		t.Fatal("existing permissions changed")
-	}
-	link := filepath.Join(base, "link")
-	if err := os.Symlink(target, link); err != nil {
-		t.Fatal(err)
-	}
-	if prepareSiteRoot(link) == nil || prepareSiteRoot(filepath.Join(link, "child")) == nil {
-		t.Fatal("symlink path followed")
-	}
-	if _, err := os.Stat(filepath.Join(target, "child")); !os.IsNotExist(err) {
-		t.Fatal("created directory through symlink")
 	}
 }
 

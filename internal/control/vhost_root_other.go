@@ -4,4 +4,6 @@ package control
 
 import "errors"
 
-func prepareSiteRoot(string) error { return errors.New("建站仅支持 Linux") }
+func prepareSiteRoot(string) (siteRootPreparation, error) {
+	return nil, errors.New("建站仅支持 Linux")
+}

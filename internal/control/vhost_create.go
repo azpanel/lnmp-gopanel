@@ -98,14 +98,20 @@ func (p siteProvisioner) loadManaged(name string) (managedSite, error) {
 }
 
 type siteProvisioner struct {
-	store    vhosts.Store
-	stateDir string
-	trust    func(string) error
-	lock     func() (func(), error)
-	options  func(context.Context) (vhosts.CreateOptions, error)
-	run      CommandRunner
-	issue    func(context.Context, vhosts.CreateRequest, string, func(string)) (string, string, error)
-	database func(context.Context, string) (*sql.DB, error)
+	store       vhosts.Store
+	stateDir    string
+	trust       func(string) error
+	lock        func() (func(), error)
+	options     func(context.Context) (vhosts.CreateOptions, error)
+	run         CommandRunner
+	issue       func(context.Context, vhosts.CreateRequest, string, func(string)) (string, string, error)
+	database    func(context.Context, string) (*sql.DB, error)
+	prepareRoot func(string) (siteRootPreparation, error)
+}
+
+type siteRootPreparation interface {
+	Rollback() error
+	Close()
 }
 
 func RootCreateVhost(ctx context.Context, r vhosts.CreateRequest, binary string, emit func(vhosts.CreateEvent)) (vhosts.CreateResult, error) {
@@ -207,7 +213,8 @@ func (p siteProvisioner) create(ctx context.Context, r vhosts.CreateRequest, bin
 		if e != nil {
 			return result, e
 		}
-		err = func() error {
+		err = func() (createErr error) {
+			defer lock()
 			sites, e := store.List(ctx)
 			if e != nil {
 				return e
@@ -232,9 +239,20 @@ func (p siteProvisioner) create(ctx context.Context, r vhosts.CreateRequest, bin
 			if _, e := os.Lstat(filepath.Join(p.stateDir, r.Name+".json")); !os.IsNotExist(e) {
 				return errors.New("同名建站记录已存在，请检查原站点")
 			}
-			if e = prepareSiteRoot(r.Root); e != nil {
+			prepare := p.prepareRoot
+			if prepare == nil {
+				prepare = prepareSiteRoot
+			}
+			root, e := prepare(r.Root)
+			if e != nil {
 				return e
 			}
+			defer root.Close()
+			defer func() {
+				if createErr != nil && !errors.Is(createErr, vhosts.ErrInstallUncertain) {
+					createErr = errors.Join(createErr, root.Rollback())
+				}
+			}()
 			if r.AccessLog {
 				if e = prepareSiteLog(r.LogName); e != nil {
 					return e
@@ -244,12 +262,16 @@ func (p siteProvisioner) create(ctx context.Context, r vhosts.CreateRequest, bin
 				return e
 			}
 			if e = store.Install(ctx, r.Name, content, nil, check, reload); e != nil {
-				_ = os.Remove(filepath.Join(p.stateDir, r.Name+".json"))
+				if errors.Is(e, vhosts.ErrInstallUncertain) {
+					return fmt.Errorf("%w；已保留站点目录和建站记录，请检查 Nginx 实际状态", e)
+				}
+				if cleanupErr := os.Remove(filepath.Join(p.stateDir, r.Name+".json")); cleanupErr != nil {
+					return errors.Join(e, fmt.Errorf("建站记录清理失败：%w", cleanupErr))
+				}
 				return e
 			}
 			return nil
 		}()
-		lock()
 		if err != nil {
 			return result, err
 		}
