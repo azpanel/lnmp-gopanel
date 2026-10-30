@@ -60,11 +60,11 @@ def write(root, name, content, mode=0o644):
 SYSTEMCTL = """#!/bin/bash
 printf '%s\\n' "$*" >> /run/systemctl.log
 case "$1" in
-  is-active) [[ -f /run/panel.active ]] ;;
+  is-active) if [[ -f /run/panel.active ]]; then exit 0; else exit 3; fi ;;
   is-enabled)
     if [[ ! -f /etc/systemd/system/lnmp-gopanel.service ]]; then
       printf 'Failed to get unit file state for lnmp-gopanel.service: No such file or directory\\n' >&2
-      exit 1
+      exit 4
     fi
     [[ -f /run/panel.enabled ]] ;;
   enable) touch /run/panel.enabled ;;
@@ -228,7 +228,7 @@ class InstallerTests(unittest.TestCase):
             "bash", "uname", "tar", "gzip", "sha256sum", "awk", "install", "stat",
             "cp", "mv", "mkdir", "rm", "mktemp", "cat", "chmod", "chown", "id",
             "date", "sleep", "getent", "groupadd", "useradd", "userdel", "groupdel", "flock", "nologin",
-            "touch", "visudo", "grep",
+            "touch", "visudo", "grep", "sync",
         ):
             copy_executable(cls.template, command)
         # The installer intentionally uses /bin/bash and /usr/bin/sudo.
@@ -465,10 +465,10 @@ printf '%s\\n' "$*" >> /run/apparmor.log
         lock = self.root / "run/lnmp-gopanel-install.lock"
         with lock.open("w") as handle:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            for options in (("--install",), ("--update",), ("--uninstall", "--yes"), ("--reset-password", "--password-stdin"), ("--configure-metrics",)):
+            for options in (("--install",), ("--update",), ("--recover",), ("--uninstall", "--yes"), ("--reset-password", "--password-stdin"), ("--configure-metrics",)):
                 with self.subTest(options=options):
                     result = self.run_script(*options, success=False)
-                    self.assertIn("Another panel installation, update, uninstall, password reset or metrics setup", result.stderr)
+                    self.assertIn("Another panel installation, update, recovery, uninstall, password reset or metrics setup", result.stderr)
         self.assertFalse((self.root / "run/downloads.log").exists())
         self.assertFalse((self.root / "run/systemctl.log").exists())
 
@@ -486,6 +486,39 @@ printf '%s\\n' "$*" >> /run/apparmor.log
             with self.subTest(options=options):
                 self.run_script(*options, success=False)
         self.assertFalse((self.root / "run/systemctl.log").exists())
+
+    def hook_command(self, command, body):
+        """Inject faults only in the disposable chroot, never in production code."""
+        executable = self.root / shutil.which(command).lstrip("/")
+        real = executable.with_name(executable.name + ".real")
+        if not real.exists():
+            executable.rename(real)
+        program = "/" + str(real.relative_to(self.root))
+        write(self.root, "/" + str(executable.relative_to(self.root)),
+              '#!/bin/bash\nreal="' + program + '"\n' + body + '\nexec "$real" "$@"\n', 0o755)
+        installer = self.root / "install.sh"
+        content = installer.read_text()
+        if "/run/test-installer.pid" not in content:
+            installer.write_text(content.replace("set -Eeuo pipefail", "set -Eeuo pipefail\nprintf '%s\\n' \"$$\" > /run/test-installer.pid", 1))
+
+    def arm_interruption(self, target):
+        write(self.root, "/run/kill-after-move", target)
+        self.hook_command("mv", r'''
+"$real" "$@" || exit $?
+if [[ -f /run/kill-after-move && "${@: -1}" == "$(cat /run/kill-after-move)" ]]; then
+  rm /run/kill-after-move
+  kill -KILL "$(cat /run/test-installer.pid)"
+fi
+exit 0
+''')
+
+    def pending_transaction(self):
+        base = self.root / "var/backups/lnmp-gopanel"
+        return base / (base / "pending").read_text().strip()
+
+    def assert_previous_files(self, previous):
+        for target, content in previous.items():
+            self.assertEqual((self.root / target.lstrip("/")).read_bytes(), content, target)
 
     def old_installation(self, https=False):
         # Let real shadow utilities create the dedicated account inside chroot.
@@ -841,6 +874,301 @@ printf '%s\\n' "$*" >> /run/apparmor.log
         self.run_installer(success=False)
         for target in TARGETS:
             self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
+
+    def test_interrupted_upgrade_recovers_files_metadata_and_service_states(self):
+        previous = self.old_installation(https=True)
+        config = self.root / "etc/lnmp-gopanel/config.yaml"
+        config.chmod(0o600)
+        os.chown(config, 0, 1234)
+        metadata = {p: ((self.root / p.lstrip("/")).stat().st_mode & 0o7777,
+                        (self.root / p.lstrip("/")).stat().st_uid,
+                        (self.root / p.lstrip("/")).stat().st_gid) for p in TARGETS}
+        for active, enabled in ((True, True), (False, True), (True, False), (False, False)):
+            for path, value in (("/run/panel.active", active), ("/run/panel.enabled", enabled)):
+                marker = self.root / path.lstrip("/")
+                if value: write(self.root, path, "")
+                else: marker.unlink(missing_ok=True)
+            self.arm_interruption(TARGETS[0])
+            result = self.run_installer("--no-start", automatic_tls=False, success=False)
+            self.assertEqual(result.returncode, -9)
+            self.assertNotEqual((self.root / TARGETS[0].lstrip("/")).read_bytes(), previous[TARGETS[0]])
+            transaction = self.pending_transaction()
+            self.assertEqual((transaction / "status").read_text(), "pending\n")
+            self.run_script("--recover")
+            self.assert_previous_files(previous)
+            for p, expected in metadata.items():
+                info = (self.root / p.lstrip("/")).stat()
+                self.assertEqual((info.st_mode & 0o7777, info.st_uid, info.st_gid), expected)
+            self.assertEqual((self.root / "run/panel.active").exists(), active)
+            self.assertEqual((self.root / "run/panel.enabled").exists(), enabled)
+            self.assertFalse((transaction.parent / "pending").exists())
+            self.assertEqual((transaction / "status").read_text(), "rolled-back\n")
+            self.assertIn("恢复成功", (transaction / "recovery-report.txt").read_text())
+
+    def test_update_recovers_before_downloading_and_recovery_can_be_interrupted(self):
+        previous = self.old_installation(https=True)
+        for target in (TARGETS[1], TARGETS[4]):
+            self.arm_interruption(target)
+            self.assertEqual(self.run_installer(success=False).returncode, -9)
+            transaction = self.pending_transaction()
+            self.arm_interruption(TARGETS[0])
+            self.assertEqual(self.run_script("--recover", success=False).returncode, -9)
+            self.assertTrue((transaction.parent / "pending").exists())
+            write(self.root, "/run/fail-download", "")
+            result = self.run_script("--update", success=False)
+            self.assertIn("恢复成功", result.stderr)
+            self.assert_previous_files(previous)
+            self.assertFalse((transaction.parent / "pending").exists())
+            (self.root / "run/fail-download").unlink()
+
+    def test_recovery_removes_only_explicitly_absent_targets(self):
+        self.arm_interruption(TARGETS[4])
+        self.assertEqual(self.run_installer("--password-stdin", success=False).returncode, -9)
+        transaction = self.pending_transaction()
+        self.run_script("--recover")
+        for target in TARGETS:
+            self.assertFalse((self.root / target.lstrip("/")).exists(), target)
+        self.assertEqual((transaction / "status").read_text(), "rolled-back\n")
+        self.assertFalse((self.root / "run/panel.active").exists())
+        self.assertFalse((self.root / "run/panel.enabled").exists())
+
+    def test_recovery_rejects_missing_corrupt_or_unsafe_records_without_mutation(self):
+        self.old_installation(https=True)
+        self.arm_interruption(TARGETS[1])
+        self.run_installer(success=False)
+        transaction = self.pending_transaction()
+        snapshot = {p: (self.root / p.lstrip("/")).read_bytes() for p in TARGETS}
+        backup = transaction / "0"
+        original = backup.read_bytes()
+        for fault in ("missing", "digest", "link", "hardlink", "fifo", "owner", "permissions", "record", "pointer", "target-link"):
+            with self.subTest(fault=fault):
+                record = (transaction / "transaction").read_bytes()
+                pointer = (transaction.parent / "pending").read_bytes()
+                if fault == "missing": backup.unlink()
+                elif fault == "digest": backup.write_bytes(b"corrupt backup")
+                elif fault == "link":
+                    backup.unlink(); backup.symlink_to("/etc/passwd")
+                elif fault == "hardlink": os.link(backup, transaction / "extra-link")
+                elif fault == "fifo":
+                    backup.unlink(); os.mkfifo(backup)
+                elif fault == "owner": os.chown(backup, 1234, 0)
+                elif fault == "permissions": backup.chmod(0o666)
+                elif fault == "record": (transaction / "transaction").write_text("broken\n")
+                elif fault == "pointer": (transaction.parent / "pending").write_text("../../etc\n")
+                else:
+                    target = self.root / TARGETS[0].lstrip("/")
+                    target.unlink(); target.symlink_to("/etc/passwd")
+                before = (self.root / "run/systemctl.log").read_text()
+                result = self.run_script("--recover", success=False)
+                self.assertIn("恢复未完成", result.stderr)
+                self.assertEqual((self.root / "run/systemctl.log").read_text(), before)
+                self.assertTrue((transaction.parent / "pending").exists())
+                if fault == "target-link":
+                    target.unlink(); target.write_bytes(snapshot[TARGETS[0]])
+                self.assert_previous_files(snapshot)
+                if backup.is_symlink() or fault == "fifo": backup.unlink()
+                if fault == "hardlink": (transaction / "extra-link").unlink()
+                if backup.exists(): os.chown(backup, 0, 0)
+                backup.write_bytes(original); backup.chmod(0o600)
+                (transaction / "transaction").write_bytes(record)
+                (transaction.parent / "pending").write_bytes(pointer)
+        self.run_script("--recover")
+
+    def test_pending_blocks_other_mutations_but_check_and_help_do_not_recover(self):
+        self.old_installation(https=True)
+        self.arm_interruption(TARGETS[0]); self.run_installer(success=False)
+        transaction = self.pending_transaction()
+        for args in (("--uninstall", "--yes"), ("--reset-password", "--password-stdin"), ("--configure-metrics",)):
+            result = self.run_script(*args, success=False)
+            self.assertIn("--recover first", result.stderr)
+        before = (self.root / "run/systemctl.log").read_text()
+        self.run_installer("--check")
+        self.run_script("--help")
+        self.assertEqual((self.root / "run/systemctl.log").read_text(), before)
+        self.assertTrue((transaction.parent / "pending").exists())
+        for args in (("--recover", "--update"), ("--recover", "--no-start"), ("--recover", "--password-stdin"), ("--recover", "--yes")):
+            self.run_script(*args, success=False)
+        for name in ("sudo", "curl", "tar"):
+            (self.root / shutil.which(name).lstrip("/")).unlink(missing_ok=True)
+        self.run_script("--recover")
+        self.assertFalse((transaction.parent / "pending").exists())
+        self.run_script("--recover")
+
+    def test_recovery_aggregates_file_failures_and_does_not_start_mixed_files(self):
+        previous = self.old_installation(https=True)
+        self.arm_interruption(TARGETS[1]); self.run_installer(success=False)
+        transaction = self.pending_transaction()
+        self.hook_command("cp", r'''
+if [[ -f /run/fail-restore && "${@: -1}" == *.restore.* ]]; then
+  printf 'injected copy failure\n' >&2; exit 74
+fi
+''')
+        write(self.root, "/run/fail-restore", "")
+        result = self.run_script("--recover", success=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("文件恢复：失败", result.stderr)
+        self.assertIn(TARGETS[0], result.stderr)
+        self.assertIn(TARGETS[1], result.stderr)
+        self.assertIn("injected copy failure", result.stderr)
+        self.assertFalse((self.root / "run/panel.active").exists())
+        self.assertTrue((transaction.parent / "pending").exists())
+        (self.root / "run/fail-restore").unlink()
+        self.run_script("--recover")
+        self.assert_previous_files(previous)
+
+    def test_recovery_reports_stop_and_service_failures_and_can_retry(self):
+        previous = self.old_installation(https=True)
+        self.arm_interruption(TARGETS[0]); self.run_installer(success=False)
+        transaction = self.pending_transaction()
+        for failure, message in (("stop", "停止当前面板"), ("restart", "重新启动旧面板")):
+            write(self.root, f"/run/fail-{failure}", "")
+            before = (self.root / TARGETS[0].lstrip("/")).read_bytes()
+            result = self.run_script("--recover", success=False)
+            self.assertIn(message, result.stderr)
+            self.assertTrue((transaction.parent / "pending").exists())
+            if failure == "stop":
+                self.assertEqual((self.root / TARGETS[0].lstrip("/")).read_bytes(), before)
+            else:
+                self.assert_previous_files(previous)
+            (self.root / f"run/fail-{failure}").unlink()
+        self.run_script("--recover")
+
+    def test_committed_upgrade_with_interrupted_cleanup_is_never_rolled_back(self):
+        self.old_installation(https=True)
+        self.hook_command("rm", r'''
+if [[ "${@: -1}" == /var/backups/lnmp-gopanel/pending ]]; then
+  kill -KILL "$(cat /run/test-installer.pid)"
+  exit 0
+fi
+''')
+        self.assertEqual(self.run_installer("--no-start", automatic_tls=False, success=False).returncode, -9)
+        transaction = self.pending_transaction()
+        self.assertEqual((transaction / "status").read_text(), "committed\n")
+        current = {p: (self.root / p.lstrip("/")).read_bytes() for p in TARGETS}
+        self.hook_command("rm", "")
+        result = self.run_script("--recover")
+        self.assertIn("未回滚新版", result.stdout)
+        self.assert_previous_files(current)
+        self.assertFalse((transaction.parent / "pending").exists())
+
+    def test_rollback_command_and_sync_failures_are_reported_and_retryable(self):
+        previous = self.old_installation(https=True)
+        for command, condition in (
+            ("mv", '[[ "${@: -2:1}" == *.restore.* ]]'),
+            ("rm", '[[ "${@: -1}" == /var/backups/lnmp-gopanel/pending ]]'),
+            ("sync", '[[ "${@: -1}" == *.restore.* ]]'),
+            ("systemctl", '[[ "$1" == daemon-reload ]]'),
+        ):
+            with self.subTest(command=command):
+                self.arm_interruption(TARGETS[0]); self.run_installer(success=False)
+                transaction = self.pending_transaction()
+                self.hook_command(command, 'if [[ -f /run/fail-recovery-command ]] && ' + condition + '; then printf "injected ' + command + ' failure\\n" >&2; exit 74; fi')
+                write(self.root, "/run/fail-recovery-command", "")
+                result = self.run_script("--recover", success=False)
+                self.assertIn("injected " + command + " failure", result.stderr)
+                self.assertTrue((transaction.parent / "pending").exists())
+                self.assertIn("--recover", (transaction / "recovery-report.txt").read_text())
+                (self.root / "run/fail-recovery-command").unlink()
+                self.hook_command(command, "")
+                self.run_script("--recover")
+                self.assert_previous_files(previous)
+
+    def test_installation_sync_failure_rolls_back_with_original_exit_code(self):
+        previous = self.old_installation(https=True)
+        self.hook_command("sync", r'''
+if [[ "${@: -1}" == /usr/local/bin/lnmp-gopanel.new.* ]]; then
+  printf 'injected install sync failure\n' >&2; exit 74
+fi
+''')
+        result = self.run_installer(automatic_tls=False, success=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("恢复成功", result.stderr)
+        self.assert_previous_files(previous)
+        self.assertFalse((self.root / "var/backups/lnmp-gopanel/pending").exists())
+
+    def test_pending_published_before_any_file_change_can_recover_fresh_install(self):
+        self.arm_interruption("/var/backups/lnmp-gopanel/pending")
+        self.assertEqual(self.run_installer("--password-stdin", success=False).returncode, -9)
+        transaction = self.pending_transaction()
+        self.run_script("--recover")
+        for target in TARGETS:
+            self.assertFalse((self.root / target.lstrip("/")).exists(), target)
+        self.assertEqual((transaction / "status").read_text(), "rolled-back\n")
+
+    def test_signal_exit_status_survives_successful_rollback(self):
+        previous = self.old_installation(https=True)
+        self.hook_command("mv", r'''
+"$real" "$@" || exit $?
+if [[ "${@: -1}" == /usr/local/bin/lnmp-gopanel && ! -f /run/signalled ]]; then
+  touch /run/signalled
+  kill -TERM "$(cat /run/test-installer.pid)"
+fi
+exit 0
+''')
+        result = self.run_installer(automatic_tls=False, success=False)
+        self.assertEqual(result.returncode, 143)
+        self.assertIn("恢复成功", result.stderr)
+        self.assert_previous_files(previous)
+
+    def test_commit_write_and_cleanup_failures_keep_the_correct_version(self):
+        previous = self.old_installation(https=True)
+        faults = (
+            ("mv", r'''[[ "${@: -1}" == /var/backups/lnmp-gopanel/*/status && "$(cat "${@: -2:1}")" == committed ]]''', False),
+            ("sync", r'''[[ -d "${@: -1}" && -f "${@: -1}/status" && "$(cat "${@: -1}/status")" == committed ]]''', True),
+            ("rm", r'''[[ "${@: -1}" == /var/backups/lnmp-gopanel/pending ]]''', True),
+        )
+        for command, condition, committed in faults:
+            with self.subTest(command=command):
+                self.hook_command(command, 'if ' + condition + '; then printf "injected commit failure\\n" >&2; exit 74; fi')
+                result = self.run_installer("--no-start", automatic_tls=False, success=False)
+                self.hook_command(command, "")
+                self.assertIn("injected commit failure", result.stderr)
+                if committed:
+                    self.assertIn("升级已完成", result.stderr)
+                    transaction = self.pending_transaction()
+                    self.assertEqual((transaction / "status").read_text(), "committed\n")
+                    current = {p: (self.root / p.lstrip("/")).read_bytes() for p in TARGETS}
+                    self.run_script("--recover")
+                    self.assert_previous_files(current)
+                else:
+                    self.assert_previous_files(previous)
+                    self.assertFalse((self.root / "var/backups/lnmp-gopanel/pending").exists())
+                previous = {p: (self.root / p.lstrip("/")).read_bytes() for p in TARGETS}
+
+    def test_failed_removal_of_new_file_is_reported_and_can_retry(self):
+        self.arm_interruption(TARGETS[4])
+        self.run_installer("--password-stdin", success=False)
+        transaction = self.pending_transaction()
+        self.hook_command("rm", r'''
+if [[ "${@: -1}" == /usr/local/bin/lnmp-gopanel ]]; then
+  printf 'injected removal failure\n' >&2; exit 74
+fi
+''')
+        result = self.run_script("--recover", success=False)
+        self.assertIn("injected removal failure", result.stderr)
+        self.assertTrue((transaction.parent / "pending").exists())
+        self.assertFalse((self.root / "run/panel.active").exists())
+        self.hook_command("rm", "")
+        self.run_script("--recover")
+        for target in TARGETS:
+            self.assertFalse((self.root / target.lstrip("/")).exists(), target)
+
+    def test_recovery_completion_record_failure_is_retryable(self):
+        previous = self.old_installation(https=True)
+        self.arm_interruption(TARGETS[0]); self.run_installer(success=False)
+        transaction = self.pending_transaction()
+        self.hook_command("mv", r'''
+if [[ "${@: -1}" == /var/backups/lnmp-gopanel/*/status && "$(cat "${@: -2:1}")" == rolled-back ]]; then
+  printf 'injected recovery commit failure\n' >&2; exit 74
+fi
+''')
+        result = self.run_script("--recover", success=False)
+        self.assertIn("持久化恢复完成状态", result.stderr)
+        self.assert_previous_files(previous)
+        self.assertEqual((transaction / "status").read_text(), "pending\n")
+        self.hook_command("mv", "")
+        self.run_script("--recover")
+        self.assert_previous_files(previous)
 
     def test_check_only_does_not_install(self):
         self.run_installer("--check")

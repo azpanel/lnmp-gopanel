@@ -27,6 +27,12 @@ mutation_started=false
 installation_complete=false
 was_active=false
 was_enabled=false
+backup_root=/var/backups/lnmp-gopanel
+pending_file="$backup_root/pending"
+transaction_status=""
+transaction_id=""
+transaction_error=""
+declare -a saved_presence=() saved_digest=() saved_uid=() saved_gid=() saved_mode=() recovery_errors=()
 targets=(
   /usr/local/bin/lnmp-gopanel
   /usr/local/libexec/lnmp-gopanel-control
@@ -44,6 +50,7 @@ Usage: sudo bash install.sh [options]
 
   --install              Install the panel (existing installations are upgraded)
   --update               Update an installed panel from GitHub Release
+  --recover              Recover an interrupted installation offline, without upgrading
   --reset-password       Reset administrator password and clear TOTP/recovery codes
   --configure-metrics    Interactively configure local service monitoring
   --uninstall            Completely remove the panel, configuration, data and backups
@@ -72,13 +79,14 @@ EOF
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 need_value() { [[ $# -ge 2 && -n "$2" ]] || die "$1 requires a value"; }
 set_action() {
-  [[ -z "$action" || "$action" == "$1" ]] || die "Choose only one of --install, --update, --uninstall, --reset-password and --configure-metrics"
+  [[ -z "$action" || "$action" == "$1" ]] || die "Choose only one of --install, --update, --recover, --uninstall, --reset-password and --configure-metrics"
   action="$1"
 }
 while (($#)); do
   case "$1" in
     --install) set_action install; shift; continue ;;
     --update) set_action update; shift; continue ;;
+    --recover) set_action recover; shift; continue ;;
     --uninstall) set_action uninstall; shift; continue ;;
     --reset-password) set_action reset-password; shift; continue ;;
     --configure-metrics) set_action configure-metrics; shift; continue ;;
@@ -116,7 +124,10 @@ if "$show_menu"; then
   done
 fi
 action="${action:-install}"
-if [[ "$action" == configure-metrics ]]; then
+if [[ "$action" == recover ]]; then
+  ! "$install_options" || die "--recover cannot be combined with installation options"
+  ! "$auto_confirm" || die "--yes is only valid with --uninstall"
+elif [[ "$action" == configure-metrics ]]; then
   ! "$install_options" || die "--configure-metrics cannot be combined with installation options"
   ! "$auto_confirm" || die "--yes is only valid with --uninstall"
 elif [[ "$action" == reset-password ]]; then
@@ -154,8 +165,273 @@ if ! "$check_only"; then
   done
   [[ ! -L /run/lnmp-gopanel-install.lock ]] || die "Refusing a symlink lock file"
   exec 9>/run/lnmp-gopanel-install.lock
-  flock -n 9 || die "Another panel installation, update, uninstall, password reset or metrics setup is running"
+  flock -n 9 || die "Another panel installation, update, recovery, uninstall, password reset or metrics setup is running"
 fi
+# Recovery is available before downloads, package checks or configuration probes.
+# Records are data, never shell code. Only the fixed targets above are writable.
+check_safe_parents() {
+  local path="${1%/*}" info owner mode
+  while [[ -n "$path" ]]; do
+    [[ ! -L "$path" ]] || { printf 'Symlink parent: %s\n' "$path" >&2; return 1; }
+    if [[ -e "$path" ]]; then
+      [[ -d "$path" ]] || return 1
+      info="$(stat -c '%u %a' -- "$path")" || return 1
+      read -r owner mode <<< "$info"
+      [[ "$owner" == 0 && "$mode" =~ ^[0-7]{3,4}$ ]] && (( (8#$mode & 0022) == 0 )) || return 1
+    fi
+    [[ "$path" != / ]] || break
+    path="${path%/*}"
+    path="${path:-/}"
+  done
+}
+private_record() {
+  local path="$1" kind="${2:-file}" info
+  check_safe_parents "$path" || return 1
+  [[ ! -L "$path" ]] || return 1
+  if [[ "$kind" == directory ]]; then
+    [[ -d "$path" ]] || return 1
+    info="$(stat -c '%u %a' -- "$path")" || return 1
+    [[ "$info" == '0 700' ]]
+  else
+    [[ -f "$path" ]] || return 1
+    info="$(stat -c '%u %a %h' -- "$path")" || return 1
+    [[ "$info" == '0 600 1' ]]
+  fi
+}
+durable_record() {
+  local destination="$1" contents="$2" staged
+  check_safe_parents "$destination" || return 1
+  if [[ -e "$destination" || -L "$destination" ]]; then private_record "$destination" || return 1; fi
+  staged="$(mktemp "${destination}.XXXXXXXX")" || return 1
+  if ! { printf '%s\n' "$contents" > "$staged" && sync -f "$staged" && mv -fT -- "$staged" "$destination"; }; then
+    rm -f -- "$staged"
+    return 1
+  fi
+  sync -f "${destination%/*}"
+}
+file_digest() {
+  local result
+  result="$(sha256sum -- "$1")" || return 1
+  printf '%s\n' "${result%% *}"
+}
+load_transaction() {
+  local info index presence digest uid gid mode extra line
+  local -a pointer=() record=() status_lines=()
+  transaction_error="$pending_file"
+  private_record "$backup_root" directory && private_record "$pending_file" || return 1
+  info="$(stat -c %s -- "$pending_file")" || return 1
+  (( info <= 80 )) || return 1
+  mapfile -t pointer < "$pending_file"
+  [[ ${#pointer[@]} == 1 && "${pointer[0]}" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9]+$ ]] || return 1
+  transaction_id="${pointer[0]}"
+  backup_dir="$backup_root/$transaction_id"
+  transaction_error="$backup_dir/transaction or status"
+  private_record "$backup_dir" directory && private_record "$backup_dir/transaction" && private_record "$backup_dir/status" || return 1
+  info="$(stat -c %s -- "$backup_dir/transaction")" || return 1
+  (( info <= 4096 )) || return 1
+  info="$(stat -c %s -- "$backup_dir/status")" || return 1
+  (( info <= 32 )) || return 1
+  mapfile -t record < "$backup_dir/transaction"
+  mapfile -t status_lines < "$backup_dir/status"
+  [[ ${#status_lines[@]} == 1 && ${#record[@]} == $((${#targets[@]} + 3)) && "${record[0]}" == lnmp-gopanel-transaction-v1 ]] || return 1
+  case "${status_lines[0]}" in pending|committed|rolled-back) transaction_status="${status_lines[0]}" ;; *) return 1 ;; esac
+  [[ "${record[1]}" == true || "${record[1]}" == false ]] || return 1
+  [[ "${record[2]}" == true || "${record[2]}" == false ]] || return 1
+  was_active="${record[1]}"; was_enabled="${record[2]}"
+  for index in "${!targets[@]}"; do
+    transaction_error="$backup_dir/transaction (target ${targets[$index]})"
+    line="${record[$((index + 3))]}"
+    IFS=$'\t' read -r info presence digest uid gid mode extra <<< "$line"
+    [[ "$info" == "$index" && -z "$extra" && "$line" == "$index"$'\t'"$presence"$'\t'"$digest"$'\t'"$uid"$'\t'"$gid"$'\t'"$mode" ]] || return 1
+    case "$presence" in
+      present)
+        [[ "$digest" =~ ^[a-f0-9]{64}$ && "$uid" =~ ^[0-9]{1,10}$ && "$gid" =~ ^[0-9]{1,10}$ && "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
+        transaction_error="$backup_dir/$index (backup of ${targets[$index]})"
+        private_record "$backup_dir/$index" || return 1
+        [[ "$(file_digest "$backup_dir/$index")" == "$digest" ]] || return 1
+        ;;
+      absent) [[ "$digest:$uid:$gid:$mode" == '-:-:-:-' && ! -e "$backup_dir/$index" && ! -L "$backup_dir/$index" ]] || return 1 ;;
+      *) return 1 ;;
+    esac
+    saved_presence[index]="$presence"; saved_digest[index]="$digest"
+    saved_uid[index]="$uid"; saved_gid[index]="$gid"; saved_mode[index]="$mode"
+    transaction_error="${targets[$index]}"
+    check_safe_parents "${targets[$index]}" || return 1
+    [[ ! -L "${targets[$index]}" ]] || return 1
+    [[ ! -e "${targets[$index]}" || -f "${targets[$index]}" ]] || return 1
+  done
+}
+clear_pending() {
+  rm -f -- "$pending_file" || return 1
+  if ! sync -f "$backup_root"; then
+    # Best effort: keep the retry entry point when unlink persistence fails.
+    durable_record "$pending_file" "$transaction_id" || return 1
+    return 1
+  fi
+}
+recovery_step() {
+  local label="$1" details
+  shift
+  if details="$("$@" 2>&1)"; then return 0; fi
+  recovery_errors+=("$label${details:+: ${details:0:4096}}")
+  return 1
+}
+restore_target() {
+  local index="$1" destination="${targets[$1]}" staged="${targets[$1]}.restore.$transaction_id"
+  check_safe_parents "$destination" || return 1
+  [[ ! -L "$destination" && ( ! -e "$destination" || -f "$destination" ) ]] || return 1
+  if [[ "${saved_presence[$index]}" == present ]]; then
+    [[ ! -L "$staged" && ( ! -e "$staged" || -f "$staged" ) ]] || return 1
+    cp -- "$backup_dir/$index" "$staged" || return 1
+    chown "${saved_uid[$index]}:${saved_gid[$index]}" "$staged" || return 1
+    chmod "${saved_mode[$index]}" "$staged" || return 1
+    [[ "$(file_digest "$staged")" == "${saved_digest[$index]}" ]] || return 1
+    sync -f "$staged" || return 1
+    mv -fT -- "$staged" "$destination" || return 1
+  else
+    rm -f -- "$destination" || return 1
+  fi
+  rm -f -- "${destination}.new.${transaction_id##*-}" "$staged" || return 1
+  # Absent targets may also have absent parent directories on a fresh install.
+  local parent="${destination%/*}"
+  while [[ ! -d "$parent" ]]; do parent="${parent%/*}"; done
+  sync -f "$parent"
+}
+verify_service_state() {
+  local expected="$1" operation="$2" result
+  if systemctl "$operation" --quiet lnmp-gopanel; then result=true; else
+    local code=$?
+    case "$operation:$code" in is-active:3|is-active:4|is-enabled:1|is-enabled:4) ;; *) return "$code" ;; esac
+    result=false
+  fi
+  [[ "$result" == "$expected" ]] || { printf '%s expected=%s actual=%s\n' "$operation" "$expected" "$result"; return 1; }
+}
+stop_recovery_service() {
+  local load_state
+  load_state="$(systemctl show lnmp-gopanel --property=LoadState --value)" || return 1
+  [[ -n "$load_state" ]] || return 1
+  if [[ "$load_state" != not-found ]]; then systemctl stop lnmp-gopanel || return 1; fi
+  verify_service_state false is-active
+}
+report_recovery() {
+  local files="$1" service="$2" cleanup_result="$3" result="$4" report
+  printf -v report '恢复%s。文件恢复：%s；服务恢复：%s；事务清理：%s。\n备份：%s' "$result" "$files" "$service" "$cleanup_result" "$backup_dir"
+  if ((${#recovery_errors[@]})); then
+    printf -v report '%s\n失败步骤：\n%s\n重试：sudo bash install.sh --recover\n排查：systemctl status lnmp-gopanel; journalctl -u lnmp-gopanel' "$report" "$(printf '  %s\n' "${recovery_errors[@]}")"
+  fi
+  printf '%s\n' "$report" >&2
+  if ! durable_record "$backup_dir/recovery-report.txt" "$report"; then
+    printf '无法保存恢复报告：%s/recovery-report.txt\n' "$backup_dir" >&2
+  fi
+}
+recover_transaction() {
+  recovery_errors=()
+  if ! load_transaction; then
+    printf '恢复未完成：事务记录、备份或目标路径无效：%s；未恢复任何文件。保留 %s，请检查备份后运行 sudo bash install.sh --recover。\n' "$transaction_error" "$pending_file" >&2
+    if private_record "$backup_dir" directory; then
+      recovery_errors+=("校验事务或备份失败：$transaction_error")
+      report_recovery '未执行' '未执行' '保留待恢复标记' '未完成'
+    fi
+    return 1
+  fi
+  if [[ "$transaction_status" == committed || "$transaction_status" == rolled-back ]]; then
+    if ! recovery_step '清除已完成事务标记' clear_pending; then
+      report_recovery '已完成' '已完成' '失败' '未完成'
+      return 1
+    fi
+    if [[ "$transaction_status" == committed ]]; then
+      printf '升级已提交，仅清理遗留事务标记，未回滚新版。\n'
+    else
+      printf '恢复已完成，仅清理遗留事务标记。\n'
+    fi
+    return 0
+  fi
+  printf 'Installation failed or interrupted; restoring files from %s\n' "$backup_dir" >&2
+  if ! recovery_step '停止当前面板' stop_recovery_service; then
+    report_recovery '未执行' '停止失败' '保留待恢复标记' '未完成'
+    return 1
+  fi
+  local index files=成功 service=成功 load_state
+  for index in "${!targets[@]}"; do
+    if ! recovery_step "恢复文件 ${targets[$index]}" restore_target "$index"; then files=失败; fi
+  done
+  if ! recovery_step '校验恢复后的 sudoers' visudo -cf /etc/sudoers; then files=失败; fi
+  if ! recovery_step '重新加载 systemd' systemctl daemon-reload; then service=失败; fi
+  if [[ "$files" == 成功 && "$service" == 成功 ]]; then
+    if ! load_state="$(systemctl show lnmp-gopanel --property=LoadState --value 2>&1)"; then
+      recovery_errors+=("查询恢复后的服务状态: $load_state"); service=失败
+    elif [[ "$load_state" != not-found ]]; then
+      if "$was_enabled"; then
+        recovery_step '恢复服务启用状态' systemctl enable lnmp-gopanel || service=失败
+      else
+        recovery_step '恢复服务禁用状态' systemctl disable lnmp-gopanel || service=失败
+      fi
+    elif "$was_enabled" || "$was_active"; then
+      recovery_errors+=('原服务应存在，但恢复后 systemd 找不到服务'); service=失败
+    fi
+    if [[ "$service" == 成功 ]]; then
+      if "$was_active"; then recovery_step '重新启动旧面板' systemctl restart lnmp-gopanel || service=失败; fi
+      recovery_step '检查面板运行状态' verify_service_state "$was_active" is-active || service=失败
+      recovery_step '检查面板启用状态' verify_service_state "$was_enabled" is-enabled || service=失败
+    fi
+  else
+    service=未启动
+  fi
+  if [[ "$files" != 成功 || "$service" != 成功 ]]; then
+    report_recovery "$files" "$service" '保留待恢复标记' '未完成'
+    return 1
+  fi
+  if ! recovery_step '持久化恢复完成状态' durable_record "$backup_dir/status" rolled-back || ! recovery_step '清除待恢复标记' clear_pending; then
+    report_recovery "$files" "$service" '失败' '未完成'
+    return 1
+  fi
+  report_recovery "$files" "$service" '成功' '成功'
+}
+prepare_transaction() {
+  local index destination metadata uid gid mode digest record
+  check_safe_parents "$backup_root/placeholder" || return 1
+  if [[ -e "$backup_root" || -L "$backup_root" ]]; then private_record "$backup_root" directory || return 1; fi
+  transaction_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  backup_dir="$backup_root/$transaction_id"
+  install -d -o root -g root -m 0700 "$backup_root" || return 1
+  mkdir -m 0700 -- "$backup_dir" || return 1
+  printf -v record 'lnmp-gopanel-transaction-v1\n%s\n%s' "$was_active" "$was_enabled"
+  for index in "${!targets[@]}"; do
+    destination="${targets[$index]}"
+    check_safe_parents "$destination" || return 1
+    [[ ! -L "$destination" ]] || return 1
+    if [[ -e "$destination" ]]; then
+      [[ -f "$destination" ]] || return 1
+      metadata="$(stat -c '%u %g %a' -- "$destination")" || return 1
+      read -r uid gid mode <<< "$metadata"
+      cp -- "$destination" "$backup_dir/$index" || return 1
+      chown root:root "$backup_dir/$index" && chmod 0600 "$backup_dir/$index" || return 1
+      digest="$(file_digest "$backup_dir/$index")" || return 1
+      printf -v record '%s\n%s\tpresent\t%s\t%s\t%s\t%s' "$record" "$index" "$digest" "$uid" "$gid" "$mode"
+    else
+      printf -v record '%s\n%s\tabsent\t-\t-\t-\t-' "$record" "$index"
+    fi
+    printf '%s\t%s\n' "$index" "$destination" >> "$backup_dir/manifest" || return 1
+  done
+  durable_record "$backup_dir/transaction" "$record" && durable_record "$backup_dir/status" pending || return 1
+  # sync -f above flushes all backups on their filesystem before publishing pending.
+  durable_record "$pending_file" "$transaction_id" || return 1
+  transaction_status=pending
+}
+if ! "$check_only"; then
+  if [[ -e "$pending_file" || -L "$pending_file" ]]; then
+    case "$action" in install|update|recover) ;; *) die "Unfinished installation; run sudo bash install.sh --recover first" ;; esac
+    for program in stat cp mv chown chmod sha256sum sync mktemp rm visudo; do
+      command -v "$program" >/dev/null || die "Missing recovery command: $program"
+    done
+    recover_transaction || exit 1
+    backup_dir=""; transaction_id=""; transaction_status=""; was_active=false; was_enabled=false
+  elif [[ "$action" == recover ]]; then
+    printf '没有待恢复的安装事务。\n'
+  fi
+  if [[ "$action" == recover ]]; then exit 0; fi
+fi
+
 uninstall_panel() {
   local destination parent load_state confirmation
   local -a removals=(
@@ -286,15 +562,17 @@ fi
 if [[ "$action" == update ]]; then
   [[ -f /etc/lnmp-gopanel/config.yaml && -f /etc/lnmp-gopanel/services.yaml && -f /usr/local/bin/lnmp-gopanel ]] || die "No complete panel installation found; use --install to install or repair it"
 fi
-for program in tar gzip sha256sum awk install stat cp mv mkdir rm mktemp; do
+for program in tar gzip sha256sum awk install stat cp mv mkdir rm mktemp sync chown chmod date; do
   command -v "$program" >/dev/null || die "Missing command: $program"
 done
 
 atomic_install() {
   local source="$1" destination="$2" mode="$3" group="${4:-root}"
   local staged="${destination}.new.$$"
-  install -o root -g "$group" -m "$mode" "$source" "$staged"
-  mv -fT -- "$staged" "$destination"
+  install -o root -g "$group" -m "$mode" "$source" "$staged" || return 1
+  if "$mutation_started"; then sync -f "$staged" || return 1; fi
+  mv -fT -- "$staged" "$destination" || return 1
+  if "$mutation_started"; then sync -f "${destination%/*}" || return 1; fi
 }
 choose_certificate() {
   local choice index found=false
@@ -495,23 +773,9 @@ cleanup() {
   trap - EXIT INT TERM
   if "$mutation_started" && ! "$installation_complete"; then
     printf 'Installation failed; restoring files from %s\n' "$backup_dir" >&2
-    local index destination
-    for index in "${!targets[@]}"; do
-      destination="${targets[$index]}"
-      if [[ -f "$backup_dir/$index" ]]; then
-        cp -p -- "$backup_dir/$index" "${destination}.restore.$$"
-        mv -fT -- "${destination}.restore.$$" "$destination"
-      else
-        rm -f -- "$destination"
-      fi
-      rm -f -- "${destination}.new.$$"
-    done
-    systemctl daemon-reload || true
-    if ! "$was_enabled"; then systemctl disable lnmp-gopanel >/dev/null 2>&1 || true; fi
-    if "$was_active"; then
-      systemctl restart lnmp-gopanel || true
-    else
-      systemctl stop lnmp-gopanel >/dev/null 2>&1 || true
+    if ! recover_transaction; then
+      printf '安装失败且恢复未完成；保留待恢复事务，请运行 sudo bash install.sh --recover。\n' >&2
+      if ((status == 0)); then status=1; fi
     fi
   fi
   [[ -z "$work_dir" ]] || rm -rf -- "$work_dir"
@@ -611,13 +875,7 @@ fi
 if "$with_screenshots"; then install_screenshot_dependencies; fi
 if systemctl is-active --quiet lnmp-gopanel >/dev/null 2>&1; then was_active=true; fi
 if systemctl is-enabled --quiet lnmp-gopanel >/dev/null 2>&1; then was_enabled=true; fi
-backup_dir="/var/backups/lnmp-gopanel/$(date -u +%Y%m%dT%H%M%SZ)-$$"
-install -d -o root -g root -m 0700 /var/backups/lnmp-gopanel "$backup_dir"
-for index in "${!targets[@]}"; do
-  destination="${targets[$index]}"
-  if [[ -f "$destination" ]]; then cp -p -- "$destination" "$backup_dir/$index"; fi
-  printf '%s\t%s\n' "$index" "$destination" >> "$backup_dir/manifest"
-done
+prepare_transaction || die "Cannot persist installation transaction; no panel files were replaced"
 mutation_started=true
 install -d -o root -g root -m 0755 /usr/local/bin /usr/local/libexec /etc/systemd/system /etc/sudoers.d
 install -d -o root -g lnmp-panel -m 0750 /etc/lnmp-gopanel
@@ -661,7 +919,26 @@ else
   printf 'Service was not enabled or restarted (--no-start).\n'
   printf 'Helper permissions checked; verify /proc/<MainPID>/status has NoNewPrivs: 0 after starting the panel.\n'
 fi
+# Flush metadata changes as well as each atomically installed file before commit.
+for destination in "${targets[@]}"; do
+  if [[ -f "$destination" ]]; then sync -f "$destination"; fi
+done
+if ! durable_record "$backup_dir/status" committed; then
+  # A successful rename with a failed final sync must never trigger a rollback
+  # in this process after the committed record has become visible.
+  if [[ "$(< "$backup_dir/status")" == committed ]]; then
+    installation_complete=true
+    recovery_errors=('提交记录已写入，但持久化失败')
+    report_recovery '已完成' '安装检查已通过' '失败' '未完成'
+    die "升级已完成，但提交状态持久化失败；保留事务，请运行 sudo bash install.sh --recover"
+  fi
+  die "Cannot persist installation commit"
+fi
 installation_complete=true
+if ! recovery_step '清除已提交事务标记' clear_pending; then
+  report_recovery '已完成' '安装检查已通过' '失败' '未完成'
+  die "升级已完成，但事务清理失败；请运行 sudo bash install.sh --recover"
+fi
 printf 'Installation complete. Backups: %s\n' "$backup_dir"
 printf 'Configuration: /etc/lnmp-gopanel/config.yaml\n'
 printf 'Check /etc/lnmp-gopanel/services.yaml and use systemctl status lnmp-gopanel.\n'
