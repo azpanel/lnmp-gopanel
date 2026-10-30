@@ -30,7 +30,9 @@ test("installed HTTPS panel authenticates and reports real helper results", asyn
       const response = await page.request.get("/api/v1/components");
       expect(response.status()).toBe(200);
       const status = (await response.json()).status;
-      return denied ? status === "failed" : ["ready", "partial"].includes(status);
+      return denied
+        ? status === "failed"
+        : ["ready", "partial"].includes(status);
     })
     .toBe(true);
   if (denied) {
