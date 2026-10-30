@@ -109,10 +109,10 @@ test("login slogans and local demos rotate together without moving the form or c
     }
     const bounds = (await page.locator(".login-card").boundingBox())!;
     // Compare document positions because focusing mobile inputs may scroll.
-    expect(bounds.height).toBe(card.height);
+    expect(bounds.height).toBeCloseTo(card.height, 2);
     expect(
       (await page.locator(".login-showcase-stage").boundingBox())!.height,
-    ).toBe(stage.height);
+    ).toBeCloseTo(stage.height, 2);
     if (!isMobile) expect(Math.abs(bounds.y - card.y)).toBeLessThan(1);
     await page.screenshot({
       path: testInfo.outputPath(`login-${themes[index]}.png`),

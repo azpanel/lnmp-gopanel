@@ -104,7 +104,8 @@ test("access log table filters loaded rows, combines rules and resets per file",
     .getByLabel("密码", { exact: true })
     .fill("Test-Only-Panel-Password-2026");
   await page.getByRole("button", { name: "登录面板" }).click();
-  await expect(page.locator(".log-line")).toHaveCount(6);
+  // Wrapped mobile rows can leave the virtual window while following the tail.
+  await expect(page.getByText(/6 行可显示内容/)).toBeVisible();
   await page.getByRole("button", { name: "暂停追踪" }).click();
   await expect
     .poll(() =>
@@ -224,7 +225,7 @@ test("access log table filters loaded rows, combines rules and resets per file",
   await expect(page.getByText(/显示 1 \/ 5 行/)).toBeVisible();
   await format.click();
   await expect(table).toHaveCount(0);
-  await expect(page.locator(".log-line")).toHaveCount(5);
+  await expect(page.getByText(/5 行可显示内容/)).toBeVisible();
   await format.click();
   await expect(status("4xx")).not.toBeChecked();
   await expect(page.locator(".log-access-row")).toHaveCount(5);
