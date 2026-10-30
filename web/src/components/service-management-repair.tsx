@@ -1,5 +1,6 @@
+import { useSessionMutation } from "@/lib/use-session-mutation";
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -34,7 +35,7 @@ export function ServiceManagementRepair({ disabled }: { disabled: boolean }) {
     retry: false,
     refetchOnWindowFocus: false,
   });
-  const repair = useMutation({
+  const repair = useSessionMutation({
     mutationFn: (revision: string) =>
       api<{ message: string }>("/services/nginx/management-repair", {
         method: "POST",

@@ -1,3 +1,4 @@
+import { useSessionMutation } from "@/lib/use-session-mutation";
 import {
   useEffect,
   useRef,
@@ -7,7 +8,7 @@ import {
   type ReactElement,
 } from "react";
 import { Link } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -33,7 +34,9 @@ import {
 } from "@/components/ui/select";
 import { generateStrongPassword } from "@/lib/password";
 import { Checkbox } from "@/components/ui/checkbox";
-import { api, fetchSession, refreshStreamSession } from "@/lib/api";
+import { api } from "@/lib/api";
+import { sessionStream } from "@/lib/session-stream";
+import { captureSession } from "@/lib/session-scope";
 import {
   activeInstall,
   binaryAllowed,
@@ -132,7 +135,7 @@ function InstallForm({
     key: K,
     value: InstallRequest[K],
   ) => setForm((old) => ({ ...old, [key]: value }));
-  const start = useMutation({
+  const start = useSessionMutation({
     mutationFn: () =>
       api<InstallJob>(`/lnmp-installation/jobs/${job.id}/start`, {
         method: "POST",
@@ -466,12 +469,15 @@ function InstallationOutput({ job }: { job: InstallJob }) {
   const [historyLoading, setHistoryLoading] = useState(false);
   const cursor = useRef(0);
   const viewport = useRef<HTMLPreElement>(null);
+  const scope = useRef(captureSession()).current;
   useEffect(() => {
     let disposed = false;
-    let source: EventSource | null = null;
+    const scope = captureSession();
+    let stream: ReturnType<typeof sessionStream> | null = null;
+    let connected = false;
+    let terminal = false;
     let polling = false;
     let initialized = false;
-    let lastFailureCheck = 0;
     cursor.current = 0;
     setLines([]);
     setHistory(null);
@@ -486,7 +492,7 @@ function InstallationOutput({ job }: { job: InstallJob }) {
       );
     };
     const poll = async () => {
-      if (polling || disposed) return;
+      if (polling || disposed || !scope.current()) return;
       polling = true;
       try {
         let more = true;
@@ -495,7 +501,7 @@ function InstallationOutput({ job }: { job: InstallJob }) {
           const page = await api<InstallLogPage>(
             `/lnmp-installation/jobs/${job.id}/logs?${initialized ? `after=${cursor.current}` : "tail=1"}`,
           );
-          if (disposed) return;
+          if (disposed || !scope.current()) return;
           append(page.lines);
           cursor.current = Math.max(cursor.current, page.cursor);
           initialized = true;
@@ -509,70 +515,71 @@ function InstallationOutput({ job }: { job: InstallJob }) {
       }
     };
     const connect = () => {
-      source = new EventSource(
-        `/api/v1/lnmp-installation/jobs/${job.id}/events?after=${cursor.current}`,
-      );
-      source.onopen = () => {
-        if (!disposed) setLive(true);
-      };
-      source.addEventListener("log", (event) => {
-        if (disposed) return;
-        const line = JSON.parse((event as MessageEvent).data) as InstallLine;
-        append([line]);
-        cursor.current = Math.max(cursor.current, line.id);
+      stream = sessionStream({
+        url: () =>
+          `/api/v1/lnmp-installation/jobs/${job.id}/events?after=${cursor.current}`,
+        onState: (state) => {
+          connected = state === "live";
+          setLive(connected);
+        },
+        beforeReconnect: async () => {
+          await poll();
+          const current = client.getQueryData<{ job?: InstallJob }>(
+            installationKey,
+          )?.job;
+          return !terminal && activeInstall(current ?? job);
+        },
+        events: {
+          log: (event) => {
+            const line = JSON.parse(event.data) as InstallLine;
+            append([line]);
+            cursor.current = Math.max(cursor.current, line.id);
+          },
+          status: (event) => {
+            const update = JSON.parse(event.data) as InstallJob;
+            client.setQueryData<{
+              installed: boolean;
+              blocked: string[];
+              job?: InstallJob;
+            }>(installationKey, (old) => (old ? { ...old, job: update } : old));
+          },
+          complete: () => {
+            terminal = true;
+            stream?.stop();
+            connected = false;
+            setLive(false);
+            void poll();
+            void client.invalidateQueries({ queryKey: installationKey });
+          },
+          failure: (event) => {
+            terminal = true;
+            stream?.stop();
+            connected = false;
+            setLive(false);
+            setError(JSON.parse(event.data).error);
+          },
+        },
       });
-      source.addEventListener("status", (event) => {
-        const update = JSON.parse((event as MessageEvent).data) as InstallJob;
-        client.setQueryData<{
-          installed: boolean;
-          blocked: string[];
-          job?: InstallJob;
-        }>(installationKey, (old) => (old ? { ...old, job: update } : old));
-      });
-      source.addEventListener("complete", () => {
-        source?.close();
-        if (!disposed) {
-          setLive(false);
-          void poll();
-          void client.invalidateQueries({ queryKey: installationKey });
-        }
-      });
-      source.addEventListener("failure", (event) => {
-        source?.close();
-        if (!disposed) {
-          setLive(false);
-          setError(JSON.parse((event as MessageEvent).data).error);
-        }
-      });
-      source.addEventListener("auth_expired", () => {
-        source?.close();
-        if (!disposed) {
-          setLive(false);
-          void refreshStreamSession().catch(() => {});
-        }
-      });
-      source.onerror = () => {
-        if (!disposed) {
-          setLive(false);
-          void poll();
-          if (Date.now() - lastFailureCheck > 30000) {
-            lastFailureCheck = Date.now();
-            void fetchSession().catch(() => {});
-          }
-        }
-      };
     };
     const refresh = async () => {
       await poll();
-      if (!disposed && initialized && !source && activeInstall(job)) connect();
+      if (
+        !disposed &&
+        scope.current() &&
+        initialized &&
+        !stream &&
+        !terminal &&
+        activeInstall(job)
+      )
+        connect();
     };
     void refresh();
     const timer = window.setInterval(() => {
-      if (!source || source.readyState !== EventSource.OPEN) void refresh();
+      if (!connected) void refresh();
     }, 2000);
     return () => {
       disposed = true;
-      source?.close();
+      stream?.stop();
       window.clearInterval(timer);
       setLive(false);
     };
@@ -589,11 +596,11 @@ function InstallationOutput({ job }: { job: InstallJob }) {
       const page = await api<InstallLogPage>(
         `/lnmp-installation/jobs/${job.id}/logs?after=${history?.cursor ?? 0}`,
       );
-      setHistory(page);
+      if (scope.current()) setHistory(page);
     } catch (e) {
-      toast.error((e as Error).message);
+      if (scope.current()) toast.error((e as Error).message);
     } finally {
-      setHistoryLoading(false);
+      if (scope.current()) setHistoryLoading(false);
     }
   }
   return (
@@ -682,7 +689,7 @@ export function LNMPInstall() {
         void client.invalidateQueries({ queryKey: [key] });
     }
   }, [job?.status, client]);
-  const prepare = useMutation({
+  const prepare = useSessionMutation({
     mutationFn: () =>
       api<InstallJob>("/lnmp-installation/prepare", {
         method: "POST",

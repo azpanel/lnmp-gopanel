@@ -58,6 +58,7 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   let screenshot: WebsiteScreenshot | null = null;
   let screenshotPolls = 0;
   let screenshotCaptures = 0;
+  let screenshotDeletes = 0;
   const screenshotScript =
     'document.querySelector(".popup")?.remove();\nawait new Promise(resolve => setTimeout(resolve, 100));';
   await page.route("**/api/v1/vhosts/screenshots", (route) => {
@@ -86,6 +87,12 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   });
   await page.route("**/api/v1/vhosts/screenshot?*", (route) => {
     if (route.request().method() === "DELETE") {
+      screenshotDeletes++;
+      if (screenshotDeletes === 1)
+        return route.fulfill({
+          status: 503,
+          json: { error: "测试：清除失败，请重新确认" },
+        });
       screenshot = null;
       return route.fulfill({ status: 204 });
     }
@@ -583,7 +590,40 @@ test("virtual hosts show certificates, public parent usage, configuration and gu
   ).toBeVisible();
   await page.getByRole("button", { name: "截图设置", exact: true }).click();
   await page.getByRole("button", { name: "清除设置", exact: true }).click();
+  const clearConfirmation = page.getByRole("group", {
+    name: "确认清除 example.com 的截图设置？",
+    exact: true,
+  });
+  await expect(clearConfirmation).toContainText("此操作无法撤销");
+  await expect(
+    clearConfirmation.getByRole("button", { name: "取消操作" }),
+  ).toBeFocused();
+  expect(screenshotDeletes).toBe(0);
+  await clearConfirmation
+    .getByRole("button", { name: "取消操作" })
+    .press("Enter");
+  await expect(page.getByLabel("截图地址", { exact: true })).toHaveValue(
+    "http://127.0.0.1:8080/private",
+  );
+  expect(screenshotDeletes).toBe(0);
+  await page.getByRole("button", { name: "清除设置", exact: true }).click();
+  await clearConfirmation
+    .getByRole("button", { name: "确认清除设置", exact: true })
+    .evaluate((button) => {
+      (button as HTMLButtonElement).click();
+      (button as HTMLButtonElement).click();
+    });
+  await expect(page.getByRole("alert")).toContainText(
+    "测试：清除失败，请重新确认",
+  );
+  await expect(clearConfirmation).toHaveCount(0);
+  expect(screenshotDeletes).toBe(1);
+  await page.getByRole("button", { name: "清除设置", exact: true }).click();
+  await clearConfirmation
+    .getByRole("button", { name: "确认清除设置", exact: true })
+    .click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
+  expect(screenshotDeletes).toBe(2);
   await expect(
     page.getByAltText("example.com 的网站截图", { exact: true }),
   ).not.toBeVisible();

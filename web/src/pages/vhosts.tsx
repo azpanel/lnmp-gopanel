@@ -1,5 +1,6 @@
+import { useSessionMutation } from "@/lib/use-session-mutation";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -390,7 +391,7 @@ export function Vhosts() {
         ? 1000
         : false,
   });
-  const refresh = useMutation({
+  const refresh = useSessionMutation({
     mutationFn: () => api<VhostSnapshot>("/vhosts/refresh", { method: "POST" }),
     onSuccess: (data) => client.setQueryData(["vhosts"], data),
   });
@@ -403,7 +404,7 @@ export function Vhosts() {
     enabled: Boolean(configSite),
     staleTime: 0,
   });
-  const formatConfiguration = useMutation({
+  const formatConfiguration = useSessionMutation({
     mutationFn: (input: { name: string; revision: string }) =>
       api<VhostConfig & { changed: boolean; message: string }>(
         "/vhosts/config/format",
@@ -421,7 +422,7 @@ export function Vhosts() {
   useEffect(() => {
     resetFormatConfiguration();
   }, [configSite?.name, resetFormatConfiguration]);
-  const toggle = useMutation({
+  const toggle = useSessionMutation({
     mutationFn: (site: Vhost) =>
       api<{ message: string }>("/vhosts/toggle", {
         method: "POST",

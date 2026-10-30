@@ -1,3 +1,4 @@
+import { SessionCancelledError } from "@/lib/session-scope";
 import { useEffect, useState } from "react";
 import {
   Navigate,
@@ -71,13 +72,14 @@ export default function App() {
   const client = useQueryClient();
   const session = useQuery({
     queryKey: ["session"],
-    queryFn: () => fetchSession(),
+    queryFn: ({ signal }) => fetchSession(true, signal),
     retry: false,
     staleTime: 60000,
     refetchOnWindowFocus: true,
   });
   useEffect(() => {
     const expired = () => {
+      void client.cancelQueries();
       client.setQueryData(["session"], null);
       client.removeQueries({ predicate: (q) => q.queryKey[0] !== "session" });
     };
@@ -122,8 +124,7 @@ function Workspace({
   theme: Theme;
   setTheme: (theme: Theme) => void;
 }) {
-  const monitor = useMonitor(session.csrf_token),
-    client = useQueryClient();
+  const monitor = useMonitor(session.csrf_token);
   const { pathname } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false),
     [loggingOut, setLoggingOut] = useState(false);
@@ -198,10 +199,9 @@ function Workspace({
     setLoggingOut(true);
     try {
       await logout();
-      client.setQueryData(["session"], null);
-      client.removeQueries({ predicate: (q) => q.queryKey[0] !== "session" });
     } catch (e) {
-      toast.error((e as Error).message);
+      if (!(e instanceof SessionCancelledError))
+        toast.error((e as Error).message);
     } finally {
       setLoggingOut(false);
     }

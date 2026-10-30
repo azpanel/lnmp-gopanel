@@ -156,7 +156,28 @@ test("password changes, TOTP enrollment, recovery and session rotation work toge
   await dialog.getByLabel("当前登录密码").fill(password);
   await dialog.getByRole("button", { name: "使用恢复码", exact: true }).click();
   await dialog.getByLabel("一次性恢复码", { exact: true }).fill(codes[1]);
-  await dialog.getByRole("button", { name: "重新生成恢复码" }).click();
+  await dialog
+    .getByRole("button", { name: "重新生成恢复码", exact: true })
+    .click();
+  const regenerate = dialog.getByRole("group", {
+    name: "确认重新生成恢复码？",
+    exact: true,
+  });
+  await expect(regenerate).toContainText("全部旧恢复码立即失效");
+  await expect(
+    regenerate.getByRole("button", { name: "取消操作" }),
+  ).toBeFocused();
+  await regenerate.getByRole("button", { name: "取消操作" }).press("Enter");
+  await expect(dialog.getByLabel("一次性恢复码", { exact: true })).toHaveValue(
+    codes[1],
+  );
+  await expect(dialog.locator("pre.recovery-codes")).toHaveCount(0);
+  await dialog
+    .getByRole("button", { name: "重新生成恢复码", exact: true })
+    .click();
+  await regenerate
+    .getByRole("button", { name: "确认重新生成恢复码", exact: true })
+    .click();
   await expect(dialog.locator("pre.recovery-codes")).toBeVisible();
   const fresh = (await dialog.locator("pre.recovery-codes").innerText()).split(
     "\n",
@@ -179,6 +200,19 @@ test("password changes, TOTP enrollment, recovery and session rotation work toge
   await dialog.getByRole("button", { name: "使用恢复码", exact: true }).click();
   await dialog.getByLabel("一次性恢复码", { exact: true }).fill(fresh[1]);
   await dialog.getByRole("button", { name: "关闭 TOTP", exact: true }).click();
+  const disable = dialog.getByRole("group", {
+    name: "确认关闭 TOTP？",
+    exact: true,
+  });
+  await expect(disable).toContainText("登录将不再要求动态验证码");
+  await disable.getByRole("button", { name: "取消操作" }).click();
+  await expect(dialog.getByLabel("一次性恢复码", { exact: true })).toHaveValue(
+    fresh[1],
+  );
+  await dialog.getByRole("button", { name: "关闭 TOTP", exact: true }).click();
+  await disable
+    .getByRole("button", { name: "确认关闭 TOTP", exact: true })
+    .click();
   await expect(
     dialog.getByRole("button", { name: "绑定 TOTP", exact: true }),
   ).toBeVisible();

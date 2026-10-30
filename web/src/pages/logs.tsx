@@ -1,5 +1,7 @@
+import { captureSession } from "@/lib/session-scope";
+import { useSessionMutation } from "@/lib/use-session-mutation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowDownToLine,
@@ -96,6 +98,7 @@ function LogLocationHelp() {
 
 export function Logs() {
   const client = useQueryClient();
+  const scope = useRef(captureSession()).current;
   const [addOpen, setAddOpen] = useState(false);
   const [customPath, setCustomPath] = useState("");
   const [addError, setAddError] = useState("");
@@ -106,7 +109,7 @@ export function Logs() {
     refetchOnWindowFocus: false,
   });
   const [selected, setSelected] = useState("");
-  const add = useMutation({
+  const add = useSessionMutation({
     mutationFn: (path: string) =>
       api<LogFile>("/logs/custom", {
         method: "POST",
@@ -114,6 +117,7 @@ export function Logs() {
       }),
     onSuccess: async (file) => {
       await client.cancelQueries({ queryKey: ["logs"] });
+      if (!scope.current()) return;
       client.setQueryData<LogCatalog>(["logs"], (old) => ({
         files: [
           ...(old?.files ?? []).filter((item) => item.path !== file.path),
@@ -128,7 +132,7 @@ export function Logs() {
     },
     onError: (error) => setAddError(error.message),
   });
-  const remove = useMutation({
+  const remove = useSessionMutation({
     mutationFn: (path: string) =>
       api<void>("/logs/custom", {
         method: "DELETE",
@@ -136,6 +140,7 @@ export function Logs() {
       }),
     onSuccess: async (_, removedPath) => {
       await client.cancelQueries({ queryKey: ["logs"] });
+      if (!scope.current()) return;
       client.setQueryData<LogCatalog>(["logs"], (old) => ({
         files: (old?.files ?? []).filter((item) => item.path !== removedPath),
         warnings: old?.warnings ?? [],

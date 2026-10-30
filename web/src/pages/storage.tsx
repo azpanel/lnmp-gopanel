@@ -1,5 +1,6 @@
+import { useSessionMutation } from "@/lib/use-session-mutation";
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
   ArrowUp,
@@ -56,7 +57,7 @@ export function Storage() {
     refetchInterval: (query) =>
       query.state.data?.status === "running" ? 1000 : false,
   });
-  const start = useMutation({
+  const start = useSessionMutation({
     mutationFn: () => api<StorageScan>("/storage/scan", { method: "POST" }),
     onSuccess: (job) => client.setQueryData(["storage-scan"], job),
   });

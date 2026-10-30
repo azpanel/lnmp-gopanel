@@ -14,6 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoginShowcase } from "@/components/login-showcase";
+import { captureSession, SessionCancelledError } from "@/lib/session-scope";
 import { login, loginTOTP } from "@/lib/api";
 import type { LoginChallenge } from "@/lib/types";
 
@@ -45,10 +46,13 @@ export function Login() {
         setChallenge(session);
         return;
       }
+      const scope = captureSession();
+      await client.cancelQueries({ queryKey: ["session"] });
+      scope.assert();
       setCode("");
       client.setQueryData(["session"], session);
     } catch (e) {
-      setError((e as Error).message);
+      if (!(e instanceof SessionCancelledError)) setError((e as Error).message);
     } finally {
       setPending(false);
     }

@@ -1,5 +1,6 @@
+import { useSessionMutation } from "@/lib/use-session-mutation";
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +61,21 @@ export function VhostRenew({
   const [error, setError] = useState("");
   const [logSite, setLogSite] = useState("all");
   const requestID = useRef(crypto.randomUUID());
+  const previewRequest = useRef<{
+    sequence: number;
+    controller?: AbortController;
+  }>({ sequence: 0 });
+  const invalidatePreview = () => {
+    previewRequest.current.controller?.abort();
+    previewRequest.current = { sequence: previewRequest.current.sequence + 1 };
+  };
+  useEffect(
+    () => () => {
+      previewRequest.current.controller?.abort();
+      previewRequest.current.sequence++;
+    },
+    [],
+  );
   const logRef = useRef<HTMLPreElement>(null);
   const follow = useRef(true);
   const recent = useQuery({
@@ -70,13 +86,24 @@ export function VhostRenew({
   const history = recent.data?.filter((job) => job.kind === "ssl-renew") || [];
   const task = useVhostJob(selected, open);
   const job = task.data;
-  const check = useMutation({
-    mutationFn: (input: { names: string[]; overrides?: VhostRenewItem[] }) =>
+  const check = useSessionMutation({
+    mutationFn: (input: {
+      names: string[];
+      overrides?: VhostRenewItem[];
+      sequence: number;
+      signal: AbortSignal;
+    }) =>
       api<VhostRenewPreview[]>("/vhosts/ssl/renew/preview", {
         method: "POST",
+        signal: input.signal,
         body: JSON.stringify({ names: input.names }),
       }),
-    onSuccess: (data, input) =>
+    onSuccess: (data, input) => {
+      if (
+        input.sequence !== previewRequest.current.sequence ||
+        input.signal.aborted
+      )
+        return;
       setPreview(
         data.map((row) => {
           const override = input.overrides?.find(
@@ -86,19 +113,21 @@ export function VhostRenew({
             ? { ...row, provider: override.provider, email: override.email }
             : row;
         }),
-      ),
-    onError: (e) => setError(e.message),
+      );
+    },
+    onError: (e, input) => {
+      if (
+        input.sequence === previewRequest.current.sequence &&
+        !input.signal.aborted
+      )
+        setError(e.message);
+    },
   });
-  const submit = useMutation({
-    mutationFn: () =>
+  const submit = useSessionMutation({
+    mutationFn: (input: { request_id: string; items: VhostRenewItem[] }) =>
       api<VhostJob>("/vhosts/ssl/renew", {
         method: "POST",
-        body: JSON.stringify({
-          request_id: requestID.current,
-          items: preview
-            .filter((item) => item.eligible)
-            .map(({ name, provider, email }) => ({ name, provider, email })),
-        }),
+        body: JSON.stringify(input),
       }),
     onSuccess: (data) => {
       client.setQueryData(["vhost-job", data.id], data);
@@ -110,6 +139,7 @@ export function VhostRenew({
     onError: (e) => setError(e.message),
   });
   function begin(selectedNames: string[], overrides?: VhostRenewItem[]) {
+    invalidatePreview();
     requestID.current = crypto.randomUUID();
     setSelected(null);
     setPreview([]);
@@ -117,7 +147,14 @@ export function VhostRenew({
     setLogSite("all");
     follow.current = true;
     setOpen(true);
-    check.mutate({ names: selectedNames, overrides });
+    const controller = new AbortController();
+    previewRequest.current.controller = controller;
+    check.mutate({
+      names: [...selectedNames],
+      overrides,
+      sequence: previewRequest.current.sequence,
+      signal: controller.signal,
+    });
   }
   useEffect(() => {
     if (follow.current && logRef.current)
@@ -139,6 +176,7 @@ export function VhostRenew({
           size="sm"
           variant="outline"
           onClick={() => {
+            invalidatePreview();
             setSelected(latest.id);
             setLogSite("all");
             setError("");
@@ -160,7 +198,13 @@ export function VhostRenew({
           提前续签 SSL{names.length ? `（${names.length}）` : ""}
         </Button>
       )}
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(value) => {
+          if (!value) invalidatePreview();
+          setOpen(value);
+        }}
+      >
         <DialogContent className="vhost-renew-dialog">
           <DialogHeader>
             <DialogTitle>
@@ -311,7 +355,13 @@ export function VhostRenew({
                       重试失败项
                     </Button>
                   )}
-                  <Button variant="outline" onClick={() => setOpen(false)}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      invalidatePreview();
+                      setOpen(false);
+                    }}
+                  >
                     关闭
                   </Button>
                 </DialogFooter>
@@ -329,7 +379,16 @@ export function VhostRenew({
               onSubmit={(e) => {
                 e.preventDefault();
                 setError("");
-                submit.mutate();
+                if (check.isPending || submit.isPending || !eligible.length)
+                  return;
+                submit.mutate({
+                  request_id: requestID.current,
+                  items: eligible.map(({ name, provider, email }) => ({
+                    name,
+                    provider,
+                    email,
+                  })),
+                });
               }}
             >
               <div className="renew-items">
@@ -412,7 +471,10 @@ export function VhostRenew({
                   type="button"
                   variant="outline"
                   disabled={submit.isPending}
-                  onClick={() => setOpen(false)}
+                  onClick={() => {
+                    invalidatePreview();
+                    setOpen(false);
+                  }}
                 >
                   取消
                 </Button>

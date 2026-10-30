@@ -1,5 +1,6 @@
+import { useSessionMutation } from "@/lib/use-session-mutation";
 import { useState, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Camera,
   CircleHelp,
@@ -31,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
+import { ConsequenceConfirmation } from "@/components/consequence-confirmation";
 import type { ScreenshotSnapshot, Vhost, WebsiteScreenshot } from "@/lib/types";
 
 function ScreenshotFieldLabel({
@@ -254,6 +256,7 @@ export function useWebsiteScreenshots(enabled: boolean) {
   const [authEnabled, setAuthEnabled] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmClear, setConfirmClear] = useState(false);
   const query = useQuery({
     queryKey: ["vhost-screenshots"],
     queryFn: () => api<ScreenshotSnapshot>("/vhosts/screenshots"),
@@ -271,7 +274,7 @@ export function useWebsiteScreenshots(enabled: boolean) {
     );
     void client.invalidateQueries({ queryKey: ["vhost-screenshots"] });
   };
-  const save = useMutation({
+  const save = useSessionMutation({
     mutationFn: () =>
       api<WebsiteScreenshot>(
         `/vhosts/screenshot?name=${encodeURIComponent(site!.name)}`,
@@ -298,7 +301,7 @@ export function useWebsiteScreenshots(enabled: boolean) {
       toast.success("截图设置已保存，正在生成画面");
     },
   });
-  const clear = useMutation({
+  const clear = useSessionMutation({
     mutationFn: () =>
       api<void>(`/vhosts/screenshot?name=${encodeURIComponent(site!.name)}`, {
         method: "DELETE",
@@ -313,9 +316,11 @@ export function useWebsiteScreenshots(enabled: boolean) {
       setSite(null);
       setPassword("");
       toast.success("已清除截图设置、认证信息和图片");
+      setConfirmClear(false);
     },
+    onError: () => setConfirmClear(false),
   });
-  const refresh = useMutation({
+  const refresh = useSessionMutation({
     mutationFn: (name: string) =>
       api<WebsiteScreenshot>(
         `/vhosts/screenshot/refresh?name=${encodeURIComponent(name)}`,
@@ -354,6 +359,7 @@ export function useWebsiteScreenshots(enabled: boolean) {
     setAuthEnabled(item?.auth_enabled || false);
     setUsername(item?.username || "");
     setPassword("");
+    setConfirmClear(false);
     save.reset();
     clear.reset();
     setSite(target);
@@ -393,6 +399,7 @@ export function useWebsiteScreenshots(enabled: boolean) {
             if (!open && !busy) {
               setSite(null);
               setPassword("");
+              setConfirmClear(false);
             }
           }}
         >
@@ -417,6 +424,7 @@ export function useWebsiteScreenshots(enabled: boolean) {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                if (busy || confirmClear) return;
                 if (new TextEncoder().encode(javascript).length > 16 * 1024) {
                   toast.error("截图前 JavaScript 不能超过 16 KiB");
                   return;
@@ -424,7 +432,10 @@ export function useWebsiteScreenshots(enabled: boolean) {
                 save.mutate();
               }}
             >
-              <fieldset disabled={busy} className="screenshot-settings-fields">
+              <fieldset
+                disabled={busy || confirmClear}
+                className="screenshot-settings-fields"
+              >
                 <div className="form-field">
                   <Label htmlFor="screenshot-url">截图地址</Label>
                   <Input
@@ -677,32 +688,49 @@ export function useWebsiteScreenshots(enabled: boolean) {
                     {save.error?.message || clear.error?.message}
                   </div>
                 )}
-                <DialogFooter>
-                  {saved && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="screenshot-clear"
-                      onClick={() => clear.mutate()}
-                    >
-                      清除设置
-                    </Button>
-                  )}
-                  <DialogClose asChild>
-                    <Button type="button" variant="outline">
-                      取消
-                    </Button>
-                  </DialogClose>
-                  <Button type="submit">
-                    {busy ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : (
-                      <Camera size={14} />
+                {!confirmClear && (
+                  <DialogFooter>
+                    {saved && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="screenshot-clear"
+                        onClick={() => {
+                          clear.reset();
+                          setConfirmClear(true);
+                        }}
+                      >
+                        清除设置
+                      </Button>
                     )}
-                    保存并截图
-                  </Button>
-                </DialogFooter>
+                    <DialogClose asChild>
+                      <Button type="button" variant="outline">
+                        取消
+                      </Button>
+                    </DialogClose>
+                    <Button type="submit">
+                      {busy ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Camera size={14} />
+                      )}
+                      保存并截图
+                    </Button>
+                  </DialogFooter>
+                )}
               </fieldset>
+              {confirmClear && (
+                <ConsequenceConfirmation
+                  title={`确认清除 ${site?.domains[0] || site?.name} 的截图设置？`}
+                  description="将删除该站点的截图设置、已保存的认证信息和图片。此操作无法撤销，需要重新配置后才能再次截图。"
+                  confirmLabel="确认清除设置"
+                  busy={busy}
+                  onCancel={() => setConfirmClear(false)}
+                  onConfirm={() => {
+                    if (!busy) clear.mutate();
+                  }}
+                />
+              )}
             </form>
           </DialogContent>
         </Dialog>

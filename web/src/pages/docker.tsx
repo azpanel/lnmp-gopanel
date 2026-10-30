@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSessionMutation } from "@/lib/use-session-mutation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Container, Copy, HardDrive, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -32,7 +33,7 @@ export function Docker() {
     refetchInterval: (query) =>
       query.state.data?.status === "loading" ? 1000 : 30000,
   });
-  const refresh = useMutation({
+  const refresh = useSessionMutation({
     mutationFn: () =>
       api<DockerSnapshot>("/docker/refresh", { method: "POST" }),
     onSuccess: (data) => client.setQueryData(["docker"], data),

@@ -1,3 +1,5 @@
+import { captureSession, expireSession } from "@/lib/session-scope";
+import { ConsequenceConfirmation } from "@/components/consequence-confirmation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -86,6 +88,11 @@ function SecurityContents({
   setBusy: (value: boolean) => void;
 }) {
   const client = useQueryClient();
+  const scope = useRef(captureSession()).current;
+  const running = useRef(false);
+  const [pendingAction, setPendingAction] = useState<
+    "disable" | "regenerate" | null
+  >(null);
   const security = useQuery({
     queryKey: ["account-security"],
     queryFn: () => api<Security>("/auth/security"),
@@ -142,22 +149,29 @@ function SecurityContents({
   }, [setup]);
   useEffect(
     () => () => {
+      if (!scope.current()) return;
       if (draft.current)
         void api("/auth/totp/setup", { method: "DELETE" }).catch(() => {});
       client.removeQueries({ queryKey: ["account-security"] });
     },
-    [client],
+    [client, scope],
   );
 
   async function run(action: () => Promise<void>) {
+    if (running.current || !scope.current()) return;
+    running.current = true;
     setError("");
     setBusy(true);
     try {
       await action();
     } catch (error) {
-      setError((error as Error).message);
+      if (scope.current()) setError((error as Error).message);
     } finally {
-      setBusy(false);
+      running.current = false;
+      if (scope.current()) {
+        setBusy(false);
+        setPendingAction(null);
+      }
     }
   }
   function proof() {
@@ -171,6 +185,7 @@ function SecurityContents({
     };
   }
   function updateSession(result: SecurityResult) {
+    scope.assert();
     client.setQueryData(["session"], acceptSession(result.session));
     setCurrent("");
     setFactor("");
@@ -211,12 +226,13 @@ function SecurityContents({
         method: "POST",
         body: JSON.stringify({ ...proof(), new_password: password }),
       });
+      scope.assert();
       setPassword("");
       setConfirmation("");
       setCurrent("");
       setFactor("");
       toast.success("密码已修改，请使用新密码重新登录");
-      window.dispatchEvent(new Event("session-expired"));
+      expireSession();
     });
   }
   function startSetup() {
@@ -225,6 +241,7 @@ function SecurityContents({
         method: "POST",
         body: JSON.stringify({ current_password: current }),
       });
+      scope.assert();
       draft.current = true;
       setSetup(value);
       setSetupCode("");
@@ -239,6 +256,7 @@ function SecurityContents({
         method: "POST",
         body: JSON.stringify({ setup_id: setup!.setup_id, code: setupCode }),
       });
+      scope.assert();
       draft.current = false;
       setSetup(null);
       setSetupCode("");
@@ -283,7 +301,7 @@ function SecurityContents({
           autoComplete="current-password"
           value={current}
           onChange={(e) => setCurrent(e.target.value)}
-          disabled={busy}
+          disabled={busy || pendingAction !== null}
         />
       </div>
       {enabled && (
@@ -299,13 +317,13 @@ function SecurityContents({
               autoComplete="one-time-code"
               inputMode={recovery ? "text" : "numeric"}
               maxLength={recovery ? 35 : 6}
-              disabled={busy}
+              disabled={busy || pendingAction !== null}
             />
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              disabled={busy}
+              disabled={busy || pendingAction !== null}
               onClick={() => {
                 setRecovery(!recovery);
                 setFactor("");
@@ -333,6 +351,7 @@ function SecurityContents({
       onValueChange={(value) => {
         setTab(value);
         setError("");
+        setPendingAction(null);
       }}
     >
       <Tabs.List className="account-security-tabs" aria-label="账户安全设置">
@@ -614,16 +633,26 @@ function SecurityContents({
                     <>
                       <Button
                         variant="outline"
-                        disabled={busy || !canAuthenticate}
-                        onClick={() => manageTOTP(false)}
+                        disabled={
+                          busy || pendingAction !== null || !canAuthenticate
+                        }
+                        onClick={() => {
+                          setError("");
+                          setPendingAction("regenerate");
+                        }}
                       >
                         <RefreshCw size={15} aria-hidden="true" />
                         重新生成恢复码
                       </Button>
                       <Button
                         variant="destructive"
-                        disabled={busy || !canAuthenticate}
-                        onClick={() => manageTOTP(true)}
+                        disabled={
+                          busy || pendingAction !== null || !canAuthenticate
+                        }
+                        onClick={() => {
+                          setError("");
+                          setPendingAction("disable");
+                        }}
                       >
                         <ShieldOff size={15} aria-hidden="true" />
                         关闭 TOTP
@@ -640,6 +669,28 @@ function SecurityContents({
                     </Button>
                   )}
                 </div>
+                {pendingAction && (
+                  <ConsequenceConfirmation
+                    title={
+                      pendingAction === "disable"
+                        ? "确认关闭 TOTP？"
+                        : "确认重新生成恢复码？"
+                    }
+                    description={
+                      pendingAction === "disable"
+                        ? "关闭后，登录将不再要求动态验证码，当前恢复码也会失效。"
+                        : "重新生成后，全部旧恢复码立即失效。请重新保存新的恢复码。"
+                    }
+                    confirmLabel={
+                      pendingAction === "disable"
+                        ? "确认关闭 TOTP"
+                        : "确认重新生成恢复码"
+                    }
+                    busy={busy}
+                    onCancel={() => setPendingAction(null)}
+                    onConfirm={() => manageTOTP(pendingAction === "disable")}
+                  />
+                )}
               </section>
             )}
           </Tabs.Content>

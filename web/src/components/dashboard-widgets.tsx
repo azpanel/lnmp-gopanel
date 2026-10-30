@@ -1,5 +1,6 @@
+import { useSessionMutation } from "@/lib/use-session-mutation";
 import { useState, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -92,7 +93,7 @@ export function useDashboardWidgets() {
     refetchOnWindowFocus: "always",
     retry: false,
   });
-  const mutation = useMutation({
+  const mutation = useSessionMutation({
     mutationFn: (enabled: WidgetID[]) =>
       api<DashboardWidgetSelection>("/dashboard/widgets", {
         method: "PUT",

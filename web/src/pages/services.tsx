@@ -1,5 +1,6 @@
+import { useSessionMutation } from "@/lib/use-session-mutation";
 import { useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Check,
@@ -59,7 +60,7 @@ export function Services({
     refetchInterval: (query) =>
       query.state.data?.status === "loading" ? 1000 : 60000,
   });
-  const refreshComponents = useMutation({
+  const refreshComponents = useSessionMutation({
     mutationFn: () =>
       api<ComponentSnapshot>("/components/refresh", { method: "POST" }),
     onSuccess: (data) => client.setQueryData(["components"], data),
@@ -77,7 +78,7 @@ export function Services({
         ? 1000
         : 60000,
   });
-  const refreshReleases = useMutation({
+  const refreshReleases = useSessionMutation({
     mutationFn: () =>
       api<Record<string, ServiceRelease>>("/services/releases/refresh", {
         method: "POST",
@@ -90,7 +91,7 @@ export function Services({
     Object.values(releases.data ?? {}).some(
       (item) => item.status === "loading",
     );
-  const mutation = useMutation({
+  const mutation = useSessionMutation({
     mutationFn: ({ service, action }: { service: Service; action: Action }) =>
       api<{ message: string }>(`/services/${service.name}/actions/${action}`, {
         method: "POST",

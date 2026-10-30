@@ -1,5 +1,6 @@
+import { useSessionMutation } from "@/lib/use-session-mutation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRightLeft,
   BadgeCheck,
@@ -54,7 +55,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { api, fetchSession, refreshStreamSession } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useVhostJob } from "@/lib/use-vhost-job";
 import {
   certificateCovers,
   generateDatabasePassword,
@@ -64,7 +66,6 @@ import {
   type VhostCreateInput,
   type VhostCreateOptions,
   type VhostJob,
-  type VhostJobLine,
 } from "@/lib/vhost-create";
 
 const statusLabels = {
@@ -213,7 +214,6 @@ export function VhostCreate() {
   const [aliases, setAliases] = useState("");
   const [retryName, setRetryName] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [live, setLive] = useState(false);
   const [error, setError] = useState("");
   const [dns, setDNS] = useState<DNSCheck | null>(null);
   const [showDatabasePassword, setShowDatabasePassword] = useState(false);
@@ -233,14 +233,7 @@ export function VhostCreate() {
     enabled: open && !selected,
     staleTime: 0,
   });
-  const task = useQuery({
-    queryKey: ["vhost-job", selected],
-    queryFn: () =>
-      api<VhostJob>(`/vhosts/jobs/${encodeURIComponent(selected!)}`),
-    enabled: open && Boolean(selected),
-    refetchInterval: (query) =>
-      !live && query.state.data?.status === "running" ? 2000 : false,
-  });
+  const task = useVhostJob(selected, open);
   const running = task.data?.status === "running";
   const data = options.data;
   const allAliases = splitDomains([...input.aliases, aliases].join(" "));
@@ -281,63 +274,6 @@ export function VhostCreate() {
     if (error) errorRef.current?.scrollIntoView({ block: "nearest" });
   }, [error]);
   useEffect(() => {
-    if (!open || !selected || !running) return;
-    const source = new EventSource(
-      `/api/v1/vhosts/jobs/${encodeURIComponent(selected)}/events`,
-    );
-    const key = ["vhost-job", selected];
-    source.onopen = () => setLive(true);
-    source.addEventListener("snapshot", (event) =>
-      client.setQueryData(
-        key,
-        JSON.parse((event as MessageEvent).data) as VhostJob,
-      ),
-    );
-    source.addEventListener("status", (event) => {
-      const update = JSON.parse((event as MessageEvent).data) as VhostJob;
-      client.setQueryData<VhostJob>(key, (old) => ({
-        ...update,
-        lines: old?.lines || [],
-      }));
-    });
-    source.addEventListener("log", (event) => {
-      const line = JSON.parse((event as MessageEvent).data) as VhostJobLine;
-      client.setQueryData<VhostJob>(key, (old) =>
-        old
-          ? {
-              ...old,
-              lines: [
-                ...old.lines.filter((previous) => previous.id !== line.id),
-                line,
-              ]
-                .sort((a, b) => a.id - b.id)
-                .slice(-1000),
-            }
-          : old,
-      );
-    });
-    source.addEventListener("complete", () => {
-      source.close();
-      setLive(false);
-      refreshSites();
-    });
-    source.addEventListener("auth_expired", () => {
-      source.close();
-      setLive(false);
-      void refreshStreamSession().catch(() => {});
-    });
-    source.onerror = () => {
-      setLive(false);
-      void fetchSession().catch(() => {});
-    };
-    return () => {
-      source.close();
-      setLive(false);
-    };
-    // The stream lives for one running job; data changes must not reopen it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, selected, running, client]);
-  useEffect(() => {
     if (task.data && task.data.status !== "running") refreshSites();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.data?.status]);
@@ -372,7 +308,7 @@ export function VhostCreate() {
     followLogs.current = true;
   }, [selected]);
 
-  const checkDNS = useMutation({
+  const checkDNS = useSessionMutation({
     mutationFn: (names: string[]) =>
       api<DNSCheck>("/vhosts/check-dns", {
         method: "POST",
@@ -383,7 +319,7 @@ export function VhostCreate() {
     },
     onError: (e) => toast.error(e.message),
   });
-  const submit = useMutation({
+  const submit = useSessionMutation({
     mutationFn: (request: VhostCreateInput) =>
       api<VhostJob>(retryName ? "/vhosts/ssl/retry" : "/vhosts", {
         method: "POST",
@@ -557,7 +493,7 @@ export function VhostCreate() {
                   </pre>
                   {running && (
                     <p className="small-note">
-                      {live
+                      {task.live
                         ? "实时连接已建立"
                         : "正在连接实时输出，自动查询任务状态…"}
                     </p>

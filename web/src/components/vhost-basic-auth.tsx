@@ -1,5 +1,6 @@
+import { useSessionMutation } from "@/lib/use-session-mutation";
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -38,7 +39,7 @@ export function VhostBasicAuthDialog({
   });
   const state = query.data;
   const name = username ?? state?.username ?? "";
-  const save = useMutation({
+  const save = useSessionMutation({
     mutationFn: (disable: boolean) => {
       if (!disable) {
         const size = new TextEncoder().encode(password).length;
