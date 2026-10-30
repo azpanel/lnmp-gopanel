@@ -7,7 +7,7 @@ import (
 	"errors"
 	"image/png"
 	"io"
-	"log/slog"
+	"net/http"
 
 	"github.com/azpanel/lnmp-gopanel/internal/auth"
 	"github.com/azpanel/lnmp-gopanel/internal/logs"
@@ -23,7 +23,7 @@ func (s *Server) account() *auth.Account {
 	})
 	return s.Account
 }
-func (s *Server) securityError(c *gin.Context, err error) {
+func (s *Server) securityReply(c *gin.Context, err error) authReply {
 	status := 503
 	switch {
 	case errors.Is(err, auth.ErrProof):
@@ -40,17 +40,37 @@ func (s *Server) securityError(c *gin.Context, err error) {
 			s.Sessions.DeleteAll()
 			s.cookie(c, "", -1)
 		}
-		fail(c, status, "认证状态不可用，操作未完成，请检查认证状态目录并重启面板")
-		return
+		return authReply{status: status, message: "认证状态不可用，操作未完成，请检查认证状态目录并重启面板"}
 	}
-	fail(c, status, err.Error())
+	return authReply{status: status, message: err.Error()}
 }
 func authBody(c *gin.Context, out any) bool {
 	if c.ContentType() != "application/json" {
 		fail(c, 415, "请使用 JSON 请求")
 		return false
 	}
-	d := json.NewDecoder(c.Request.Body)
+	// Read to EOF before decoding so even trailing whitespace counts toward the
+	// limit, including requests without Content-Length (chunked HTTP bodies).
+	if c.Request.ContentLength > 4096 {
+		fail(c, 413, "认证请求超过 4 KiB")
+		return false
+	}
+	data, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 4096))
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			fail(c, 413, "认证请求超过 4 KiB")
+		} else {
+			fail(c, 400, "认证参数无效")
+		}
+		return false
+	}
+	data = bytes.Trim(data, " \t\r\n")
+	if len(data) == 0 || data[0] != '{' {
+		fail(c, 400, "认证参数无效")
+		return false
+	}
+	d := json.NewDecoder(bytes.NewReader(data))
 	d.DisallowUnknownFields()
 	if err := d.Decode(out); err != nil {
 		fail(c, 400, "认证参数无效")
@@ -72,11 +92,9 @@ func (s *Server) limited(c *gin.Context, l *auth.Limiter) bool {
 	return false
 }
 func (s *Server) loginTOTP(c *gin.Context) {
-	s.authMu.Lock()
-	defer s.authMu.Unlock()
 	event := logs.LoginEvent{Username: s.Config.Username, Stage: "totp"}
 	defer s.auditLoginFailure(c, &event)
-	if s.limited(c, &s.limiter) {
+	if s.sourceLimited(c, &s.totpLimiter) {
 		return
 	}
 	var req struct {
@@ -87,11 +105,16 @@ func (s *Server) loginTOTP(c *gin.Context) {
 	if !authBody(c, &req) {
 		return
 	}
-	if err := s.account().FinishLogin(req.Challenge, req.Code, req.Recovery); err != nil {
-		s.securityError(c, err)
-		return
+	reply := s.loginTransaction(c, &s.totpWork, func() authReply {
+		if err := s.account().FinishLogin(req.Challenge, req.Code, req.Recovery); err != nil {
+			return s.securityReply(c, err)
+		}
+		return authReply{status: 200, body: s.loginSession(c)}
+	})
+	reply.write(c)
+	if reply.status == 200 {
+		s.loginSuccess(c, "totp")
 	}
-	s.loginSession(c)
 }
 func (s *Server) rotateSession(c *gin.Context) gin.H {
 	s.Sessions.DeleteAll()
@@ -99,125 +122,88 @@ func (s *Server) rotateSession(c *gin.Context) gin.H {
 	s.cookie(c, id, int(auth.TTL.Seconds()))
 	return gin.H{"username": s.Config.Username, "csrf_token": v.CSRF, "expires_at": v.Expires}
 }
+
+type securityCredentials struct {
+	Current  string `json:"current_password"`
+	Code     string `json:"code"`
+	Recovery string `json:"recovery_code"`
+}
+
 func (s *Server) registerAccountSecurity(private *gin.RouterGroup) {
 	private.GET("/auth/security", func(c *gin.Context) { c.JSON(200, s.account().Security()) })
-	// Recheck the session and CSRF under the same lock as credential mutation and
-	// login. A request queued before revocation must not modify newer credentials.
-	guarded := func(handle gin.HandlerFunc) gin.HandlerFunc {
-		return func(c *gin.Context) {
-			s.authMu.Lock()
-			defer s.authMu.Unlock()
-			v, ok := s.session(c)
-			if !ok {
-				fail(c, 401, "请先登录")
-				return
-			}
-			if !auth.Equal(c.GetHeader("X-CSRF-Token"), v.CSRF) {
-				fail(c, 403, "请求校验失败，请刷新页面")
-				return
-			}
-			if s.limited(c, &s.securityLimiter) {
-				return
-			}
-			handle(c)
-		}
+	type passwordInput struct {
+		securityCredentials
+		Password string `json:"new_password"`
 	}
-	type credentials struct {
-		Current  string `json:"current_password"`
-		Code     string `json:"code"`
-		Recovery string `json:"recovery_code"`
-	}
-	private.POST("/auth/password", s.csrf, guarded(func(c *gin.Context) {
-		var req struct {
-			credentials
-			Password string `json:"new_password"`
-		}
-		if !authBody(c, &req) {
-			return
-		}
+	private.POST("/auth/password", s.csrf, accountHandler(s, func(c *gin.Context, req *passwordInput) authReply {
 		if err := s.account().ChangePassword(req.Current, req.Password, req.Code, req.Recovery); err != nil {
-			s.securityError(c, err)
-			return
+			return s.securityReply(c, err)
 		}
 		s.Sessions.DeleteAll()
 		s.cookie(c, "", -1)
-		slog.Info("管理员修改登录密码，已撤销全部会话")
-		c.Status(204)
+		return authReply{status: 204, log: "管理员修改登录密码，已撤销全部会话"}
 	}))
-	private.POST("/auth/totp/setup", s.csrf, guarded(func(c *gin.Context) {
-		var req struct {
-			Password string `json:"current_password"`
-		}
-		if !authBody(c, &req) {
-			return
-		}
+	type setupInput struct {
+		Password string `json:"current_password"`
+	}
+	private.POST("/auth/totp/setup", s.csrf, accountHandler(s, func(c *gin.Context, req *setupInput) authReply {
 		id, _ := c.Cookie(auth.CookieName)
 		setup, err := s.account().StartSetup(id, req.Password)
 		if err != nil {
-			s.securityError(c, err)
-			return
+			return s.securityReply(c, err)
 		}
-		key, err := otp.NewKeyFromURL(setup.URL)
-		if err != nil {
-			s.securityError(c, err)
-			return
-		}
-		img, err := key.Image(240, 240)
-		if err != nil {
-			s.securityError(c, err)
-			return
-		}
-		var buf bytes.Buffer
-		if err = png.Encode(&buf, img); err != nil {
-			s.securityError(c, err)
-			return
-		}
-		c.JSON(200, gin.H{"setup_id": setup.ID, "secret": setup.Secret, "qr_code": "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()), "expires_at": setup.Expires})
+		return authReply{render: func(c *gin.Context) { renderSetup(c, setup) }}
 	}))
-	private.POST("/auth/totp/confirm", s.csrf, guarded(func(c *gin.Context) {
-		var req struct {
-			ID   string `json:"setup_id"`
-			Code string `json:"code"`
-		}
-		if !authBody(c, &req) {
-			return
-		}
+	type confirmInput struct {
+		ID   string `json:"setup_id"`
+		Code string `json:"code"`
+	}
+	private.POST("/auth/totp/confirm", s.csrf, accountHandler(s, func(c *gin.Context, req *confirmInput) authReply {
 		id, _ := c.Cookie(auth.CookieName)
 		codes, err := s.account().ConfirmSetup(id, req.ID, req.Code)
 		if err != nil {
-			s.securityError(c, err)
-			return
+			return s.securityReply(c, err)
 		}
-		session := s.rotateSession(c)
-		slog.Info("管理员启用 TOTP")
-		c.JSON(200, gin.H{"recovery_codes": codes, "session": session})
+		return authReply{status: 200, body: gin.H{"recovery_codes": codes, "session": s.rotateSession(c)}, log: "管理员启用 TOTP"}
 	}))
-	private.DELETE("/auth/totp", s.csrf, guarded(func(c *gin.Context) {
-		var req credentials
-		if !authBody(c, &req) {
-			return
-		}
+	private.DELETE("/auth/totp", s.csrf, accountHandler(s, func(c *gin.Context, req *securityCredentials) authReply {
 		if err := s.account().DisableTOTP(req.Current, req.Code, req.Recovery); err != nil {
-			s.securityError(c, err)
-			return
+			return s.securityReply(c, err)
 		}
-		session := s.rotateSession(c)
-		slog.Info("管理员关闭 TOTP")
-		c.JSON(200, gin.H{"session": session})
+		return authReply{status: 200, body: gin.H{"session": s.rotateSession(c)}, log: "管理员关闭 TOTP"}
 	}))
-	private.POST("/auth/totp/recovery-codes", s.csrf, guarded(func(c *gin.Context) {
-		var req credentials
-		if !authBody(c, &req) {
-			return
-		}
+	private.POST("/auth/totp/recovery-codes", s.csrf, accountHandler(s, func(c *gin.Context, req *securityCredentials) authReply {
 		codes, err := s.account().RegenerateCodes(req.Current, req.Code, req.Recovery)
 		if err != nil {
-			s.securityError(c, err)
+			return s.securityReply(c, err)
+		}
+		return authReply{status: 200, body: gin.H{"recovery_codes": codes, "session": s.rotateSession(c)}, log: "管理员重新生成 TOTP 恢复码"}
+	}))
+	private.DELETE("/auth/totp/setup", s.csrf, func(c *gin.Context) {
+		if s.limited(c, &s.securityLimiter) {
 			return
 		}
-		session := s.rotateSession(c)
-		slog.Info("管理员重新生成 TOTP 恢复码")
-		c.JSON(200, gin.H{"recovery_codes": codes, "session": session})
-	}))
-	private.DELETE("/auth/totp/setup", s.csrf, guarded(func(c *gin.Context) { id, _ := c.Cookie(auth.CookieName); s.account().DiscardSetup(id); c.Status(204) }))
+		s.authTransaction(c, true, func() authReply {
+			id, _ := c.Cookie(auth.CookieName)
+			s.account().DiscardSetup(id)
+			return authReply{status: 204}
+		}).write(c)
+	})
+}
+
+func renderSetup(c *gin.Context, setup auth.Setup) {
+	key, err := otp.NewKeyFromURL(setup.URL)
+	if err == nil {
+		img, imageErr := key.Image(240, 240)
+		err = imageErr
+		if err == nil {
+			var buf bytes.Buffer
+			err = png.Encode(&buf, img)
+			if err == nil {
+				c.JSON(200, gin.H{"setup_id": setup.ID, "secret": setup.Secret, "qr_code": "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()), "expires_at": setup.Expires})
+				return
+			}
+		}
+	}
+	fail(c, 503, "认证状态不可用，操作未完成，请重试")
 }

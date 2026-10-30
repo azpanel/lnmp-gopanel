@@ -100,7 +100,7 @@ func TestLoginAuditPasswordAndMetadata(t *testing.T) {
 			t.Fatal("invalid request retained password", event)
 		}
 	}
-	for s.limiter.Allow() {
+	for allowed, _ := s.limiter.Allow("192.0.2.1"); allowed; allowed, _ = s.limiter.Allow("192.0.2.1") {
 	}
 	if w := request(h, "POST", "/api/v1/auth/login", `{"username":"admin","password":"limited-secret"}`, nil, "", ""); w.Code != 429 {
 		t.Fatal(w.Code)

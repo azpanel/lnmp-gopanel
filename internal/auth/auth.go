@@ -69,11 +69,57 @@ func Equal(a, b string) bool {
 	return len(a) > 0 && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
-// A single administrator does not need an unbounded per-IP map. This bounds
-// bcrypt work even when many spoofed source addresses reach the HTTP listener.
+// Limiter bounds authenticated account-security operations independently of login.
 type Limiter struct {
 	mu       sync.Mutex
 	attempts []time.Time
+}
+
+const MaxLoginSources = 4096
+
+// SourceLimiter has a separate rolling window for each direct client address.
+// Its zero value is ready to use. Live windows are never evicted to admit new
+// sources, which would let an attacker reset a window by filling the table.
+type SourceLimiter struct {
+	mu        sync.Mutex
+	sources   map[string][]time.Time
+	now       func() time.Time
+	nextPrune time.Time
+}
+
+func (l *SourceLimiter) Allow(source string) (bool, time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	if l.now != nil {
+		now = l.now()
+	}
+	cut := now.Add(-time.Minute)
+	if l.sources == nil {
+		l.sources = make(map[string][]time.Time)
+	}
+	if !now.Before(l.nextPrune) {
+		for key, attempts := range l.sources {
+			if !attempts[len(attempts)-1].After(cut) {
+				delete(l.sources, key)
+			}
+		}
+		l.nextPrune = now.Add(time.Second)
+	}
+	attempts, exists := l.sources[source]
+	if !exists && len(l.sources) >= MaxLoginSources {
+		return false, time.Minute
+	}
+	i := 0
+	for i < len(attempts) && !attempts[i].After(cut) {
+		i++
+	}
+	attempts = attempts[i:]
+	if len(attempts) >= 10 {
+		return false, attempts[0].Add(time.Minute).Sub(now)
+	}
+	l.sources[source] = append(attempts, now)
+	return true, 0
 }
 
 func (l *Limiter) Allow() bool {

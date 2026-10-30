@@ -41,7 +41,7 @@ type Server struct {
 	Services            *control.Manager
 	Components          *components.Manager
 	Docker              *docker.Manager
-	LoginLog            *logs.LoginLog
+	LoginLog            LoginLogStore
 	Logs                logs.Reader
 	CustomLogs          *logs.Registry
 	CustomLogsError     string
@@ -54,12 +54,15 @@ type Server struct {
 	Screenshots         *screenshots.Manager
 	Host                metrics.Host
 	Assets              fs.FS
-	limiter             auth.Limiter
+	limiter             auth.SourceLimiter
+	totpLimiter         auth.SourceLimiter
+	passwordWork        authGate
+	totpWork            authGate
 	streams             chan struct{}
 	logReads            chan struct{}
 	Account             *auth.Account
 	accountOnce         sync.Once
-	authMu              sync.Mutex
+	authMu              authGate
 	securityLimiter     auth.Limiter
 }
 
@@ -107,13 +110,13 @@ func (s *Server) Handler() http.Handler {
 		c.JSON(200, gin.H{"username": s.Config.Username, "csrf_token": v.CSRF, "expires_at": v.Expires})
 	})
 	private.POST("/auth/logout", s.csrf, func(c *gin.Context) {
-		s.authMu.Lock()
-		defer s.authMu.Unlock()
-		id, _ := c.Cookie(auth.CookieName)
-		s.account().DiscardSetup(id)
-		s.Sessions.Delete(id)
-		s.cookie(c, "", -1)
-		c.Status(204)
+		s.authTransaction(c, true, func() authReply {
+			id, _ := c.Cookie(auth.CookieName)
+			s.account().DiscardSetup(id)
+			s.Sessions.Delete(id)
+			s.cookie(c, "", -1)
+			return authReply{status: 204}
+		}).write(c)
 	})
 	s.registerAccountSecurity(private)
 	s.registerDashboard(private)
@@ -365,59 +368,59 @@ func (s *Server) cookie(c *gin.Context, id string, age int) {
 	http.SetCookie(c.Writer, &http.Cookie{Name: auth.CookieName, Value: id, Path: "/", MaxAge: age, HttpOnly: true, Secure: s.Config.SecureCookie, SameSite: http.SameSiteStrictMode})
 }
 func (s *Server) login(c *gin.Context) {
-	s.authMu.Lock()
-	defer s.authMu.Unlock()
 	event := logs.LoginEvent{Stage: "password"}
 	defer s.auditLoginFailure(c, &event)
-	if !s.limiter.Allow() {
-		c.Header("Retry-After", "60")
-		fail(c, 429, "尝试次数过多，请稍后再试")
-		return
-	}
-	if c.ContentType() != "application/json" {
-		fail(c, 415, "请使用 JSON 请求")
+	if s.sourceLimited(c, &s.limiter) {
 		return
 	}
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	err := c.ShouldBindJSON(&req)
+	if !authBody(c, &req) {
+		event.Username = req.Username
+		return
+	}
 	event.Username = req.Username
-	if err != nil || len(req.Password) > 72 || len(req.Username) > 128 {
+	if len(req.Password) > 72 || len(req.Username) > 128 {
 		fail(c, 400, "登录参数无效")
 		return
 	}
-	// Verify the password even for an incorrect username to avoid a timing oracle.
-	challenge, err := s.account().StartLogin(req.Password)
-	if errors.Is(err, auth.ErrProof) {
-		event.Password = &req.Password
+	created := false
+	reply := s.loginTransaction(c, &s.passwordWork, func() authReply {
+		// Verify even for an incorrect username to avoid a timing oracle.
+		challenge, err := s.account().StartLogin(req.Password)
+		if errors.Is(err, auth.ErrProof) {
+			event.Password = &req.Password
+		}
+		if !auth.Equal(req.Username, s.Config.Username) || errors.Is(err, auth.ErrProof) {
+			return authReply{status: 401, message: "用户名或密码错误"}
+		}
+		if err != nil {
+			return s.securityReply(c, err)
+		}
+		if challenge != "" {
+			return authReply{status: 200, body: gin.H{"totp_required": true, "challenge_token": challenge, "expires_in": int(auth.PendingTTL.Seconds())}}
+		}
+		created = true
+		return authReply{status: 200, body: s.loginSession(c)}
+	})
+	reply.write(c)
+	if created {
+		s.loginSuccess(c, "password")
 	}
-	if !auth.Equal(req.Username, s.Config.Username) || errors.Is(err, auth.ErrProof) {
-		fail(c, 401, "用户名或密码错误")
-		return
-	}
-	if err != nil {
-		s.securityError(c, err)
-		return
-	}
-	if challenge != "" {
-		c.JSON(200, gin.H{"totp_required": true, "challenge_token": challenge, "expires_in": int(auth.PendingTTL.Seconds())})
-		return
-	}
-	s.loginSession(c)
 }
-func (s *Server) loginSession(c *gin.Context) {
+
+// Called only inside an authentication transaction; prepares headers and state.
+func (s *Server) loginSession(c *gin.Context) gin.H {
 	if old, e := c.Cookie(auth.CookieName); e == nil {
 		s.Sessions.Delete(old)
 	}
 	id, v := s.Sessions.Create()
 	s.cookie(c, id, int(auth.TTL.Seconds()))
-	c.JSON(200, gin.H{"username": s.Config.Username, "csrf_token": v.CSRF, "expires_at": v.Expires})
-	stage := "password"
-	if c.Request.URL.Path == "/api/v1/auth/login/totp" {
-		stage = "totp"
-	}
+	return gin.H{"username": s.Config.Username, "csrf_token": v.CSRF, "expires_at": v.Expires}
+}
+func (s *Server) loginSuccess(c *gin.Context, stage string) {
 	s.writeLoginEvent(c, logs.LoginEvent{Username: s.Config.Username, Stage: stage, Result: "success", Reason: "authenticated"})
 	slog.Info("administrator logged in")
 }

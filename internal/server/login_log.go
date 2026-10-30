@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 
@@ -8,6 +9,14 @@ import (
 	"github.com/azpanel/lnmp-gopanel/internal/logs"
 	"github.com/gin-gonic/gin"
 )
+
+// LoginLogStore supports the panel-owned audit log independently of system logs.
+type LoginLogStore interface {
+	Append(logs.LoginEvent) error
+	Path() string
+	Read(context.Context, logs.Request) (logs.Window, error)
+	File(context.Context) logs.File
+}
 
 func enrichLoginLogLocations(lines []logs.Line) {
 	locations := make(map[string]string)
@@ -48,7 +57,7 @@ func (s *Server) auditLoginFailure(c *gin.Context, event *logs.LoginEvent) {
 	}
 	event.Result = "failure"
 	switch status {
-	case 400, 415:
+	case 400, 413, 415:
 		event.Reason = "invalid_request"
 	case 429:
 		event.Reason = "rate_limited"
