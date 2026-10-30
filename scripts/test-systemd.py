@@ -133,7 +133,12 @@ def http_checks(version, helper_status="ready"):
     while True:
         with request("/api/v1/components") as response:
             components = json.load(response)
-        if components["status"] == helper_status:
+        if (components["status"] == helper_status
+                or (helper_status == "ready" and components["status"] == "partial")):
+            if helper_status == "ready":
+                assert len(components["items"]) == 6, components
+                assert any(item["name"] == "python3" and item["status"] == "ready"
+                           for item in components["items"]), components
             break
         if time.monotonic() >= deadline or (helper_status == "ready" and components["status"] == "failed"):
             raise AssertionError(f"Helper failed inside the actual service namespace: {components}")

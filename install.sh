@@ -474,7 +474,6 @@ uninstall_panel() {
   if [[ "$load_state" != not-found ]]; then
     systemctl stop lnmp-gopanel || die "Cannot stop panel; no panel files were removed"
     systemctl disable lnmp-gopanel || die "Cannot disable panel; no panel files were removed"
-    systemctl reset-failed lnmp-gopanel || die "Cannot reset panel service state; no panel files were removed"
   fi
   for destination in "${removals[@]}"; do
     rm -rf -- "$destination" || die "Cannot remove $destination; uninstall is incomplete"

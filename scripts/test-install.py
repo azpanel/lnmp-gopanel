@@ -71,7 +71,9 @@ case "$1" in
   disable) rm -f /run/panel.enabled ;;
   restart) [[ ! -f /run/fail-restart ]] || exit 1; touch /run/panel.active ;;
   stop) [[ ! -f /run/fail-stop ]] || exit 1; rm -f /run/panel.active ;;
-  daemon-reload|reset-failed) exit 0 ;;
+  daemon-reload) exit 0 ;;
+  # A stopped unit may be unloaded by the reload performed during disable.
+  reset-failed) [[ -f /run/panel.active ]] ;;
   show)
     if [[ "$*" == *--property=LoadState* ]]; then
       if [[ -e /etc/systemd/system/lnmp-gopanel.service || -f /run/panel.active ]]; then

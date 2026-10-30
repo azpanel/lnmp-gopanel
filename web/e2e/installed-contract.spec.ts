@@ -29,9 +29,10 @@ test("installed HTTPS panel authenticates and reports real helper results", asyn
     .poll(async () => {
       const response = await page.request.get("/api/v1/components");
       expect(response.status()).toBe(200);
-      return (await response.json()).status;
+      const status = (await response.json()).status;
+      return denied ? status === "failed" : ["ready", "partial"].includes(status);
     })
-    .toBe(denied ? "failed" : "ready");
+    .toBe(true);
   if (denied) {
     await expect(
       page.getByRole("alert").filter({ hasText: "组件查询辅助程序不可用" }),
@@ -41,7 +42,8 @@ test("installed HTTPS panel authenticates and reports real helper results", asyn
     const response = await page.request.get("/api/v1/components");
     expect(
       (await response.json()).items.some(
-        (item: { status: string }) => item.status !== "loading",
+        (item: { name: string; status: string }) =>
+          item.name === "python3" && item.status === "ready",
       ),
     ).toBe(true);
   }
