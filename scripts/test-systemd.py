@@ -199,6 +199,10 @@ def main():
     parser.add_argument("--screenshots-test", type=Path)
     args = parser.parse_args()
     guard()  # Always before installing packages, changing accounts or touching /etc.
+    # Hosted images make /usr/local/bin world-writable for global npm installs.
+    # Use normal system directory permissions before exercising the installer's
+    # parent-path checks; only the disposable machine accepted by guard is changed.
+    run("install", "-d", "-o", "root", "-g", "root", "-m", "0755", "/usr/local/bin")
     archive = args.archive.resolve()
     installer = str(PROJECT / "install.sh")
     installed = False
