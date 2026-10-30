@@ -145,6 +145,9 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      # The runner downloads browsers; the root installation test launches them.
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/gopanel-playwright
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -173,7 +176,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Install, upgrade, inject failures and uninstall real package
         run: |
-          sudo env "PATH=$PATH" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+          sudo env "PATH=$PATH" "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" \
+            GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
             python3 scripts/test-systemd.py --archive dist/lnmp-gopanel_linux_amd64.tar.gz \
             --screenshots-test "$PWD/bin/screenshots.test" --browser-contract
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
