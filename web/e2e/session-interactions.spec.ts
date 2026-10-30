@@ -1,25 +1,12 @@
-import { test, expect, type Page, type BrowserContext } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
-// These interaction tests share one authenticated session per project so they
-// do not exhaust the real source login limit used by the other specs.
-let cookies: Awaited<ReturnType<BrowserContext["cookies"]>> = [];
-test.beforeAll(async ({ playwright, baseURL }) => {
-  const request = await playwright.request.newContext({
-    baseURL,
-    ignoreHTTPSErrors: true,
-  });
+// Authenticate against this test's fresh backend; never reuse another server's cookies.
+test.beforeEach(async ({ context, request }) => {
   const response = await request.post("/api/v1/auth/login", {
     data: { username: "admin", password: "Test-Only-Panel-Password-2026" },
   });
   expect(response.ok()).toBe(true);
-  cookies = (await request.storageState()).cookies;
-  await request.dispose();
-});
-test.beforeEach(async ({ context }) => {
-  await context.addCookies(cookies);
-});
-test.afterEach(async ({ context }) => {
-  cookies = await context.cookies();
+  await context.addCookies((await request.storageState()).cookies);
 });
 
 async function login(page: Page, path: string) {

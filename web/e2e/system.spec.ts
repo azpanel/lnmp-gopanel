@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 import type { Host } from "../src/lib/types";
 
 const ubuntu: Host = {

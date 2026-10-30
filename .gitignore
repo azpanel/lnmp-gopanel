@@ -20,3 +20,5 @@ auth.lock
 .env
 .env.*
 !.env.example
+
+/scripts/__pycache__/

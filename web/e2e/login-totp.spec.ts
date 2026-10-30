@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 test("six TOTP digits submit once while recovery codes require a click", async ({
   page,

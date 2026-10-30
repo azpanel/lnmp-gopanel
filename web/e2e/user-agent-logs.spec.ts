@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 const samples = [
   ["Chrome/130.0 Safari/537.36", "Chrome", "chrome.svg"],

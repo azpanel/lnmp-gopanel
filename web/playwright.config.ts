@@ -1,12 +1,21 @@
 import { defineConfig, devices } from "@playwright/test";
+export const e2ePortBase = Number(process.env.GOPANEL_E2E_PORT_BASE ?? 18091);
+if (!Number.isInteger(e2ePortBase) || e2ePortBase < 1024 || e2ePortBase > 65530)
+  throw new Error(
+    "GOPANEL_E2E_PORT_BASE must reserve six ports between 1024 and 65535",
+  );
 export default defineConfig({
   testDir: "./e2e",
-  testIgnore: ["account-security.spec.ts", "login-logs.spec.ts"],
+  testIgnore: [
+    "account-security.spec.ts",
+    "login-logs.spec.ts",
+    "installed-contract.spec.ts",
+  ],
   fullyParallel: false,
   workers: 1,
-  timeout: 30000,
+  timeout: 60000,
   use: {
-    baseURL: "https://127.0.0.1:18091",
+    baseURL: `https://127.0.0.1:${e2ePortBase}`,
     ignoreHTTPSErrors: true,
     trace: "retain-on-failure",
   },
@@ -23,16 +32,8 @@ export default defineConfig({
       use: {
         ...devices["iPhone 13"],
         defaultBrowserType: "chromium",
-        baseURL: "https://127.0.0.1:18092",
+        baseURL: `https://127.0.0.1:${e2ePortBase + 1}`,
       },
     },
   ],
-  // Each project has its own sessions and login rate limit.
-  webServer: [18091, 18092].map((port) => ({
-    command: `node scripts/e2e-server.mjs ${port}`,
-    url: `https://127.0.0.1:${port}`,
-    ignoreHTTPSErrors: true,
-    reuseExistingServer: false,
-    timeout: 30000,
-  })),
 });

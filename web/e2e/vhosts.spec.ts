@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import type { WebsiteScreenshot } from "../src/lib/types";
 
 test("virtual hosts show certificates, public parent usage, configuration and guarded toggles", async ({

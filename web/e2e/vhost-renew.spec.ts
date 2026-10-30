@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import type { VhostJob, VhostRenewItem } from "../src/lib/vhost-create";
 
 test("canceled renewal distinguishes unstarted sites from failed attempts", async ({

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 test("custom logs validate paths, survive refresh and can be removed from the catalog", async ({
   page,

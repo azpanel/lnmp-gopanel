@@ -1,4 +1,4 @@
-.PHONY: build web test check dev clean
+.PHONY: build web test check dev clean test-privileged test-browser test-security
 
 VERSION ?= dev-$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_TIME ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -25,3 +25,14 @@ dev:
 
 clean:
 	rm -rf bin web/dist
+
+test-privileged:
+	python3 scripts/test-required.py
+
+test-browser: build
+	cd web && npm run test:e2e && npm run test:e2e:account && npm run test:e2e:login-logs
+
+test-security:
+	go mod verify
+	GOMEMLIMIT=2GiB GOGC=50 go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+	cd web && npm audit

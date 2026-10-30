@@ -1,4 +1,4 @@
-import { test, expect, type Locator, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "./fixtures";
 
 async function navigate(page: Page, name: string) {
   const menu = page.getByRole("button", { name: "打开导航", exact: true });

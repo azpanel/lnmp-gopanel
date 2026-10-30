@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 const current = (page: Page) =>
   page.locator('.login-slide[data-active="true"]');
@@ -23,11 +23,31 @@ async function leaveShowcase(page: Page) {
   await page.mouse.move(0, 0);
 }
 
+// Lazy modules can resolve after the virtual clock has paused. Allow React's
+// Suspense retry timers to paint while hover pauses the carousel itself.
+async function waitForDemo(page: Page) {
+  if ((await page.locator(".login-demo").count()) === 0) return;
+  await page.getByRole("region", { name: "功能演示" }).hover();
+  await expect
+    .poll(
+      async () => {
+        await page.clock.runFor(100);
+        return current(page)
+          .getByRole("status", { name: "正在加载演示" })
+          .count();
+      },
+      { intervals: [50], timeout: 10000 },
+    )
+    .toBe(0);
+  await page.mouse.move(0, 0);
+}
+
 async function select(page: Page, name: string) {
   await page.getByRole("button", { name: `显示${name}`, exact: true }).click();
   await expect(
     page.getByRole("button", { name: `显示${name}`, exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
+  await waitForDemo(page);
   await leaveShowcase(page);
 }
 
@@ -54,6 +74,7 @@ test("login slogans and local demos rotate together without moving the form or c
     await expect(current(page).locator("h1")).toBeVisible();
     if (isMobile) await expect(page.locator(".login-demo")).toHaveCount(0);
     else {
+      await waitForDemo(page);
       await expect(
         current(page).getByText("演示数据", { exact: true }),
       ).toHaveCount(0);

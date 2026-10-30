@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 test("installation defaults, module choices, restart recovery and polling output", async ({
   page,

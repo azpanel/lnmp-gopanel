@@ -19,7 +19,7 @@ jobs:
   build:
     name: Test and build Linux packages
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -40,26 +40,27 @@ jobs:
         run: |
           npm run format:check
           npm test
+          npm audit
           npm run build
       - name: Check and test Go
         run: |
           test -z "$(gofmt -l cmd internal web/*.go)"
+          go mod verify
           go vet ./...
           go test -race ./...
+          GOMEMLIMIT=2GiB GOGC=50 go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - name: Check installer and packaging scripts
         run: |
-          bash -n install.sh scripts/package.sh
-          shellcheck install.sh scripts/package.sh
+          bash -n install.sh scripts/package.sh scripts/test-debian-vm.sh
+          shellcheck install.sh scripts/package.sh scripts/test-debian-vm.sh
+          python3 scripts/test-required-checker.py
+          python3 scripts/test-integration-tools.py
           sudo python3 scripts/test-install.py
-      - name: Test real Chromium screenshots
+      - name: Require privileged and real Nginx tests
         run: |
-          cd web
-          npx playwright install --with-deps chromium
-          screenshot_browser="$(node -e 'process.stdout.write(require("@playwright/test").chromium.executablePath())')"
-          cd ..
-          # Only this isolated local-server fixture disables Chromium's sandbox
-          # when root; production screenshot code always requires a normal user.
-          sudo SCREENSHOT_TEST_BROWSER="$screenshot_browser" "$(command -v go)" test -race ./internal/screenshots -run TestChromiumIntegration -count=1
+          sudo apt-get update
+          sudo apt-get install -y nginx openssl
+          sudo env "PATH=$PATH" python3 scripts/test-required.py
       - name: Build amd64 and arm64 archives
         run: |
           build_version="dev-${GITHUB_SHA:0:12}"
@@ -73,6 +74,8 @@ jobs:
           cp install.sh dist/install.sh
           cd dist
           sha256sum lnmp-gopanel_linux_*.tar.gz > SHA256SUMS
+      - name: Smoke-test native production package
+        run: python3 scripts/test-package.py dist/lnmp-gopanel_linux_amd64.tar.gz
       - name: Upload installation packages
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -81,11 +84,171 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: failure()
+        with:
+          name: build-failure-details
+          path: test-results/
+
+  browser:
+    name: Desktop and mobile browser regressions
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GOPANEL_E2E_BINARY: ${{ github.workspace }}/.tmp-browser-package/lnmp-gopanel/bin/lnmp-gopanel
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: lnmp-gopanel-linux
+          path: dist
+      - name: Start tests from this build's embedded binary
+        run: |
+          cd dist
+          sha256sum -c lnmp-gopanel_linux_amd64.tar.gz.sha256
+          mkdir -p "$GITHUB_WORKSPACE/.tmp-browser-package"
+          tar -xzf lnmp-gopanel_linux_amd64.tar.gz -C "$GITHUB_WORKSPACE/.tmp-browser-package"
+          cd ../web
+          npm ci
+          npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+        working-directory: web
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: login-performance
+          path: web/test-results/**/login-performance.json
+          retention-days: 30
+      - run: npm run test:e2e:account
+        working-directory: web
+      - run: npm run test:e2e:login-logs
+        working-directory: web
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: failure()
+        with:
+          name: browser-failure-details
+          path: |
+            web/test-results/
+            web/account-test-results/
+            web/playwright-report/
+
+  systemd:
+    name: Real systemd and sandbox (amd64)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: lnmp-gopanel-linux
+          path: dist
+      - name: Build sandbox integration tests
+        run: |
+          mkdir -p bin
+          go test -c -race -o bin/screenshots.test ./internal/screenshots
+      - name: Install contract browser
+        working-directory: web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Install, upgrade, inject failures and uninstall real package
+        run: |
+          sudo env "PATH=$PATH" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+            python3 scripts/test-systemd.py --archive dist/lnmp-gopanel_linux_amd64.tar.gz \
+            --screenshots-test "$PWD/bin/screenshots.test" --browser-contract
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: failure()
+        with:
+          name: systemd-amd64-failure-details
+          path: |
+            test-results/
+            web/test-results/
+
+  arm64:
+    name: Real systemd and sandbox (arm64)
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: lnmp-gopanel-linux
+          path: dist
+      - name: Build sandbox integration tests
+        run: |
+          mkdir -p bin
+          go test -c -race -o bin/screenshots.test ./internal/screenshots
+      - name: Install, upgrade, inject failures and uninstall real package
+        run: |
+          sudo env "PATH=$PATH" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+            python3 scripts/test-systemd.py --archive dist/lnmp-gopanel_linux_arm64.tar.gz \
+            --screenshots-test "$PWD/bin/screenshots.test"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: failure()
+        with:
+          name: systemd-arm64-failure-details
+          path: |
+            test-results/
+            web/test-results/
+
+  debian:
+    name: Debian 12 systemd 252 VM
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: lnmp-gopanel-linux
+          path: dist
+      - name: Install VM tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils genisoimage openssh-client
+      - name: Verify image and test real Debian installation
+        run: bash scripts/test-debian-vm.sh dist/lnmp-gopanel_linux_amd64.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: failure()
+        with:
+          name: debian-failure-details
+          path: test-results/
 
   release:
     name: Publish tagged release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, browser, systemd, arm64, debian]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

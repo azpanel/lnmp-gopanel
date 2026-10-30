@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 test("unmanaged nginx blocks actions and repairs only after preview and confirmation", async ({
   page,

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 test("storage mounts, asynchronous file ranking, treemap and retry", async ({
   page,

@@ -250,41 +250,7 @@ func (s *Server) Handler() http.Handler {
 	private.POST("/vhosts/screenshot/refresh", s.csrf, s.screenshotRefresh)
 	private.DELETE("/vhosts/screenshot", s.csrf, s.screenshotDelete)
 	private.GET("/vhosts/screenshot/image", s.screenshotImage)
-	r.NoRoute(func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
-			fail(c, 404, "接口不存在")
-			return
-		}
-		if c.Request.Method != "GET" && c.Request.Method != "HEAD" {
-			c.Status(405)
-			return
-		}
-		name := strings.TrimPrefix(c.Request.URL.Path, "/")
-		if !fs.ValidPath(name) || name == "." {
-			name = "index.html"
-		}
-		data, err := fs.ReadFile(s.Assets, name)
-		if err != nil {
-			if strings.HasPrefix(name, "assets/") || strings.Contains(name, ".") {
-				c.Status(404)
-				return
-			}
-			data, err = fs.ReadFile(s.Assets, "index.html")
-			name = "index.html"
-		}
-		if err != nil {
-			c.String(503, "前端尚未构建，请运行 make build")
-			return
-		}
-		if name == "index.html" {
-			c.Header("Cache-Control", "no-store")
-		} else if strings.HasPrefix(name, "assets/") {
-			c.Header("Cache-Control", "public, max-age=31536000, immutable")
-		} else {
-			c.Header("Cache-Control", "no-cache")
-		}
-		http.ServeContent(c.Writer, c.Request, name, time.Time{}, strings.NewReader(string(data)))
-	})
+	r.NoRoute(s.serveFrontend)
 	return r
 }
 func (s *Server) dockerSnapshot(c *gin.Context, force bool) {

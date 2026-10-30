@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 const original = "Test-Only-Panel-Password-2026";
 function totp(secret: string) {

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import type { Snapshot } from "../src/lib/types";
 
 const ids = [

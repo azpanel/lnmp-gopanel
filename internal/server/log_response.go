@@ -47,8 +47,8 @@ func (t *logReadTiming) record(c *gin.Context, mode string) {
 }
 
 // An explicit gzip;q=0 takes precedence over a wildcard. Missing, malformed or
-// unsupported encodings fall back to the existing uncompressed JSON response.
-func acceptsLogGzip(header string) bool {
+// unsupported encodings fall back to the existing uncompressed response.
+func acceptsGzip(header string) bool {
 	wildcard := false
 	for part := range strings.SplitSeq(header, ",") {
 		params := strings.Split(part, ";")
@@ -87,7 +87,7 @@ func writeLogWindow(c *gin.Context, out logs.Window, timing *logReadTiming) {
 	}
 	timing.raw = len(data)
 	c.Writer.Header().Add("Vary", "Accept-Encoding")
-	if len(data) >= 1024 && acceptsLogGzip(strings.Join(c.Request.Header.Values("Accept-Encoding"), ",")) {
+	if len(data) >= 1024 && acceptsGzip(strings.Join(c.Request.Header.Values("Accept-Encoding"), ",")) {
 		started = time.Now()
 		var compressed bytes.Buffer
 		writer, _ := gzip.NewWriterLevel(&compressed, gzip.BestSpeed)

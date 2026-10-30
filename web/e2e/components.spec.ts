@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 test("programming component versions, changelogs and refresh without services", async ({
   page,

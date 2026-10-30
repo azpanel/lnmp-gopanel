@@ -7,11 +7,21 @@ export default defineConfig(({ command, mode }) => ({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
   build: {
+    manifest: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          charts: ["recharts"],
-          react: ["react", "react-dom", "react-router-dom"],
+        // Do not move shared dependencies into a lazy chart chunk and thereby
+        // turn it into a static dependency of the login entry.
+        onlyExplicitManualChunks: true,
+        manualChunks(id) {
+          if (
+            /\/node_modules\/(react|react-dom|react-router|react-router-dom|scheduler)\//.test(
+              id,
+            )
+          )
+            return "react";
+          if (id.includes("/node_modules/recharts/")) return "charts";
+          if (id.includes("/node_modules/zxcvbn/")) return "password-strength";
         },
       },
     },

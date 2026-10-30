@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 test.use({ timezoneId: "America/Los_Angeles" });
 
@@ -14,18 +14,7 @@ const snapshot = {
   updated_at: "2026-10-26T01:02:03Z",
 };
 
-// Reuse this spec's session so UI scenarios do not exhaust the real login limiter.
-let sessionCookies: Awaited<ReturnType<BrowserContext["cookies"]>> | undefined;
-
-async function login(page: import("@playwright/test").Page) {
-  if (sessionCookies) {
-    await page.context().addCookies(sessionCookies);
-    await page.goto("/");
-    await expect(
-      page.getByRole("heading", { name: "系统概览", exact: true }),
-    ).toBeVisible();
-    return;
-  }
+async function login(page: Page) {
   await page.goto("/");
   await page
     .getByLabel("密码", { exact: true })
@@ -34,7 +23,6 @@ async function login(page: import("@playwright/test").Page) {
   await expect(
     page.getByRole("heading", { name: "系统概览", exact: true }),
   ).toBeVisible();
-  sessionCookies = await page.context().cookies();
 }
 
 test("cron navigation, source, refresh failures, retry and empty state", async ({

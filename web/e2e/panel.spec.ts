@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 test("login, real metrics, routes, pause, theme and logout", async ({
   page,

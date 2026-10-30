@@ -104,7 +104,11 @@ Nginx 默认勾选 VTS、GeoIP2、FancyIndex 和 Substitutions Filter，支持�
 
 ## GitHub Actions 产物
 
-[Build and release](https://github.com/azpanel/lnmp-gopanel/actions/workflows/build.yml) 在主分支推送、Pull Request 和手动触发时检查格式、运行 Go 竞态测试与前端测试、执行隔离的安装脚本测试，然后构建 Linux amd64 / arm64 安装包。前端被嵌入面板程序，两个 Go 程序均禁用 CGO。Actions 的 `lnmp-gopanel-linux` Artifact 保留 30 天。
+[Build and release](https://github.com/azpanel/lnmp-gopanel/actions/workflows/build.yml) 在每个 Pull Request 运行格式检查、Go 竞态与前端单元测试、依赖漏洞扫描、隔离安装脚本测试、相关包的完整 root 测试（其中 16 项特权／真实 Nginx 测试必须执行），以及桌面与移动端浏览器回归。默认、账户安全和登录审计三套 Playwright 配置分别执行。浏览器测试使用本轮构建的嵌入式生产程序；缺失或跳过指定关键测试会失败。
+
+每个 PR 还在一次性 Ubuntu 24.04 amd64 托管 runner 上安装真实面板包，检查 sudo 精确授权、systemd、普通账号的 Chromium 沙箱，以及缺失授权、证书权限错误、NoNewPrivileges 限制时的升级回滚。主分支、标签和手动触发另外验证原生 arm64 包，以及 Debian 12／systemd 252 虚拟机；Debian 官方云镜像使用其发布的 SHA-512 清单校验。Release 必须等待基础检查和扩展矩阵全部通过。上述安装测试只安装面板，不安装 LNMP；已有 chroot mock 测试继续用于事务故障注入。故障时保留浏览器 trace、截图和服务日志。
+
+前端被嵌入面板程序，两个 Go 程序均禁用 CGO；实际安装包在源码目录外验证 HTTPS、登录、资源、版本、缓存、压缩和 Range 行为。Actions 的 `lnmp-gopanel-linux` Artifact 保留 30 天。
 
 推送 `v*` 标签会在构建通过后自动创建 GitHub Release，包含两种架构的 `.tar.gz`、各自的 `.sha256`、汇总的 `SHA256SUMS` 和 `install.sh`：
 
@@ -140,6 +144,24 @@ make build
 生产页面由独立脚本检测 CSS／JS 资源更新：打开页面、重新聚焦、返回前台及每分钟检查一次最新入口，发现资源版本变化后自动刷新当前地址；旧脚本加载失败时也可恢复。网络失败或无效响应不触发刷新，同一目标版本每个标签页只自动刷新一次，避免代理缓存导致循环。HTML 不缓存，带哈希文件名的构建资源长期缓存。首次升级到支持此功能的版本时，已打开的旧页面需要先手动刷新一次。
 
 桌面端可通过顶部左侧按钮隐藏或显示导航侧边栏，隐藏后主内容区扩展；当前浏览器会记住这一偏好。手机端继续使用抽屉导航，独立于桌面隐藏状态。
+
+### 本地验证
+
+在源码仓库根目录执行；安装包冒烟需在对应架构的 Linux 主机运行。
+
+```bash
+make test                    # Go 竞态测试与前端单元测试
+make check                   # Go vet 与前端生产构建
+make test-security           # Go 校验、可达漏洞扫描与 npm audit
+sudo env "PATH=$PATH" make test-privileged  # 需 nginx、openssl；指定用例不得跳过
+make test-browser            # 构建本轮程序，执行三套桌面／移动端回归
+bash scripts/package.sh amd64 # arm64 主机改用 arm64
+python3 scripts/test-package.py dist/lnmp-gopanel_linux_amd64.tar.gz
+```
+
+浏览器测试需先在 `web` 执行 `npx playwright install --with-deps chromium`。设置 `GOPANEL_E2E_BINARY` 可指定本轮解包的生产程序；默认使用 `bin/lnmp-gopanel`。并发开发验证可通过 `GOPANEL_E2E_PORT_BASE` 指定六个连续端口，并用 Playwright `--output` 分离测试产物。每个浏览器用例使用独立后端、临时配置和认证状态，真实登录额度不跨用例共用；独立实例禁用真实 helper，避免触碰宿主机服务；安装实例契约测试仅由一次性 CI 环境使用真实 helper。`scripts/test-systemd.py` 和 Debian VM 脚本拒绝在普通开发或已有面板安装的服务器上执行，请勿在生产机伪造 CI 环境标记。
+
+构建预生成有收益的 JS／CSS gzip 文件，直连面板也可协商压缩；HTML 继续禁止缓存，哈希资源长期缓存。HEAD 返回对应表示长度，Range 使用原始字节偏移；API 和 SSE 不进入静态资源压缩路径。登录页的工作区、业务页面、账户设置和非当前演示按需加载；移动端不下载演示组件。构建检查完整静态依赖图，浏览器进一步检查可见演示加载后的传输量：JS gzip 不超过 250 KiB、CSS 不超过 40 KiB。耗时随测试报告保存，用于排查趋势，不使用波动较大的绝对耗时作为唯一门禁。
 
 ## 本地运行
 
@@ -337,7 +359,7 @@ Composer 检测沿用 `components snapshot` 授权，升级时使用同一源码
 
 进入“LNMP 服务”页面后，后台独立查询每个已配置服务的最新正式版本。Nginx 选择官方 Stable 分支（不包括 Mainline），PHP 使用 php.net 发布接口与 php-src 的 NEWS，MariaDB 使用官方发布接口与 changelog，MySQL 使用官方源码仓库的正式标签及官方 Release Notes，Redis 使用官方 GitHub Releases。这里的“最新稳定版”可能跨越本机版本分支，不表示当前安装分支的补丁更新建议。
 
-联网查询由普通面板进程执行，单次请求最多 12 秒，每个服务整体最多 30 秒，只访问固定官方 HTTPS 域名，并限制响应大小与重定向。服务之间并行，状态 API 不等待联网；多个客户端共享内存缓存和正在执行的查询，成功缓存 6 小时，失败或 changelog 不可用时 15 分钟后自动重试；手动检查至少间隔 1 分钟。版本查询失败保留上次结果；changelog 失败仍展示最新版本与官方原文链接。上游限流、网络故障或 HTTP 403 会明确显示原因，不生成替代更新日志。更新日志以纯文本显示，长日志截断并提供完整原文链接，不执行上游 HTML。
+联网查询由普通面板进程执行，单次网络请求最多 12 秒，每个服务的网络与可取消阶段共用 30 秒预算；同步 HTML 解析不提供硬截止时间。网络访问限定为固定官方 HTTPS 域名，并限制响应大小与重定向。服务之间并行，状态 API 不等待联网；多个客户端共享内存缓存和正在执行的查询，成功缓存 6 小时，失败或 changelog 不可用时 15 分钟后自动重试；手动检查至少间隔 1 分钟。版本查询失败保留上次结果；changelog 失败仍展示最新版本与官方原文链接。上游限流、网络故障或 HTTP 403 会明确显示原因，不生成替代更新日志。更新日志以纯文本显示，长日志截断并提供完整原文链接，不执行上游 HTML。
 
 首次初始化自动识别 `redis.service` / `redis-server.service` 或 `/etc/init.d/redis` / `/etc/init.d/redis-server`。已有安装升级时，需要在 `/etc/lnmp-gopanel/services.yaml` 中增加实际对应的 Redis 配置，例如：
 
