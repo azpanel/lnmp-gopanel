@@ -72,6 +72,22 @@ def snapshot():
     return result
 
 
+def prepare_hosted_machine():
+    # Hosted images use writable npm directories and a Chromium snapshot outside
+    # the distro's AppArmor profile. Give this disposable machine normal parent
+    # permissions and a userns grant for that exact browser, keeping its sandbox.
+    run("install", "-d", "-o", "root", "-g", "root", "-m", "0755", "/usr/local/bin")
+    browser = shutil.which("chromium")
+    restriction = Path("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
+    if (browser and Path(browser).resolve() == Path("/usr/local/share/chromium/chrome-linux/chrome")
+            and restriction.is_file() and restriction.read_text().strip() == "1"):
+        profile = Path("/etc/apparmor.d/gopanel-ci-chromium")
+        profile.write_text('abi <abi/4.0>,\ninclude <tunables/global>\n'
+                           'profile gopanel-ci-chromium /usr/local/share/chromium/chrome-linux/chrome flags=(unconfined) {\n'
+                           '  userns,\n}\n')
+        run("apparmor_parser", "-r", str(profile))
+
+
 def endpoint():
     listen = run("sudo", "-n", "-u", "lnmp-panel", "--", PANEL, "https", "--check").strip()
     port = listen.rsplit(":", 1)[1]
@@ -199,10 +215,7 @@ def main():
     parser.add_argument("--screenshots-test", type=Path)
     args = parser.parse_args()
     guard()  # Always before installing packages, changing accounts or touching /etc.
-    # Hosted images make /usr/local/bin world-writable for global npm installs.
-    # Use normal system directory permissions before exercising the installer's
-    # parent-path checks; only the disposable machine accepted by guard is changed.
-    run("install", "-d", "-o", "root", "-g", "root", "-m", "0755", "/usr/local/bin")
+    prepare_hosted_machine()
     archive = args.archive.resolve()
     installer = str(PROJECT / "install.sh")
     installed = False
@@ -297,6 +310,9 @@ def main():
             output = subprocess.run(["journalctl", "-u", "lnmp-gopanel", "--no-pager", "-n", "300"],
                                     text=True, capture_output=True, timeout=30)
             (diagnostics / "systemd-journal.txt").write_text(output.stdout + output.stderr)
+            output = subprocess.run(["journalctl", "-k", "--no-pager", "-n", "100"],
+                                    text=True, capture_output=True, timeout=30)
+            (diagnostics / "kernel-journal.txt").write_text(output.stdout + output.stderr)
             # This script owns this install, having refused any existing installation.
             subprocess.run(["bash", installer, "--uninstall", "--yes"], timeout=60, check=False)
 
