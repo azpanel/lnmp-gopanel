@@ -88,6 +88,10 @@ func (m *Jobs) StartRenewal(r RenewRequest) (Job, error) {
 		}
 		return out, nil
 	}
+	if err := m.ctx.Err(); err != nil {
+		m.mu.Unlock()
+		return Job{}, err
+	}
 	if m.active != "" {
 		m.mu.Unlock()
 		return Job{}, ErrJobBusy
@@ -100,13 +104,7 @@ func (m *Jobs) StartRenewal(r RenewRequest) (Job, error) {
 		items[i].Error = ""
 	}
 	j := &Job{ID: r.RequestID, Kind: "ssl-renew", Name: fmt.Sprintf("批量续签 SSL · %d 个站点", len(items)), Status: "running", Phase: "preflight", CreatedAt: now, UpdatedAt: now, Lines: []JobLine{}, Items: items}
-	m.jobs[j.ID] = j
-	m.order = append(m.order, j.ID)
-	m.active = j.ID
-	for len(m.order) > 20 {
-		delete(m.jobs, m.order[0])
-		m.order = m.order[1:]
-	}
+	m.remember(j)
 	out := cloneJob(j)
 	m.mu.Unlock()
 	go m.runRenewal(r.RequestID, backend)
@@ -117,6 +115,20 @@ func (m *Jobs) runRenewal(id string, backend RenewBackend) {
 	for index := 0; ; index++ {
 		m.mu.Lock()
 		j := m.jobs[id]
+		if m.ctx.Err() != nil && index < len(j.Items) {
+			for i := index; i < len(j.Items); i++ {
+				j.Items[i].Status = "canceled"
+				j.Items[i].Phase = ""
+				j.Items[i].Error = "面板停止，未执行续签"
+				j.Canceled++
+			}
+			j.Status, j.Phase = "canceled", "done"
+			j.Error = "批量续签已取消，请刷新站点确认已执行项目的实际状态"
+			m.active = ""
+			touchJob(j)
+			m.mu.Unlock()
+			return
+		}
 		if index >= len(j.Items) {
 			j.Status = "succeeded"
 			if j.Failed > 0 {
@@ -126,7 +138,11 @@ func (m *Jobs) runRenewal(id string, backend RenewBackend) {
 				}
 			}
 			j.Phase = "done"
-			j.UpdatedAt = time.Now()
+			if m.ctx.Err() != nil {
+				j.Status = "canceled"
+				j.Error = "批量续签已取消，请刷新站点确认实际状态"
+			}
+			touchJob(j)
 			m.active = ""
 			m.mu.Unlock()
 			return
@@ -134,7 +150,7 @@ func (m *Jobs) runRenewal(id string, backend RenewBackend) {
 		item := j.Items[index]
 		j.Items[index].Status = "running"
 		j.Items[index].Phase = "preflight"
-		j.UpdatedAt = time.Now()
+		touchJob(j)
 		m.mu.Unlock()
 		ctx, cancel := context.WithTimeout(m.ctx, CreateTimeout)
 		redact := newJobRedactor(nil)
@@ -142,7 +158,7 @@ func (m *Jobs) runRenewal(id string, backend RenewBackend) {
 			m.mu.Lock()
 			defer m.mu.Unlock()
 			j := m.jobs[id]
-			j.UpdatedAt = time.Now()
+			defer touchJob(j)
 			if e.Phase != "" {
 				j.Phase = e.Phase
 				j.Items[index].Phase = e.Phase
@@ -180,7 +196,7 @@ func (m *Jobs) runRenewal(id string, backend RenewBackend) {
 		} else {
 			j.Succeeded++
 		}
-		j.UpdatedAt = time.Now()
+		touchJob(j)
 		m.mu.Unlock()
 	}
 }

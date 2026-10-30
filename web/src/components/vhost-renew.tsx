@@ -33,6 +33,7 @@ const labels = {
   running: "执行中",
   succeeded: "成功",
   failed: "失败",
+  canceled: "已取消",
 };
 const phases: Record<string, string> = {
   preflight: "检查配置",
@@ -184,8 +185,13 @@ export function VhostRenew({
                     已完成 {job.completed || 0} / {job.items?.length || 0}
                   </strong>
                   <span>
-                    成功 {job.succeeded || 0} · 失败 {job.failed || 0} ·{" "}
-                    {job.status === "running" ? "执行中" : "已结束"}
+                    成功 {job.succeeded || 0} · 失败 {job.failed || 0} · 取消{" "}
+                    {job.canceled || 0} ·{" "}
+                    {job.status === "running"
+                      ? "执行中"
+                      : job.status === "canceled"
+                        ? "已取消"
+                        : "已结束"}
                   </span>
                   <progress
                     aria-label="SSL 续签进度"

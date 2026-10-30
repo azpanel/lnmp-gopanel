@@ -132,15 +132,17 @@ func (s *Server) registerVhostCreation(private *gin.RouterGroup) {
 }
 
 func (s *Server) vhostJobStream(c *gin.Context) {
-	if _, ok := s.VhostJobs.Get(c.Param("id")); !ok {
-		fail(c, 404, "任务不存在")
-		return
-	}
+	after, _ := strconv.ParseUint(c.GetHeader("Last-Event-ID"), 10, 64)
 	select {
 	case s.streams <- struct{}{}:
 		defer func() { <-s.streams }()
 	default:
 		fail(c, 429, "实时连接数已达上限")
+		return
+	}
+	update, ok := s.VhostJobs.Events(c.Param("id"), 0, after)
+	if !ok {
+		fail(c, 404, "任务不存在")
 		return
 	}
 	session, _ := s.session(c)
@@ -160,23 +162,20 @@ func (s *Server) vhostJobStream(c *gin.Context) {
 		c.Render(-1, sse.Event{Event: event, Id: value, Data: data})
 		return rc.Flush() == nil
 	}
-	after, _ := strconv.ParseUint(c.GetHeader("Last-Event-ID"), 10, 64)
-	var updated time.Time
-	ticker := time.NewTicker(300 * time.Millisecond)
-	defer ticker.Stop()
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
+	// Keep revocation checks as frequent as before without polling/copying Jobs.
+	authCheck := time.NewTicker(300 * time.Millisecond)
+	defer authCheck.Stop()
+	var nextUpdate time.Time
 	for {
-		job, ok := s.VhostJobs.Get(c.Param("id"))
-		if !ok {
-			return
-		}
 		if _, ok := s.session(c); !ok {
 			send("auth_expired", 0, gin.H{})
 			return
 		}
-		if !job.UpdatedAt.Equal(updated) {
-			if len(job.Lines) > 0 && (after == 0 || after+1 < job.Lines[0].ID) {
+		if update.Changed {
+			job := update.Job
+			if update.Snapshot {
 				if !send("snapshot", job.Lines[len(job.Lines)-1].ID, job) {
 					return
 				}
@@ -195,19 +194,39 @@ func (s *Server) vhostJobStream(c *gin.Context) {
 					return
 				}
 			}
-			updated = job.UpdatedAt
+			if job.Status != "running" {
+				send("complete", 0, gin.H{})
+				return
+			}
+			nextUpdate = time.Now().Add(300 * time.Millisecond)
 		}
-		if job.Status != "running" {
-			send("complete", 0, gin.H{})
-			return
-		}
+		update.Job = vhosts.Job{}
+		update.Changed = false
 		select {
 		case <-c.Request.Context().Done():
 			return
 		case <-expiry.C:
 			send("auth_expired", 0, gin.H{})
 			return
-		case <-ticker.C:
+		case <-authCheck.C:
+		case <-update.Notify:
+			// Coalesce bursts while retaining the log window in Jobs. There is
+			// no per-client event queue and idle streams copy no task data.
+			timer := time.NewTimer(max(time.Until(nextUpdate), 0))
+			select {
+			case <-c.Request.Context().Done():
+				timer.Stop()
+				return
+			case <-expiry.C:
+				timer.Stop()
+				send("auth_expired", 0, gin.H{})
+				return
+			case <-timer.C:
+			}
+			update, ok = s.VhostJobs.Events(c.Param("id"), update.Version, after)
+			if !ok {
+				return
+			}
 		case <-heartbeat.C:
 			if !send("heartbeat", 0, gin.H{}) {
 				return

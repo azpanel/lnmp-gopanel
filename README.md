@@ -100,6 +100,8 @@ Nginx 默认勾选 VTS、GeoIP2、FancyIndex 和 Substitutions Filter，支持�
 
 在线安装仅用于无 LNMP 和冲突组件的服务器。已有组件、目录残留或端口冲突时会阻止安装；失败保留源码和日志，由管理员处理后重试，不自动删除数据库或网站。面板卸载保留上述安装记录、源码与 LNMP 环境。升级时请同时更新辅助程序及 sudoers：新增的 `lnmp-install inspect/prepare/start/read` 仅在面板安装自检中检查授权，不触发环境安装。
 
+多个客户端共享安装状态和相同游标的日志查询，结果缓存 1 秒；缓存最多 32 条、按 JSON 编码体积合计不超过 8 MiB，辅助程序查询最多并发 4 个。开始准备或安装后使旧缓存失效，任务结束前重新读取日志尾部，保留原有断线续传和下载协议。
+
 ## GitHub Actions 产物
 
 [Build and release](https://github.com/azpanel/lnmp-gopanel/actions/workflows/build.yml) 在主分支推送、Pull Request 和手动触发时检查格式、运行 Go 竞态测试与前端测试、执行隔离的安装脚本测试，然后构建 Linux amd64 / arm64 安装包。前端被嵌入面板程序，两个 Go 程序均禁用 CGO。Actions 的 `lnmp-gopanel-linux` Artifact 保留 30 天。
@@ -403,6 +405,8 @@ Go 辅助程序生成配置并检查、重载 Nginx，配置或重载失败会�
 队列在后端逐站执行，每站最长 20 分钟，单站失败后继续。强制重新签发，不以旧证书尚未到期作为成功。新证书使用独立版本目录暂存，检查私钥、有效期和完整域名覆盖后切换配置；Nginx 检查、重载或续期登记失败时恢复原配置，遇到外部并发修改则停止覆盖并在输出中说明。原证书文件保留。成功后每站使用独立 `/etc/cron.d/lnmp-gopanel-acme-<站点哈希>` 任务续期，与原有证书续期目录隔离；续期不依赖面板运行。
 
 任务窗口实时显示每站状态、阶段、完成数量及带站点名称的签发输出。SSE 断线时每两秒轮询，关闭窗口或刷新页面后可通过“查看续签进度”重新打开；完成后可只重试失败项并保留其机构和邮箱。与建站任务共用执行互斥、最近 20 个任务及最近 1000 行脱敏日志的内存记录，面板进程重启后不自动恢复队列，应刷新站点确认实际状态。
+
+面板停止导致任务 context 取消时，等待当前站点执行和清理返回后停止调度，未启动站点标记为“已取消”。任务增加 `canceled` 数量，未启动项目不计入 `completed` 或 `failed`；已执行项目仍保留实际结果或状态核对提示。不增加整批总时限。建站和续签 SSE 按任务变更读取增量日志，空闲时不复制完整任务；日志游标超出保留窗口时返回快照。
 
 新增接口：`POST /api/v1/vhosts/ssl/renew/preview` 接收 `{"names":["example.conf"]}`，返回每站可续签状态与默认参数；`POST /api/v1/vhosts/ssl/renew` 接收 `{"request_id":"唯一请求标识","items":[{"name":"example.conf","provider":"zerossl","email":"admin@example.com"}]}`，返回 202 与批量任务。两者均需登录及 CSRF，请求体上限 1 MiB，最多 1000 个不重复站点；辅助程序仅逐站执行。进度复用现有任务查询和 SSE 接口，批量任务的 `kind` 为 `ssl-renew`，增加 `items`、`completed`、`succeeded`、`failed`，日志增加 `name`。升级需同步安装两个二进制和 sudoers，新增 `vhosts ssl-renew-preview`、`vhosts ssl-renew` 精确授权；安装只检查授权，不实际续签。
 

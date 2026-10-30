@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ type Job struct {
 	Completed int           `json:"completed,omitempty"`
 	Succeeded int           `json:"succeeded,omitempty"`
 	Failed    int           `json:"failed,omitempty"`
+	Canceled  int           `json:"canceled,omitempty"`
 	Name      string        `json:"name"`
 	Status    string        `json:"status"`
 	Phase     string        `json:"phase"`
@@ -34,6 +36,8 @@ type Job struct {
 	Lines     []JobLine     `json:"lines"`
 	Result    *CreateResult `json:"result,omitempty"`
 	Error     string        `json:"error,omitempty"`
+	version   uint64
+	changed   chan struct{}
 }
 type Jobs struct {
 	mu         sync.RWMutex
@@ -51,23 +55,86 @@ func NewJobs(ctx context.Context, b ProvisionBackend, complete func()) *Jobs {
 func (m *Jobs) Options(ctx context.Context) (CreateOptions, error) {
 	return m.backend.VhostOptions(ctx)
 }
-func cloneJob(j *Job) Job {
+func cloneJobSummary(j *Job) Job {
 	copy := *j
+	copy.changed = nil
 	copy.Items = append([]RenewItem(nil), j.Items...)
-	copy.Lines = append([]JobLine{}, j.Lines...)
+	copy.Lines = []JobLine{}
 	if j.Result != nil {
 		r := *j.Result
 		copy.Result = &r
 	}
 	return copy
 }
+func cloneJob(j *Job) Job {
+	copy := cloneJobSummary(j)
+	copy.Lines = append(copy.Lines, j.Lines...)
+	return copy
+}
+
+// changed is replaced under mu with every mutation. Readers obtain the version,
+// data and next notification together, so updates cannot fall between them.
+func touchJob(j *Job) {
+	j.UpdatedAt = time.Now()
+	j.version++
+	if j.changed != nil {
+		close(j.changed)
+	}
+	j.changed = make(chan struct{})
+}
+func (m *Jobs) remember(j *Job) {
+	touchJob(j)
+	m.jobs[j.ID] = j
+	m.order = append(m.order, j.ID)
+	m.active = j.ID
+	for len(m.order) > 20 {
+		old := m.jobs[m.order[0]]
+		close(old.changed)
+		delete(m.jobs, old.ID)
+		m.order = m.order[1:]
+	}
+}
+
+type JobEvents struct {
+	Version  uint64
+	Notify   <-chan struct{}
+	Changed  bool
+	Snapshot bool
+	Job      Job
+}
+
+// Events copies only new lines and copies nothing when the version is unchanged.
+// A snapshot repairs a missing cursor or one outside the retained log window.
+func (m *Jobs) Events(id string, version, after uint64) (JobEvents, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	j, ok := m.jobs[id]
+	if !ok {
+		return JobEvents{}, false
+	}
+	out := JobEvents{Version: j.version, Notify: j.changed}
+	if version != 0 && version == j.version {
+		return out, true
+	}
+	out.Changed = true
+	out.Job = cloneJobSummary(j)
+	if len(j.Lines) > 0 {
+		first, last := j.Lines[0].ID, j.Lines[len(j.Lines)-1].ID
+		out.Snapshot = after == 0 || (after < first && first-after > 1) || after > last
+		start := 0
+		if !out.Snapshot {
+			start = sort.Search(len(j.Lines), func(i int) bool { return j.Lines[i].ID > after })
+		}
+		out.Job.Lines = append(out.Job.Lines, j.Lines[start:]...)
+	}
+	return out, true
+}
 func (m *Jobs) List() []Job {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	out := []Job{}
 	for i := len(m.order) - 1; i >= 0; i-- {
-		job := cloneJob(m.jobs[m.order[i]])
-		job.Lines = []JobLine{}
+		job := cloneJobSummary(m.jobs[m.order[i]])
 		out = append(out, job)
 	}
 	return out
@@ -100,13 +167,7 @@ func (m *Jobs) Start(r CreateRequest) (Job, error) {
 	}
 	now := time.Now()
 	j := &Job{ID: r.RequestID, Name: r.Name, Status: "running", Phase: "preflight", CreatedAt: now, UpdatedAt: now, Lines: []JobLine{}}
-	m.jobs[j.ID] = j
-	m.order = append(m.order, j.ID)
-	m.active = j.ID
-	for len(m.order) > 20 {
-		delete(m.jobs, m.order[0])
-		m.order = m.order[1:]
-	}
+	m.remember(j)
 	out := cloneJob(j)
 	m.mu.Unlock()
 	go m.run(r)
@@ -121,7 +182,7 @@ func (m *Jobs) run(r CreateRequest) {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		j := m.jobs[r.RequestID]
-		j.UpdatedAt = time.Now()
+		defer touchJob(j)
 		if e.Phase != "" {
 			j.Phase = e.Phase
 		}
@@ -145,7 +206,6 @@ func (m *Jobs) run(r CreateRequest) {
 	j.Result = &result
 	j.Status = "succeeded"
 	j.Phase = "done"
-	j.UpdatedAt = time.Now()
 	if err != nil {
 		j.Status = "failed"
 		if result.SiteCreated {
@@ -157,6 +217,7 @@ func (m *Jobs) run(r CreateRequest) {
 		}
 	}
 	m.active = ""
+	touchJob(j)
 	m.mu.Unlock()
 }
 

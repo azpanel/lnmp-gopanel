@@ -72,6 +72,7 @@ const statusLabels = {
   succeeded: "已完成",
   partial: "部分完成",
   failed: "失败",
+  canceled: "已取消",
 };
 const phaseLabels: Record<string, string> = {
   preflight: "检查配置",

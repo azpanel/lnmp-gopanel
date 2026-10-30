@@ -22,7 +22,7 @@ func installFailure(c *gin.Context, err error) {
 	}
 	fail(c, code, err.Error())
 }
-func (s *Server) installationSnapshot(ctx context.Context) (lnmpinstall.Snapshot, error) {
+func (s *Server) inspectInstallation(ctx context.Context) (lnmpinstall.Snapshot, error) {
 	v, err := s.Installation.InstallInspect(ctx)
 	if err == nil && v.Job != nil && v.Job.Status == "succeeded" && s.Services != nil {
 		s.installationMu.Lock()
@@ -76,6 +76,7 @@ func (s *Server) registerLNMPInstallation(private *gin.RouterGroup) {
 		ctx, done := context.WithTimeout(c.Request.Context(), 20*time.Second)
 		defer done()
 		v, err := s.Installation.InstallPrepare(ctx, r.ID)
+		s.installQueries.invalidate()
 		if err != nil {
 			installFailure(c, err)
 			return
@@ -95,6 +96,7 @@ func (s *Server) registerLNMPInstallation(private *gin.RouterGroup) {
 		ctx, done := context.WithTimeout(c.Request.Context(), 20*time.Second)
 		defer done()
 		v, err := s.Installation.InstallStart(ctx, r)
+		s.installQueries.invalidate()
 		if err != nil {
 			installFailure(c, err)
 			return
@@ -140,7 +142,7 @@ func (s *Server) installationLogs(c *gin.Context) {
 	if c.Query("download") != "1" {
 		ctx, done := context.WithTimeout(c.Request.Context(), 20*time.Second)
 		defer done()
-		v, err := s.Installation.InstallRead(ctx, lnmpinstall.ReadRequest{ID: c.Param("id"), After: after, Tail: tail})
+		v, err := s.installationRead(ctx, lnmpinstall.ReadRequest{ID: c.Param("id"), After: after, Tail: tail}, false)
 		if err != nil {
 			installFailure(c, err)
 			return
@@ -168,7 +170,7 @@ func (s *Server) installationLogs(c *gin.Context) {
 			return
 		}
 		ctx, done := context.WithTimeout(c.Request.Context(), 20*time.Second)
-		page, err := s.Installation.InstallRead(ctx, lnmpinstall.ReadRequest{ID: c.Param("id"), After: after})
+		page, err := s.installationRead(ctx, lnmpinstall.ReadRequest{ID: c.Param("id"), After: after}, false)
 		done()
 		if err != nil {
 			if after == 0 {
@@ -251,10 +253,14 @@ func (s *Server) installationEvents(c *gin.Context) {
 			send("failure", 0, gin.H{"error": "当前任务已变化"})
 			return
 		}
-		page, err := s.Installation.InstallRead(ctx, lnmpinstall.ReadRequest{ID: id, After: after})
+		page, err := s.installationRead(ctx, lnmpinstall.ReadRequest{ID: id, After: after}, !lnmpinstall.Active(snapshot.Job.Status))
 		done()
 		if err != nil {
 			send("failure", 0, gin.H{"error": err.Error()})
+			return
+		}
+		if page.Cursor < after || (page.More && page.Cursor == after) {
+			send("failure", 0, gin.H{"error": "安装日志游标未前进，请重新连接"})
 			return
 		}
 		if !send("status", 0, snapshot.Job) {

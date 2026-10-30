@@ -1,6 +1,80 @@
 import { test, expect } from "@playwright/test";
 import type { VhostJob, VhostRenewItem } from "../src/lib/vhost-create";
 
+test("canceled renewal distinguishes unstarted sites from failed attempts", async ({
+  page,
+}, testInfo) => {
+  const now = new Date().toISOString();
+  const job: VhostJob = {
+    id: "canceled-renewal",
+    kind: "ssl-renew",
+    name: "批量续签 SSL",
+    status: "canceled",
+    phase: "done",
+    created_at: now,
+    updated_at: now,
+    completed: 1,
+    succeeded: 0,
+    failed: 1,
+    canceled: 1,
+    lines: [],
+    items: [
+      {
+        name: "first.conf",
+        provider: "letsencrypt",
+        email: "a@example.com",
+        status: "failed",
+        error: "任务已取消，请核对实际状态",
+      },
+      {
+        name: "second.conf",
+        provider: "letsencrypt",
+        email: "a@example.com",
+        status: "canceled",
+        error: "面板停止，未执行续签",
+      },
+    ],
+  };
+  await page.route("**/api/v1/vhosts/count", (route) =>
+    route.fulfill({ json: { count: 0 } }),
+  );
+  await page.route("**/api/v1/vhosts/screenshots", (route) =>
+    route.fulfill({ json: { browser_available: false, items: {} } }),
+  );
+  await page.route("**/api/v1/vhosts", (route) =>
+    route.fulfill({ json: { status: "ready", sites: [], usage: {} } }),
+  );
+  await page.route("**/api/v1/vhosts/jobs", (route) =>
+    route.fulfill({ json: [job] }),
+  );
+  await page.route("**/api/v1/vhosts/jobs/*", (route) =>
+    route.fulfill({ json: job }),
+  );
+  await page.goto("/");
+  await page
+    .getByLabel("密码", { exact: true })
+    .fill("Test-Only-Panel-Password-2026");
+  await page.getByRole("button", { name: "登录面板" }).click();
+  await expect(
+    page.getByRole("heading", { name: "系统概览", exact: true }),
+  ).toBeVisible();
+  if (testInfo.project.name === "mobile")
+    await page.getByRole("button", { name: "打开导航" }).click();
+  await page.getByRole("link", { name: "虚拟主机", exact: true }).click();
+  await page.getByRole("button", { name: "最近续签结果", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("status")).toContainText("已完成 1 / 2");
+  await expect(dialog.getByRole("status")).toContainText(
+    "成功 0 · 失败 1 · 取消 1 · 已取消",
+  );
+  await expect(
+    dialog.locator(".renew-item").filter({ hasText: "second.conf" }),
+  ).toContainText("已取消");
+  await expect(
+    dialog.locator(".renew-item").filter({ hasText: "second.conf" }),
+  ).toContainText("未执行续签");
+});
+
 test("select sites and renew serially with per-site CA, live logs and failed retry", async ({
   page,
 }, testInfo) => {

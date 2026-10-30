@@ -48,7 +48,7 @@ export type VhostRenewItem = {
   name: string;
   provider: "zerossl" | "letsencrypt";
   email: string;
-  status?: "queued" | "running" | "succeeded" | "failed";
+  status?: "queued" | "running" | "succeeded" | "failed" | "canceled";
   phase?: string;
   error?: string;
 };
@@ -73,9 +73,10 @@ export type VhostJob = {
   completed?: number;
   succeeded?: number;
   failed?: number;
+  canceled?: number;
   id: string;
   name: string;
-  status: "running" | "succeeded" | "partial" | "failed";
+  status: "running" | "succeeded" | "partial" | "failed" | "canceled";
   phase: string;
   created_at: string;
   updated_at: string;

@@ -34,6 +34,7 @@ type Server struct {
 	ServicesFile        string
 	installationMu      sync.Mutex
 	installationApplied string
+	installQueries      installationQueries
 	Config              config.Config
 	Sessions            *auth.Store
 	Metrics             *metrics.Collector
