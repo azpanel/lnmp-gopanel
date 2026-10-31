@@ -54,12 +54,12 @@ test("logging enable confirms restart, prevents duplicates and refreshes state",
   });
   await login(page);
   const php = page.getByRole("button", {
-    name: "打开PHP错误日志",
+    name: "打开 PHP 错误日志",
     exact: true,
     includeHidden: true,
   });
   const database = page.getByRole("button", {
-    name: "打开DB慢日志",
+    name: "打开 DB 慢日志",
     exact: true,
     includeHidden: true,
   });
@@ -89,7 +89,7 @@ test("logging enable confirms restart, prevents duplicates and refreshes state",
     await expect(button).toBeDisabled();
     await expect(
       page.getByRole("group", {
-        name: kind === "php" ? "PHP错误日志" : "DB慢日志",
+        name: kind === "php" ? "PHP 错误日志" : "DB 慢日志",
         exact: true,
       }),
     ).toContainText("已配置");
@@ -127,18 +127,18 @@ test("logging failures and unavailable services remain visible and recoverable",
   );
   await login(page);
   const php = page.getByRole("button", {
-    name: "打开PHP错误日志",
+    name: "打开 PHP 错误日志",
     exact: true,
     includeHidden: true,
   });
   const database = page.getByRole("button", {
-    name: "打开DB慢日志",
+    name: "打开 DB 慢日志",
     exact: true,
     includeHidden: true,
   });
   await expect(database).toBeDisabled();
   await expect(
-    page.getByRole("group", { name: "DB慢日志", exact: true }),
+    page.getByRole("group", { name: "DB 慢日志", exact: true }),
   ).toContainText("未配置对应服务");
   await php.click();
   await page.getByRole("button", { name: "确认打开", exact: true }).click();

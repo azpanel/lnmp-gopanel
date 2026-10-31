@@ -1081,9 +1081,15 @@ a {
   min-width: 0;
 }
 .system-network-fields dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 4px;
   color: var(--muted-foreground);
   font-size: 12px;
+}
+.system-network-fields dt > svg {
+  flex-shrink: 0;
 }
 .system-network-fields dd {
   min-width: 0;

@@ -1,4 +1,12 @@
-import { ArrowDown, ArrowUp, Network } from "lucide-react";
+import {
+  Activity,
+  ArrowDown,
+  ArrowUp,
+  EthernetPort,
+  Globe,
+  Globe2,
+  Network,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { bytes } from "@/lib/format";
@@ -33,19 +41,31 @@ export function SystemNetwork({ snapshot }: { snapshot?: Snapshot }) {
       <CardContent>
         <dl className="system-network-fields">
           <div>
-            <dt>主网卡</dt>
+            <dt>
+              <EthernetPort size={13} aria-hidden="true" />
+              主网卡
+            </dt>
             <dd>{info?.name || "—"}</dd>
           </div>
           <div>
-            <dt>IPv4</dt>
+            <dt>
+              <Globe size={13} aria-hidden="true" />
+              IPv4
+            </dt>
             <dd>{info ? info.ipv4.join(" · ") || "未分配" : "—"}</dd>
           </div>
           <div>
-            <dt>IPv6</dt>
+            <dt>
+              <Globe2 size={13} aria-hidden="true" />
+              IPv6
+            </dt>
             <dd>{info ? info.ipv6.join(" · ") || "未分配" : "—"}</dd>
           </div>
           <div>
-            <dt>实时流量</dt>
+            <dt>
+              <Activity size={13} aria-hidden="true" />
+              实时流量
+            </dt>
             <dd className="network-transfer">
               <span title="接收速率">
                 <ArrowDown size={13} aria-hidden="true" />

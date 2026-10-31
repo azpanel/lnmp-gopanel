@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Loader2 } from "lucide-react";
+import { Database, FileText, FileWarning, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useSessionMutation } from "@/lib/use-session-mutation";
@@ -28,9 +28,10 @@ type LoggingView = {
 };
 type LoggingSnapshot = Record<Kind, LoggingView>;
 const labels: Record<Kind, string> = {
-  php: "PHP错误日志",
-  database: "DB慢日志",
+  php: "PHP 错误日志",
+  database: "DB 慢日志",
 };
+const icons = { php: FileWarning, database: Database };
 
 export function SystemLogging() {
   const [selection, setSelection] = useState<Kind | null>(null);
@@ -96,6 +97,7 @@ export function SystemLogging() {
           <div className="space-y-4">
             {(["php", "database"] as const).map((kind) => {
               const view = status.data?.[kind];
+              const Icon = icons[kind];
               return (
                 <div
                   key={kind}
@@ -105,7 +107,12 @@ export function SystemLogging() {
                 >
                   <div className="min-w-0 flex-1 basis-48">
                     <div className="flex flex-wrap items-center gap-2 font-medium">
-                      <span className="text-[14px] leading-5">
+                      <span className="inline-flex items-center gap-2 text-[14px] leading-5">
+                        <Icon
+                          size={15}
+                          className="shrink-0 text-muted-foreground"
+                          aria-hidden="true"
+                        />
                         {labels[kind]}
                       </span>
                       {view && !status.isError && (
@@ -139,7 +146,7 @@ export function SystemLogging() {
                       setSelection(kind);
                     }}
                   >
-                    打开{labels[kind]}
+                    打开 {labels[kind]}
                   </Button>
                 </div>
               );
@@ -169,7 +176,7 @@ export function SystemLogging() {
         >
           <DialogHeader>
             <DialogTitle>
-              确认打开{selection && labels[selection]}？
+              确认打开 {selection && labels[selection]}？
             </DialogTitle>
             <DialogDescription>
               将保存日志配置并重启{" "}
