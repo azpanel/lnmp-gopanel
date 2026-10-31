@@ -291,6 +291,14 @@ Composer 检测沿用 `components snapshot` 授权，升级时使用同一源码
 
 </details>
 
+## 网站备份
+
+“网站备份”页面（`/backups`）展示 gdrive、rclone 的本机安装状态和实际版本。右上角“安装组件”弹窗支持勾选一个或两个组件后统一安装，逐项展示结果；已安装组件不可重复选择。当前仅提供组件安装和检测，不包含备份任务、云盘授权或恢复功能。
+
+安装通过固定的 root 辅助程序启动 systemd 后台任务，关闭弹窗、刷新页面或重启面板不会停止任务。每个组件最多安装 10 分钟，一项失败后继续另一项，失败项可重新选择安装。gdrive 每次安装查询 GitHub 最新正式 Release，下载 Linux x64 包至临时目录，安装到 `/usr/local/bin/gdrive`；ARM64 主机不提供 gdrive 安装。rclone 使用官方 `https://rclone.org/install.sh`，需要系统已具备 curl 和受支持的解压工具，缺少依赖时显示错误。
+
+升级已有部署时需同步更新面板、辅助程序和 sudoers，新增精确授权 `lnmp-gopanel-control backup-components inspect`、`lnmp-gopanel-control backup-components install`；安装脚本仅检查这些权限，不触发组件安装。任务状态保存在 root 私有目录 `/var/lib/lnmp-gopanel-backups`。 gdrive 和 rclone 均通过 `version` 子命令检测版本；rclone 脚本的 `TMPDIR` 指向本次任务目录，下载与解压文件不会占用 `/tmp`，失败后也会清理。
+
 ## 在线安装 LNMP
 
 无 LNMP 的服务器可在“LNMP 服务”或系统概览中选择“安装 LNMP”，准备源码后配置数据库、PHP、内存分配器、默认站点保护和 Nginx 模块。页面提供安装进度、耗时、实时输出及历史日志下载。
@@ -796,6 +804,7 @@ bash scripts/package.sh arm64 vX.Y.Z
 | 服务管理修复   | `GET /services/:name/management-repair`、`POST /services/:name/management-repair`                                                                                                                                          |
 | 版本查询       | `GET /services/releases`、`POST /services/releases/refresh`、`PUT /services/releases/:name/range`                                                                                                                          |
 | LNMP 安装      | `GET /lnmp-installation`、`POST /lnmp-installation/prepare`、`POST /lnmp-installation/jobs/:id/start`、`GET /lnmp-installation/jobs/:id`、`GET /lnmp-installation/jobs/:id/events`、`GET /lnmp-installation/jobs/:id/logs` |
+| 网站备份组件   | `GET /backups/components`、`POST /backups/components/install`（请求体为 `{"components":["gdrive","rclone"]}`） |
 | 网站列表与配置 | `GET /vhosts`、`GET /vhosts/count`、`POST /vhosts/refresh`、`GET /vhosts/config`、`POST /vhosts/config/format`、`POST /vhosts/toggle`                                                                                      |
 | 建站与 SSL     | `GET /vhosts/options`、`POST /vhosts/check-dns`、`POST /vhosts`、`POST /vhosts/ssl/retry`、`POST /vhosts/ssl/renew/preview`、`POST /vhosts/ssl/renew`                                                                      |
 | 建站／续签任务 | `GET /vhosts/jobs`、`GET /vhosts/jobs/:id`、`GET /vhosts/jobs/:id/events`                                                                                                                                                  |

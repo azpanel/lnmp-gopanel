@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/auth"
+	"github.com/azpanel/lnmp-gopanel/internal/backups"
 	"github.com/azpanel/lnmp-gopanel/internal/buildinfo"
 	"github.com/azpanel/lnmp-gopanel/internal/components"
 	"github.com/azpanel/lnmp-gopanel/internal/config"
@@ -30,6 +31,7 @@ import (
 )
 
 type Server struct {
+	Backups             backups.Backend
 	Installation        lnmpinstall.Backend
 	ServicesFile        string
 	installationMu      sync.Mutex
@@ -68,7 +70,7 @@ type Server struct {
 }
 
 func New(c config.Config, m *metrics.Collector, svc *control.Manager, assets fs.FS) *Server {
-	return &Server{Components: components.NewManager(context.Background(), control.Helper{Path: c.Helper}), Config: c, Sessions: auth.New(), Metrics: m, Services: svc, Logs: control.Helper{Path: c.Helper}, logReads: make(chan struct{}, 4), Cron: control.Helper{Path: c.Helper}, Docker: docker.NewManager(context.Background(), control.Helper{Path: c.Helper}), Releases: releases.NewManager(context.Background(), releases.NewFetcher()), Host: metrics.HostInfo(context.Background()), Storage: storage.NewManager(context.Background(), control.Helper{Path: c.Helper}), Vhosts: vhosts.NewManager(context.Background(), control.Helper{Path: c.Helper}), Assets: assets, streams: make(chan struct{}, 32)}
+	return &Server{Backups: control.Helper{Path: c.Helper}, Components: components.NewManager(context.Background(), control.Helper{Path: c.Helper}), Config: c, Sessions: auth.New(), Metrics: m, Services: svc, Logs: control.Helper{Path: c.Helper}, logReads: make(chan struct{}, 4), Cron: control.Helper{Path: c.Helper}, Docker: docker.NewManager(context.Background(), control.Helper{Path: c.Helper}), Releases: releases.NewManager(context.Background(), releases.NewFetcher()), Host: metrics.HostInfo(context.Background()), Storage: storage.NewManager(context.Background(), control.Helper{Path: c.Helper}), Vhosts: vhosts.NewManager(context.Background(), control.Helper{Path: c.Helper}), Assets: assets, streams: make(chan struct{}, 32)}
 }
 func fail(c *gin.Context, status int, msg string) { c.AbortWithStatusJSON(status, gin.H{"error": msg}) }
 func (s *Server) Handler() http.Handler {
@@ -120,6 +122,7 @@ func (s *Server) Handler() http.Handler {
 		}).write(c)
 	})
 	s.registerAccountSecurity(private)
+	s.registerBackupComponents(private)
 	s.registerDashboard(private)
 	s.registerLNMPInstallation(private)
 	private.GET("/system/logging", s.loggingStatus)

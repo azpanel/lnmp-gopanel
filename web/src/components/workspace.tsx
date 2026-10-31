@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  Archive,
   ChevronRight,
   Clock3,
   Container,
@@ -61,6 +62,9 @@ const Storage = lazy(() =>
 );
 const Vhosts = lazy(() =>
   import("@/pages/vhosts").then((module) => ({ default: module.Vhosts })),
+);
+const Backups = lazy(() =>
+  import("@/pages/backups").then((module) => ({ default: module.Backups })),
 );
 const Docker = lazy(() =>
   import("@/pages/docker").then((module) => ({ default: module.Docker })),
@@ -217,6 +221,7 @@ export default function Workspace({
           {[
             { to: "/", label: "系统概览", icon: LayoutDashboard },
             { to: "/vhosts", label: "虚拟主机", icon: Globe2 },
+            { to: "/backups", label: "网站备份", icon: Archive },
             { to: "/services", label: "LNMP 服务", icon: Settings2 },
             { to: "/docker", label: "Docker 管理", icon: Container },
             { to: "/storage", label: "硬盘空间", icon: HardDrive },
@@ -417,6 +422,7 @@ export default function Workspace({
                   />
                   <Route path="/storage" element={<Storage />} />
                   <Route path="/vhosts" element={<Vhosts />} />
+                  <Route path="/backups" element={<Backups />} />
                   <Route path="/docker" element={<Docker />} />
                   <Route path="/cron" element={<Cron />} />
                   <Route path="/logs" element={<Logs />} />

@@ -4937,3 +4937,61 @@ body,
 .service-release-range .small-note {
   margin-top: 0.375rem;
 }
+
+.backup-components-card {
+  padding: 24px;
+}
+.backup-component-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.backup-component {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.backup-component-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+.backup-component-description {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.backup-component-status {
+  text-align: right;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.backup-component-status > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.backup-component-status .small-note {
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+.backup-install-dialog {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+@media (max-width: 520px) {
+  .backup-component {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .backup-component-status {
+    text-align: left;
+  }
+}
