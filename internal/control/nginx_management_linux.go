@@ -94,9 +94,12 @@ func writeManagementFile(path string, data []byte, mode os.FileMode, gid int) er
 }
 
 func (p nginxManagementController) readFile(path string, optional bool) (managementFile, error) {
+	return readManagementFile(p.path(path), optional, p.trust)
+}
+
+func readManagementFile(path string, optional bool, trust func(string) error) (managementFile, error) {
 	var snapshot managementFile
-	path = p.path(path)
-	if err := p.trust(filepath.Dir(path)); err != nil {
+	if err := trust(filepath.Dir(path)); err != nil {
 		return snapshot, err
 	}
 	f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)

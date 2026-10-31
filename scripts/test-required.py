@@ -10,7 +10,7 @@ import sys
 
 MODULE = "github.com/azpanel/lnmp-gopanel/"
 REQUIRED = {
-    "cmd/control": ["TestNginxManagementRejectsInvalidArguments"],
+    "cmd/control": ["TestNginxManagementRejectsInvalidArguments", "TestLoggingRejectsInvalidArguments"],
     "cmd/panel": ["TestMetricsInstallLockRejectsConcurrentOperationsAndReusesInheritedLock"],
     "internal/control": [
         "TestNginxManagementStatusVerifiesUnitOwnership",
@@ -20,6 +20,14 @@ REQUIRED = {
         "TestNginxManagementRepairRejectsUnsafePID",
         "TestNginxManagementRollbackPreservesExistingPID",
         "TestNginxManagementRollbackPreservesConcurrentAdministratorChanges",
+        "TestEnableLoggingCreatesLogsAndIsIdempotent",
+        "TestDatabaseLoggingDoesNotExecuteDaemon",
+        "TestLoggingPreservesThresholdAndExistingLog",
+        "TestLoggingPHPIncludesAndPoolScope",
+        "TestLoggingFailuresRestoreConfigurationAndPermissions",
+        "TestLoggingRejectsConflictsAndUnsafeFiles",
+        "TestLoggingConcurrentEditsAreNotOverwritten",
+        "TestLoggingCancellationStillRestoresService",
         "TestPersistentLogCursor",
         "TestInstallationLogTailAndResume",
         "TestInstallationStartTimePersistsAcrossUpdatesAndDuplicateRequests",

@@ -122,6 +122,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerAccountSecurity(private)
 	s.registerDashboard(private)
 	s.registerLNMPInstallation(private)
+	private.GET("/system/logging", s.loggingStatus)
+	private.POST("/system/logging/:kind/enable", s.csrf, s.enableLogging)
 	private.GET("/host", func(c *gin.Context) { c.JSON(200, s.Host) })
 	private.GET("/metrics", func(c *gin.Context) {
 		v := s.Metrics.Latest()

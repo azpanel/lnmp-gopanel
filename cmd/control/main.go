@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/components"
@@ -51,6 +52,33 @@ func run() error {
 	}
 	if len(os.Args) == 3 && os.Args[1] == "logs" {
 		return handleLogs(os.Args[2])
+	}
+	if len(os.Args) == 3 && os.Args[1] == "logging" {
+		parent, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		ctx, cancel := context.WithTimeout(parent, 60*time.Second)
+		defer cancel()
+		if os.Args[2] == "status" {
+			result, err := control.RootLoggingStatus(ctx)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(os.Stdout).Encode(result)
+		}
+		kind := ""
+		switch os.Args[2] {
+		case "enable-php":
+			kind = "php"
+		case "enable-database":
+			kind = "database"
+		default:
+			return control.ErrUnsupported
+		}
+		result, err := control.RootEnableLogging(ctx, kind)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(result)
 	}
 	if len(os.Args) == 3 && os.Args[1] == "cron" && os.Args[2] == "list" {
 		ctx, cancel := context.WithTimeout(context.Background(), cron.Timeout)
@@ -113,8 +141,8 @@ func run() error {
 		if os.Args[2] == "status" {
 			timeout = 6 * time.Second
 		}
-		if s.Name == "nginx" && os.Args[2] != "status" {
-			release, e := control.LockNginx()
+		if os.Args[2] != "status" {
+			release, e := control.LockService(s.Name)
 			if e != nil {
 				return e
 			}

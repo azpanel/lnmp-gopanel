@@ -31,6 +31,7 @@ TARGETS = (
 VHOST_COMMANDS = tuple(f"vhosts {action}" for action in ("list", "config", "format", "usage", "toggle", "options", "create", "ssl-renew-preview", "ssl-renew", "basic-auth-get", "basic-auth-set", "basic-auth-disable"))
 LNMP_INSTALL_COMMANDS = tuple(f"lnmp-install {action}" for action in ("inspect", "prepare", "start", "read"))
 NGINX_REPAIR_COMMANDS = ("nginx repair-preview", "nginx repair")
+LOGGING_COMMANDS = ("logging status", "logging enable-php", "logging enable-database")
 
 
 def copy_executable(root, command):
@@ -555,13 +556,13 @@ exit 0
             " /usr/local/libexec/lnmp-gopanel-control cron list, \\\n",
             (self.root / "etc/sudoers.d/lnmp-gopanel").read_text(),
         )
-        for command in ("logs list", "logs read", "components snapshot") + VHOST_COMMANDS:
+        for command in ("logs list", "logs read", "components snapshot") + VHOST_COMMANDS + LOGGING_COMMANDS:
             self.assertIn(f"/usr/local/libexec/lnmp-gopanel-control {command}", (self.root / "etc/sudoers.d/lnmp-gopanel").read_text())
         self.assertTrue((self.root / "run/panel.active").exists())
         self.assertTrue((self.root / "run/panel.enabled").exists())
         self.assertTrue((self.root / "usr/local/bin/lnmp-gopanel").read_text().startswith("#!/bin/bash"))
         sudo_log = (self.root / "run/sudo.log").read_text()
-        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read") + VHOST_COMMANDS:
+        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read") + VHOST_COMMANDS + LOGGING_COMMANDS:
             self.assertIn(f"-n -u lnmp-panel -- /usr/bin/sudo -n -l -- /usr/local/libexec/lnmp-gopanel-control {command}\n", sudo_log)
         self.assertIn("-n -u lnmp-panel -- /usr/bin/sudo -n -- /usr/local/libexec/lnmp-gopanel-control docker snapshot\n", sudo_log)
         self.assertIn("-n -u lnmp-panel -- /usr/bin/sudo -n -- /usr/local/libexec/lnmp-gopanel-control components snapshot\n", sudo_log)
@@ -808,7 +809,7 @@ exit 0
 
     def test_missing_helper_permissions_rolls_back(self):
         previous = self.old_installation()
-        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read") + VHOST_COMMANDS + LNMP_INSTALL_COMMANDS + NGINX_REPAIR_COMMANDS:
+        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read") + VHOST_COMMANDS + LNMP_INSTALL_COMMANDS + NGINX_REPAIR_COMMANDS + LOGGING_COMMANDS:
             with self.subTest(command=command):
                 write(self.root, "/run/deny-helper-command", f"/usr/local/libexec/lnmp-gopanel-control {command}\n")
                 result = self.run_installer(success=False)

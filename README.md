@@ -212,6 +212,16 @@ sudo -u lnmp-panel /usr/local/bin/lnmp-gopanel metrics check \
 
 </details>
 
+## 系统信息与日志开启
+
+“系统信息”页面的“日志设置”提供“打开PHP错误日志”和“打开DB慢日志”。确认后保存配置并重启对应服务；服务需要已启动。页面展示持久配置状态，已有正确配置及日志文件时不会重复修改或重启。
+
+- PHP 从 `/usr/local/php/etc/php-fpm.conf` 及其绝对路径 include 定位默认 `[www]` 池，设置 `php_admin_value[error_log]` 与 `php_admin_flag[log_errors]`，日志写入 `/usr/local/php/var/log/php_errors.log`，所有权为 `www:www`。仅支持使用 `www` 账号的默认池。
+- 数据库修改 `/etc/my.cnf` 的 `[mysqld]`，开启慢日志并输出到 `/var/log/mysql/mariadb-slow.log`，与日志读取页一致。保留已有 `long_query_time`，缺省设置为 2 秒；确保文件输出，已有表输出同时保留。多个数据库服务或其他配置组、include、别名中的冲突设置会提示手动处理。
+- 开启前备份配置到 `/var/backups/lnmp-gopanel/logging-*`。PHP-FPM 检查配置后重启；数据库直接修改配置并通过现有服务管理方式重启，开启流程不调用 `mariadbd`／`mysqld` 做配置检查，也不要求数据库程序目录归 root 所有。已有日志内容不清空；PHP 配置检查或服务重启失败时恢复原配置及日志权限，重启已尝试时再尝试恢复原服务。期间发现的管理员并发修改会保留，并提示恢复结果。
+
+升级需同步更新面板、辅助程序及 `logging status`、`logging enable-php`、`logging enable-database` 的 sudoers 精确授权。安装器只检查这三项授权，不执行日志开启或重启服务。
+
 ## LNMP 服务与编程组件
 
 “LNMP 服务”页面展示服务状态、已安装版本和可用操作。Nginx、PHP-FPM、MySQL / MariaDB 支持启停与重启，Nginx 还支持检查配置后重载；Redis 只读监控。发现 Nginx 进程与管理单元归属不一致时，会阻止操作，并在符合条件时提供“修复管理方式”。
@@ -775,6 +785,7 @@ bash scripts/package.sh arm64 vX.Y.Z
 | 登录与会话     | `POST /auth/login`、`POST /auth/login/totp`、`GET /auth/session`、`POST /auth/logout`                                                                                                                                      |
 | 账户安全       | `GET /auth/security`、`POST /auth/password`、`POST /auth/totp/setup`、`DELETE /auth/totp/setup`、`POST /auth/totp/confirm`、`DELETE /auth/totp`、`POST /auth/totp/recovery-codes`                                          |
 | 构建与主机     | `GET /build`、`GET /host`                                                                                                                                                                                                  |
+| 日志设置       | `GET /system/logging`、`POST /system/logging/:kind/enable`（`kind` 为 `php` 或 `database`，POST 无请求体） |
 | 指标           | `GET /metrics`、`GET /metrics/stream`、`GET /dashboard/widgets`、`PUT /dashboard/widgets`                                                                                                                                  |
 | 服务与组件     | `GET /services`、`GET /components`、`POST /components/refresh`、`POST /services/:name/actions/:action`                                                                                                                     |
 | 服务管理修复   | `GET /services/:name/management-repair`、`POST /services/:name/management-repair`                                                                                                                                          |

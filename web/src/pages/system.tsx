@@ -10,6 +10,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SystemLogging } from "@/components/system-logging";
 import { DiskTable } from "./dashboard";
 import { Meter } from "@/components/meter";
 import type { Host, Snapshot } from "@/lib/types";
@@ -163,6 +164,7 @@ export function System({
               </div>
             </CardContent>
           </Card>
+          <SystemLogging />
           <div className="privacy-note">
             <ShieldCheck size={18} />
             <span>监控指标仅在内存中处理，不写入数据库或磁盘。</span>
