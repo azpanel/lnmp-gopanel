@@ -18,7 +18,7 @@ type serviceProbe func(context.Context, config.Service) (Result, bool)
 // ExecuteManaged repeats management checks inside the privileged command path;
 // cached panel state and disabled UI controls are not sufficient authorization.
 func ExecuteManaged(ctx context.Context, s config.Service, action string, run CommandRunner) (Result, error) {
-	return executeManaged(ctx, s, action, run, NginxManagementStatus, NativeStatus)
+	return executeManaged(ctx, s, action, serviceActionRunner(s, action, run), NginxManagementStatus, NativeStatus)
 }
 
 func executeManaged(ctx context.Context, s config.Service, action string, run CommandRunner, management, native serviceProbe) (Result, error) {

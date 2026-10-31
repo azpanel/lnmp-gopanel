@@ -236,6 +236,7 @@ sudo -u lnmp-panel /usr/local/bin/lnmp-gopanel metrics check \
 - 修复回退会再次核对配置和进程身份；若期间有外部运维操作修改配置、PID 或替换主进程，会保留这些新状态并提示通过 SSH 检查，避免用旧快照覆盖管理员的新改动。
 - 不支持或无法明确解释的状态返回“未知”；systemd 的切换状态单独显示，不误报停止。
 - 服务操作最多执行 30 秒，同服务互斥；超时后重新检查实际状态，不自动重试启停。
+- systemd 环境下，init／LNMP 脚本的服务操作通过可信的 `/usr/bin/systemd-run --scope` 在独立控制组中执行；普通服务页和日志开启、失败恢复共用此入口。脚本执行结果同步返回，后台守护进程随 scope 独立存活，面板停止或升级重启不会带停它们，空 scope 自动回收。原生 systemd 服务继续由对应单元管理。创建 scope 失败时返回错误，不降级为面板控制组内直接执行。
 
 服务状态不等同于应用健康。可选的 Nginx、PHP-FPM 和数据库指标在单独配置并勾选卡片后采集；普通服务状态检测不会自动开启状态接口或创建数据库连接。
 
@@ -728,7 +729,7 @@ python3 scripts/test-package.py dist/lnmp-gopanel_linux_amd64.tar.gz
 
 [Build and release](https://github.com/azpanel/lnmp-gopanel/actions/workflows/build.yml) 在每个 Pull Request 运行格式检查、Go 竞态与前端单元测试、依赖漏洞扫描、隔离安装脚本测试、相关包的完整 root 测试（关键特权／真实 Nginx 测试必须执行），以及桌面与移动端浏览器回归。默认、账户安全和登录审计三套 Playwright 配置分别执行。浏览器测试使用本轮构建的嵌入式生产程序；缺失或跳过指定关键测试会失败。
 
-每个 PR 还在一次性 Ubuntu 24.04 amd64 托管 runner 上安装真实面板包，检查 sudo 精确授权、systemd、普通账号的 Chromium 沙箱，以及缺失授权、证书权限错误、NoNewPrivileges 限制时的升级回滚。主分支、标签和手动触发另外验证原生 arm64 包，以及 Debian 12／systemd 252 虚拟机；Debian 官方云镜像使用其发布的 SHA-512 清单校验。标准发布需要等待基础检查和扩展矩阵全部通过；手动选择快速模式时，仅以基础检查、双架构打包和安装包冒烟验证作为发布条件。上述安装测试只安装面板，不安装 LNMP；已有 chroot mock 测试继续用于事务故障注入。故障时保留浏览器 trace、截图和服务日志。
+每个 PR 还在一次性 Ubuntu 24.04 amd64 托管 runner 上安装真实面板包，检查 sudo 精确授权、systemd、普通账号的 Chromium 沙箱，以及缺失授权、证书权限错误、NoNewPrivileges 限制时的升级回滚。真实 systemd 测试同时用临时服务复现守护进程继承面板控制组的问题，并验证独立 scope 在面板重启、停止后仍保留原守护进程，以及显式重启、停止和空 scope 回收。主分支、标签和手动触发另外验证原生 arm64 包，以及 Debian 12／systemd 252 虚拟机；Debian 官方云镜像使用其发布的 SHA-512 清单校验。标准发布需要等待基础检查和扩展矩阵全部通过；手动选择快速模式时，仅以基础检查、双架构打包和安装包冒烟验证作为发布条件。上述安装测试只安装面板，不安装 LNMP；已有 chroot mock 测试继续用于事务故障注入。故障时保留浏览器 trace、截图和服务日志。
 
 前端被嵌入面板程序，两个 Go 程序均禁用 CGO；实际安装包在源码目录外验证 HTTPS、登录、资源、版本、缓存、压缩和 Range 行为。Actions 的 `lnmp-gopanel-linux` Artifact 保留 30 天。
 

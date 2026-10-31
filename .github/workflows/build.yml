@@ -192,6 +192,8 @@ jobs:
         run: |
           mkdir -p bin
           go test -c -race -o bin/screenshots.test ./internal/screenshots
+      - name: Verify managed service process isolation
+        run: sudo env "PATH=$PATH" python3 scripts/test-service-isolation.py
       - name: Install contract browser
         working-directory: web
         run: |
@@ -233,6 +235,8 @@ jobs:
         run: |
           mkdir -p bin
           go test -c -race -o bin/screenshots.test ./internal/screenshots
+      - name: Verify managed service process isolation
+        run: sudo env "PATH=$PATH" python3 scripts/test-service-isolation.py
       - name: Install, upgrade, inject failures and uninstall real package
         run: |
           sudo env "PATH=$PATH" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
