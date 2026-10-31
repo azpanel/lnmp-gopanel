@@ -4,6 +4,7 @@ import { FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useSessionMutation } from "@/lib/use-session-mutation";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -103,10 +104,19 @@ export function SystemLogging() {
                   className="flex flex-wrap items-center justify-between gap-3"
                 >
                   <div className="min-w-0 flex-1 basis-48">
-                    <div className="font-medium">
-                      {labels[kind]}
-                      {view?.configured && (
-                        <span className="muted ml-2 text-xs">已配置</span>
+                    <div className="flex flex-wrap items-center gap-2 font-medium">
+                      <span>{labels[kind]}</span>
+                      {view && !status.isError && (
+                        <Badge
+                          variant="outline"
+                          className={
+                            view.configured
+                              ? "border-primary/20 bg-primary/10 text-[11px] leading-4 text-primary"
+                              : "border-amber-500/25 bg-amber-500/10 text-[11px] leading-4 text-amber-700 dark:text-amber-300"
+                          }
+                        >
+                          {view.configured ? "已配置" : "未配置"}
+                        </Badge>
                       )}
                     </div>
                     <p className="muted mt-1 text-xs break-all">

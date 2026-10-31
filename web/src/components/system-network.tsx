@@ -18,7 +18,11 @@ export function SystemNetwork({ snapshot }: { snapshot?: Snapshot }) {
           {info && (
             <Badge
               variant="outline"
-              className={info.up ? "status-green" : "status-red"}
+              className={
+                info.up
+                  ? "status-green text-[11px] leading-4"
+                  : "status-red text-[11px] leading-4"
+              }
               title="网卡链路状态"
             >
               {info.up ? "已连接" : "未连接"}
