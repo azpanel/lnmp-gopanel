@@ -42,20 +42,21 @@ type Load struct {
 	Fifteen float64 `json:"fifteen"`
 }
 type Snapshot struct {
-	Processes *Processes        `json:"processes,omitempty"`
-	Nginx     *Nginx            `json:"nginx,omitempty"`
-	PHPFPM    *PHPFPM           `json:"php_fpm,omitempty"`
-	Database  *Database         `json:"database,omitempty"`
-	Timestamp time.Time         `json:"timestamp"`
-	CPU       *float64          `json:"cpu"`
-	Memory    *Memory           `json:"memory"`
-	Swap      *Memory           `json:"swap"`
-	Load      *Load             `json:"load"`
-	Uptime    *uint64           `json:"uptime"`
-	Network   *Rates            `json:"network"`
-	DiskIO    *Rates            `json:"disk_io"`
-	Disks     []Disk            `json:"disks"`
-	Errors    map[string]string `json:"errors"`
+	Processes   *Processes        `json:"processes,omitempty"`
+	Nginx       *Nginx            `json:"nginx,omitempty"`
+	PHPFPM      *PHPFPM           `json:"php_fpm,omitempty"`
+	Database    *Database         `json:"database,omitempty"`
+	Timestamp   time.Time         `json:"timestamp"`
+	CPU         *float64          `json:"cpu"`
+	Memory      *Memory           `json:"memory"`
+	Swap        *Memory           `json:"swap"`
+	Load        *Load             `json:"load"`
+	Uptime      *uint64           `json:"uptime"`
+	Network     *Rates            `json:"network"`
+	NetworkInfo *NetworkInfo      `json:"network_info,omitempty"`
+	DiskIO      *Rates            `json:"disk_io"`
+	Disks       []Disk            `json:"disks"`
+	Errors      map[string]string `json:"errors"`
 }
 type Host struct {
 	Hostname string `json:"hostname"`
@@ -215,6 +216,7 @@ func (c *Collector) sample(parent context.Context) {
 	} else {
 		s.Errors["uptime"] = "运行时间采集失败"
 	}
+	interfaceRates := map[string]*Rates{}
 	if v, e := gnet.IOCountersWithContext(ctx, true); e == nil {
 		next := map[string]counter{}
 		sum := Rates{}
@@ -227,6 +229,7 @@ func (c *Collector) sample(parent context.Context) {
 			curr := counter{n.BytesRecv, n.BytesSent, now}
 			next[n.Name] = curr
 			r := rates(c.prevNet[n.Name], curr)
+			interfaceRates[n.Name] = r
 			if r == nil {
 				valid = false
 			} else {
@@ -242,6 +245,11 @@ func (c *Collector) sample(parent context.Context) {
 	} else {
 		s.Errors["network"] = "网络采集失败"
 		c.prevNet = map[string]counter{}
+	}
+	if info, err := currentNetworkInfo(interfaceRates); err == nil {
+		s.NetworkInfo = info
+	} else {
+		s.Errors["network_info"] = err.Error()
 	}
 	if v, e := disk.IOCountersWithContext(ctx); e == nil {
 		next := map[string]counter{}

@@ -214,6 +214,8 @@ sudo -u lnmp-panel /usr/local/bin/lnmp-gopanel metrics check \
 
 ## 系统信息与日志开启
 
+“主机环境”下方的“网络信息”卡片展示主网卡、链路状态、IPv4／IPv6 地址及该网卡的实时收发速率，每 2 秒随监控刷新。主网卡优先按 IPv4／IPv6 默认路由选择，无默认路由时优先选择普通网卡；已连接表示网卡已启用且处于运行状态。地址来自本机网卡配置，IPv6 本地链路地址包含网卡标识；速率首个样本不足或计数器重置时显示“—”。
+
 “系统信息”页面的“日志设置”提供“打开PHP错误日志”和“打开DB慢日志”。确认后保存配置并重启对应服务；服务需要已启动。页面展示持久配置状态，已有正确配置及日志文件时不会重复修改或重启。
 
 - PHP 从 `/usr/local/php/etc/php-fpm.conf` 及其绝对路径 include 定位默认 `[www]` 池，设置 `php_admin_value[error_log]` 与 `php_admin_flag[log_errors]`，日志写入 `/usr/local/php/var/log/php_errors.log`，所有权为 `www:www`。仅支持使用 `www` 账号的默认池。

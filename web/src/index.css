@@ -1057,10 +1057,62 @@ a {
   background: #fff;
   object-fit: contain;
 }
+.system-left,
 .system-right {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 20px;
+}
+.system-network-card {
+  gap: 14px;
+  padding-block: 16px;
+}
+.system-network-card [data-slot="card-header"],
+.system-network-card [data-slot="card-content"] {
+  padding: 0 21px;
+}
+.system-network-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+}
+.system-network-fields > div {
+  min-width: 0;
+}
+.system-network-fields dt {
+  margin-bottom: 4px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.system-network-fields dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.network-transfer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.network-transfer > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.network-transfer svg {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.network-transfer small {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.network-info-error {
+  margin-top: 10px;
+  font-size: 12px;
 }
 .account-security-dialog {
   max-height: calc(100dvh - 32px);

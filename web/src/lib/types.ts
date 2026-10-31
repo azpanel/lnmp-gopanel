@@ -27,6 +27,13 @@ export type WidgetID =
   | "database";
 export type DashboardWidgetSelection = { enabled: WidgetID[] };
 export type Rates = { read: number; write: number };
+export type NetworkInfo = {
+  name: string;
+  up: boolean;
+  ipv4: string[];
+  ipv6: string[];
+  rates: Rates | null;
+};
 export type Disk = {
   path: string;
   device: string;
@@ -50,6 +57,7 @@ export type Snapshot = {
   load: { one: number; five: number; fifteen: number } | null;
   uptime: number | null;
   network: Rates | null;
+  network_info?: NetworkInfo;
   disk_io: Rates | null;
   disks: Disk[];
   errors: Record<string, string>;

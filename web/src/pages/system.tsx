@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SystemLogging } from "@/components/system-logging";
+import { SystemNetwork } from "@/components/system-network";
 import { DiskTable } from "./dashboard";
 import { Meter } from "@/components/meter";
 import type { Host, Snapshot } from "@/lib/types";
@@ -73,43 +74,46 @@ export function System({
       </div>
       {error && <div className="notice">主机信息读取失败：{error}</div>}
       <div className="system-grid">
-        <Card>
-          <CardHeader>
-            <div className="card-title-icon">
-              <Server size={17} />
-              <CardTitle>主机环境</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <dl className="host-fields">
-              {fields.map(({ label, value, icon: Icon, brand }) => (
-                <div key={label}>
-                  <dt>
-                    <Icon size={15} aria-hidden="true" />
-                    {label}
-                  </dt>
-                  <dd>
-                    {brand && value?.trim() && (
-                      <img
-                        key={brand}
-                        className="host-brand-icon"
-                        src={`/brands/${brand}.svg`}
-                        alt=""
-                        aria-hidden="true"
-                        width={24}
-                        height={24}
-                        onError={(event) => {
-                          event.currentTarget.style.display = "none";
-                        }}
-                      />
-                    )}
-                    <span>{value?.trim() || "—"}</span>
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </CardContent>
-        </Card>
+        <div className="system-left">
+          <Card>
+            <CardHeader>
+              <div className="card-title-icon">
+                <Server size={17} />
+                <CardTitle>主机环境</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <dl className="host-fields">
+                {fields.map(({ label, value, icon: Icon, brand }) => (
+                  <div key={label}>
+                    <dt>
+                      <Icon size={15} aria-hidden="true" />
+                      {label}
+                    </dt>
+                    <dd>
+                      {brand && value?.trim() && (
+                        <img
+                          key={brand}
+                          className="host-brand-icon"
+                          src={`/brands/${brand}.svg`}
+                          alt=""
+                          aria-hidden="true"
+                          width={24}
+                          height={24}
+                          onError={(event) => {
+                            event.currentTarget.style.display = "none";
+                          }}
+                        />
+                      )}
+                      <span>{value?.trim() || "—"}</span>
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </CardContent>
+          </Card>
+          <SystemNetwork snapshot={snapshot} />
+        </div>
         <div className="system-right">
           <Card>
             <CardHeader>
