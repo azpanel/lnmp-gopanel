@@ -718,7 +718,7 @@ python3 scripts/test-package.py dist/lnmp-gopanel_linux_amd64.tar.gz
 
 [Build and release](https://github.com/azpanel/lnmp-gopanel/actions/workflows/build.yml) 在每个 Pull Request 运行格式检查、Go 竞态与前端单元测试、依赖漏洞扫描、隔离安装脚本测试、相关包的完整 root 测试（关键特权／真实 Nginx 测试必须执行），以及桌面与移动端浏览器回归。默认、账户安全和登录审计三套 Playwright 配置分别执行。浏览器测试使用本轮构建的嵌入式生产程序；缺失或跳过指定关键测试会失败。
 
-每个 PR 还在一次性 Ubuntu 24.04 amd64 托管 runner 上安装真实面板包，检查 sudo 精确授权、systemd、普通账号的 Chromium 沙箱，以及缺失授权、证书权限错误、NoNewPrivileges 限制时的升级回滚。主分支、标签和手动触发另外验证原生 arm64 包，以及 Debian 12／systemd 252 虚拟机；Debian 官方云镜像使用其发布的 SHA-512 清单校验。Release 必须等待基础检查和扩展矩阵全部通过。上述安装测试只安装面板，不安装 LNMP；已有 chroot mock 测试继续用于事务故障注入。故障时保留浏览器 trace、截图和服务日志。
+每个 PR 还在一次性 Ubuntu 24.04 amd64 托管 runner 上安装真实面板包，检查 sudo 精确授权、systemd、普通账号的 Chromium 沙箱，以及缺失授权、证书权限错误、NoNewPrivileges 限制时的升级回滚。主分支、标签和手动触发另外验证原生 arm64 包，以及 Debian 12／systemd 252 虚拟机；Debian 官方云镜像使用其发布的 SHA-512 清单校验。标准发布需要等待基础检查和扩展矩阵全部通过；手动选择快速模式时，仅以基础检查、双架构打包和安装包冒烟验证作为发布条件。上述安装测试只安装面板，不安装 LNMP；已有 chroot mock 测试继续用于事务故障注入。故障时保留浏览器 trace、截图和服务日志。
 
 前端被嵌入面板程序，两个 Go 程序均禁用 CGO；实际安装包在源码目录外验证 HTTPS、登录、资源、版本、缓存、压缩和 Range 行为。Actions 的 `lnmp-gopanel-linux` Artifact 保留 30 天。
 
@@ -728,6 +728,22 @@ python3 scripts/test-package.py dist/lnmp-gopanel_linux_amd64.tar.gz
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
+
+### 手动快速发布
+
+在 GitHub **Actions → Build and release → Run workflow** 中选择要发布的分支，设置 `mode=fast`，填写尚未使用的 `release_tag`（例如 `v0.1.20`）。**不要提前创建或推送这个标签**：工作流在检查通过后，将标签创建在本轮构建的确切提交上，并上传全部附件后发布正式 Release。
+
+也可使用 GitHub CLI：
+
+```bash
+gh workflow run build.yml --ref main -f mode=fast -f release_tag=v0.1.20
+```
+
+快速模式保留前端格式、单元测试和漏洞扫描，Go 格式、模块校验、静态分析、竞态测试和漏洞扫描，安装／打包脚本检查及特权／真实 Nginx 测试，以及 amd64／arm64 打包、安装包 HTTPS 冒烟验证和 SHA-256 校验。按目前基础构建耗时，通常约需 5 分钟，另加 runner 排队时间。
+
+快速模式跳过完整浏览器、amd64／arm64 systemd 真实安装和 Debian 12 虚拟机回归，Release 说明会标注这一检查范围。修改安装器、sudoers、systemd 或跨平台行为时，选择 `mode=full` 并填写新版本号，执行完整矩阵后发布。`full` 为默认模式；不填版本号时仅验证，手动运行已有 `v*` 标签时沿用标准标签发布。直接推送 `v*` 标签仍执行完整发布流程。
+
+新版本号若已存在标签或 Release，会在构建前拒绝；手动发布不会覆盖已有正式附件。中断后可在同一工作流中重跑失败的发布任务，已上传的草稿可继续完成。工作流使用 `GITHUB_TOKEN` 创建标签，不会再触发一轮标签推送 CI。
 
 本地生成相同布局的包：
 

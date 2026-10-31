@@ -7,23 +7,46 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "发布检查模式：full 完整回归，fast 仅基础检查与打包"
+        type: choice
+        options: [full, fast]
+        default: full
+      release_tag:
+        description: "手动发布的新版本号，例如 v0.1.20；fast 必填，勿预先推送标签"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  group: build-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   build:
     name: Test and build Linux packages
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    outputs:
+      mode: ${{ steps.release.outputs.mode }}
+      version: ${{ steps.release.outputs.version }}
+      publish: ${{ steps.release.outputs.publish }}
+      new_tag: ${{ steps.release.outputs.new_tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Resolve release mode and version
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_MODE: ${{ inputs.mode }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+        run: python3 scripts/release-mode.py prepare
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.x"
@@ -55,6 +78,7 @@ jobs:
           shellcheck install.sh scripts/package.sh scripts/test-debian-vm.sh
           python3 scripts/test-required-checker.py
           python3 scripts/test-integration-tools.py
+          python3 scripts/test-release-mode.py
           sudo python3 scripts/test-install.py
       - name: Require privileged and real Nginx tests
         run: |
@@ -62,14 +86,12 @@ jobs:
           sudo apt-get install -y nginx openssl
           sudo env "PATH=$PATH" python3 scripts/test-required.py
       - name: Build amd64 and arm64 archives
+        env:
+          BUILD_VERSION: ${{ steps.release.outputs.version }}
         run: |
-          build_version="dev-${GITHUB_SHA:0:12}"
-          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
-            build_version="$GITHUB_REF_NAME"
-          fi
           export BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           for arch in amd64 arm64; do
-            bash scripts/package.sh "$arch" "$build_version"
+            bash scripts/package.sh "$arch" "$BUILD_VERSION"
           done
           cp install.sh dist/install.sh
           cd dist
@@ -92,6 +114,7 @@ jobs:
 
   browser:
     name: Desktop and mobile browser regressions
+    if: needs.build.outputs.mode != 'fast'
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -142,6 +165,7 @@ jobs:
 
   systemd:
     name: Real systemd and sandbox (amd64)
+    if: needs.build.outputs.mode != 'fast'
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -189,7 +213,7 @@ jobs:
 
   arm64:
     name: Real systemd and sandbox (arm64)
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && needs.build.outputs.mode != 'fast'
     needs: build
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
@@ -224,7 +248,7 @@ jobs:
 
   debian:
     name: Debian 12 systemd 252 VM
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && needs.build.outputs.mode != 'fast'
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -250,13 +274,20 @@ jobs:
 
   release:
     name: Publish tagged release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      always() && !cancelled() && needs.build.result == 'success' && needs.build.outputs.publish == 'true' &&
+      (needs.build.outputs.mode == 'fast' ||
+       (needs.browser.result == 'success' && needs.systemd.result == 'success' &&
+        needs.arm64.result == 'success' && needs.debian.result == 'success'))
     needs: [build, browser, systemd, arm64, debian]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: lnmp-gopanel-linux
@@ -264,11 +295,9 @@ jobs:
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.build.outputs.version }}
+          RELEASE_MODE: ${{ needs.build.outputs.mode }}
+          RELEASE_SHA: ${{ github.sha }}
+          NEW_TAG: ${{ needs.build.outputs.new_tag }}
           GH_REPO: ${{ github.repository }}
-        run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" dist/* --clobber
-          else
-            gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes --title "$RELEASE_TAG"
-          fi
+        run: python3 scripts/release-mode.py publish
