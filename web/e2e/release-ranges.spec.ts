@@ -85,7 +85,13 @@ test("service release ranges validate, save, reset and preserve failed drafts", 
   await trigger.click();
   const dialog = page.getByRole("dialog", { name: "版本检查与设置" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("textbox")).toHaveCount(3);
+  await expect(dialog.getByRole("textbox")).toHaveCount(5);
+  await expect(
+    dialog.getByLabel("Node.js 版本范围", { exact: true }),
+  ).toHaveValue("");
+  await expect(
+    dialog.getByLabel("Python 3 版本范围", { exact: true }),
+  ).toHaveValue("");
   expect(refreshedRange).toBe("");
   await page.screenshot({
     path: testInfo.outputPath("release-range-dialog.png"),
@@ -179,3 +185,96 @@ test("range polling syncs saved settings without replacing an editing draft", as
   await expect(card).toContainText("范围 8.5 内最新版本");
   await expect(input).toHaveValue("8.2");
 });
+
+for (const component of [
+  {
+    name: "node",
+    title: "Node.js",
+    major: "22",
+    minor: "22.23",
+    version: "22.23.10",
+    latest: "26.13.0",
+  },
+  {
+    name: "python3",
+    title: "Python 3",
+    major: "3",
+    minor: "3.13",
+    version: "3.13.18",
+    latest: "3.15.2",
+  },
+]) {
+  test(`${component.title} ranges work without LNMP services and persist across reopen`, async ({
+    page,
+  }) => {
+    await mockServices(page);
+    await page.route("**/api/v1/services", (route) =>
+      route.fulfill({ json: [] }),
+    );
+    let current = release("", component.latest);
+    let refreshed = "";
+    const writes: string[] = [];
+    await page.route("**/api/v1/services/releases", (route) =>
+      route.fulfill({ json: { [component.name]: current } }),
+    );
+    await page.route(
+      `**/api/v1/services/releases/${component.name}/range`,
+      (route) => {
+        const range = route.request().postDataJSON().range as string;
+        writes.push(range);
+        current = release(range, range ? component.version : component.latest);
+        return route.fulfill({ status: 202, json: current });
+      },
+    );
+    await page.route("**/api/v1/services/releases/refresh", (route) => {
+      refreshed = current.range;
+      return route.fulfill({
+        status: 202,
+        json: { [component.name]: current },
+      });
+    });
+    await login(page);
+    const trigger = page.getByRole("button", {
+      name: "检查最新版本",
+      exact: true,
+    });
+    await trigger.click();
+    const dialog = page.getByRole("dialog", { name: "版本检查与设置" });
+    await expect(dialog.getByRole("textbox")).toHaveCount(2);
+    const form = dialog.locator(`[data-release-service="${component.name}"]`);
+    const input = form.getByLabel(`${component.title} 版本范围`, {
+      exact: true,
+    });
+    const save = form.getByRole("button", { name: "保存并检查", exact: true });
+    await input.fill(component.minor + ".1");
+    await save.click();
+    await expect(form.getByRole("alert")).toContainText("请填写大版本");
+    expect(writes).toEqual([]);
+    for (const range of [component.major, component.minor]) {
+      await input.fill(range);
+      await save.click();
+      await expect(
+        page.locator(`[data-component="${component.name}"]`),
+      ).toContainText(`范围 ${range} 内最新版本`);
+    }
+    await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+    await trigger.click();
+    await expect(input).toHaveValue(component.minor);
+    await dialog
+      .getByRole("button", { name: "检查全部版本", exact: true })
+      .click();
+    await expect.poll(() => refreshed).toBe(component.minor);
+    await page.reload();
+    await trigger.click();
+    await expect(input).toHaveValue(component.minor);
+    await input.fill("");
+    await save.click();
+    const card = page.locator(`[data-component="${component.name}"]`);
+    await expect(card).toContainText("最新稳定版");
+    await expect(card).toContainText(component.latest);
+    expect(writes).toEqual([component.major, component.minor, ""]);
+    expect(
+      await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth),
+    ).toBe(true);
+  });
+}

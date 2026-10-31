@@ -12,12 +12,12 @@ import (
 	"syscall"
 )
 
-var ErrRangeInput = errors.New("版本范围无效：仅支持 Nginx、PHP、MariaDB，范围请留空或填写大版本／大版本.中版本")
+var ErrRangeInput = errors.New("版本范围无效：仅支持 Nginx、PHP、MariaDB、Node.js、Python 3，范围请留空或填写大版本／大版本.中版本")
 var ErrRangeStorage = errors.New("版本范围配置不可用，请检查状态目录及文件后重试；读取失败时请重启面板")
 var rangePattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,8})(\.(0|[1-9][0-9]{0,8}))?$`)
 
 func RangeService(name string) bool {
-	return name == "nginx" || name == "php-fpm" || name == "mariadb"
+	return name == "nginx" || name == "php-fpm" || name == "mariadb" || name == "node" || name == "python3"
 }
 
 func ValidRange(scope string) bool { return scope == "" || rangePattern.MatchString(scope) }
@@ -128,7 +128,7 @@ func (s *rangeStore) save(name, scope string) error {
 	return nil
 }
 
-// ConfigureRanges is called once at startup. A load failure blocks scoped services
+// ConfigureRanges is called once at startup. A load failure blocks scoped releases
 // rather than silently checking unrestricted versions with lost settings.
 func (m *Manager) ConfigureRanges(dir string) error {
 	m.mu.Lock()

@@ -68,3 +68,35 @@ func TestScopedChangelogFailureStillKeepsVersion(t *testing.T) {
 		t.Fatalf("bad changelog failure: %+v %v", got, err)
 	}
 }
+
+func TestComponentRangesSelectMatchingStableVersionAndChangelog(t *testing.T) {
+	fixtures := map[string]string{
+		"https://nodejs.org/dist/index.json":                                                      `[{"version":"v26.13.0"},{"version":"v22.23.10"},{"version":"v22.23.9"},{"version":"v22.24.1"},{"version":"v22.25.0-rc.1"},{"version":"v23.0.0"}]`,
+		"https://raw.githubusercontent.com/nodejs/node/v22.24.1/doc/changelogs/CHANGELOG_V22.md":  "## Version 22.24.1 (LTS)\nlatest fixes\n## Version 22.24.0 (LTS)\nold fixes",
+		"https://raw.githubusercontent.com/nodejs/node/v22.23.10/doc/changelogs/CHANGELOG_V22.md": "## Version 22.24.1 (LTS)\nwrong fixes\n## Version 22.23.10 (LTS)\nlatest fixes\n## Version 22.23.9 (LTS)\nold fixes",
+		"https://www.python.org/downloads/":                                                       `<a>Python 3.15.2</a><a>Python 3.13.9</a><a>Python 3.13.18</a><a>Python 3.130.1</a><a>Python 3.13.19rc1</a><a>Python 3.13.20a1</a><a>Python 3.13.21b1</a><a>Python 2.7.18</a>`,
+		"https://raw.githubusercontent.com/python/cpython/v3.130.1/Misc/NEWS.d/3.130.1.rst":       "latest fixes",
+		"https://raw.githubusercontent.com/python/cpython/v3.13.18/Misc/NEWS.d/3.13.18.rst":       "latest fixes",
+	}
+	for _, tc := range []struct{ name, scope, want string }{
+		{"node", "22", "22.24.1"}, {"node", "22.23", "22.23.10"},
+		{"python3", "3", "3.130.1"}, {"python3", "3.13", "3.13.18"},
+	} {
+		t.Run(tc.name+"/"+tc.scope, func(t *testing.T) {
+			got, err := fixtureFetcher(t, fixtures).FetchRange(context.Background(), tc.name, tc.scope)
+			if err != nil || got.Version != tc.want || !strings.Contains(got.Changelog, "latest fixes") || got.ChangelogError != "" || strings.Contains(got.Changelog, "wrong fixes") || strings.Contains(got.Changelog, "old fixes") {
+				t.Fatalf("wrong scoped component: %+v %v", got, err)
+			}
+			if !strings.Contains(got.ChangelogURL, tc.want) {
+				t.Fatal("wrong changelog link", got.ChangelogURL)
+			}
+		})
+	}
+	for _, tc := range []struct{ name, scope string }{{"node", "2"}, {"node", "22.2"}, {"node", "22.25"}, {"python3", "2"}, {"python3", "3.1"}, {"python3", "3.16"}} {
+		t.Run(tc.name+"/missing-"+tc.scope, func(t *testing.T) {
+			if _, err := fixtureFetcher(t, fixtures).FetchRange(context.Background(), tc.name, tc.scope); err == nil || !strings.Contains(err.Error(), "未找到") {
+				t.Fatalf("scope unexpectedly fell back: %v", err)
+			}
+		})
+	}
+}

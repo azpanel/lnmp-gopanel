@@ -40,6 +40,16 @@ const actions = {
   reload: { label: "重载", icon: RefreshCw },
 };
 type Action = keyof typeof actions;
+const releaseRangeDefinitions: Record<
+  string,
+  { title: string; example: string }
+> = {
+  nginx: { title: serviceInfo.nginx.title, example: "1 或 1.28" },
+  "php-fpm": { title: serviceInfo["php-fpm"].title, example: "8 或 8.3" },
+  mariadb: { title: serviceInfo.mariadb.title, example: "11 或 11.4" },
+  node: { title: "Node.js", example: "22 或 22.23" },
+  python3: { title: "Python 3", example: "3 或 3.13" },
+};
 export function Services({
   services,
   error,
@@ -147,15 +157,18 @@ export function Services({
                 </DialogDescription>
               </DialogHeader>
               <div className="service-release-forms">
-                {services
-                  ?.filter((service) =>
-                    ["nginx", "php-fpm", "mariadb"].includes(service.name),
+                {Object.keys(releaseRangeDefinitions)
+                  .filter(
+                    (name) =>
+                      name === "node" ||
+                      name === "python3" ||
+                      services?.some((service) => service.name === name),
                   )
-                  .map((service) => (
+                  .map((name) => (
                     <ReleaseRangeEditor
-                      key={service.name}
-                      name={service.name}
-                      range={releases.data?.[service.name]?.range ?? ""}
+                      key={name}
+                      name={name}
+                      range={releases.data?.[name]?.range ?? ""}
                       disabled={
                         releases.isPending ||
                         Boolean(releases.error) ||
@@ -164,11 +177,9 @@ export function Services({
                       }
                       saving={
                         saveRange.isPending &&
-                        saveRange.variables?.name === service.name
+                        saveRange.variables?.name === name
                       }
-                      onSave={(range) =>
-                        saveRange.mutateAsync({ name: service.name, range })
-                      }
+                      onSave={(range) => saveRange.mutateAsync({ name, range })}
                     />
                   ))}
               </div>
@@ -636,20 +647,14 @@ function ReleaseRangeEditor({
       }}
     >
       <label htmlFor={`release-range-${name}`}>
-        {serviceInfo[name]?.title} 版本范围
+        {releaseRangeDefinitions[name].title} 版本范围
       </label>
       <div className="service-release-range-controls">
         <Input
           id={`release-range-${name}`}
           value={value}
           maxLength={19}
-          placeholder={
-            name === "nginx"
-              ? "例如 1 或 1.28"
-              : name === "php-fpm"
-                ? "例如 8 或 8.3"
-                : "例如 11 或 11.4"
-          }
+          placeholder={`例如 ${releaseRangeDefinitions[name].example}`}
           aria-describedby={`release-range-hint-${name}`}
           aria-invalid={Boolean(error)}
           disabled={disabled}

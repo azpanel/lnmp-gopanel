@@ -132,11 +132,11 @@ func (f *Fetcher) FetchRange(ctx context.Context, name, scope string) (Release, 
 	case "redis":
 		release, err = f.redis(ctx)
 	case "python3":
-		release, err = f.python(ctx)
+		release, err = f.python(ctx, scope)
 	case "go":
 		release, err = f.golang(ctx)
 	case "node":
-		release, err = f.node(ctx)
+		release, err = f.node(ctx, scope)
 	case "codex":
 		release, err = f.codex(ctx)
 	case "phpmyadmin":

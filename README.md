@@ -312,7 +312,7 @@ sudo systemctl start lnmp-gopanel
 | GET | `/api/v1/components` | 异步读取本机 phpMyAdmin、Python 3、Go、Node.js、Codex CLI、Composer 版本 |
 | POST | `/api/v1/components/refresh` | 手动刷新本机编程组件版本（需要 CSRF，返回 202） |
 | POST | `/api/v1/services/releases/refresh` | 按已保存范围手动异步检查最新版本（需要 CSRF，返回 202） |
-| PUT | `/api/v1/services/releases/:name/range` | 保存 Nginx、PHP、MariaDB 版本范围并异步检查（需要 CSRF，返回 202） |
+| PUT | `/api/v1/services/releases/:name/range` | 保存服务或组件版本范围并异步检查（需要 CSRF，返回 202） |
 | GET | `/api/v1/docker` | Docker 只读快照，首次及过期时后台刷新 |
 | POST | `/api/v1/docker/refresh` | 手动刷新 Docker 快照（需要 CSRF，返回 202） |
 | POST | `/api/v1/services/:name/actions/:action` | 服务操作，无请求体 |
@@ -350,7 +350,7 @@ Go 测试覆盖指标差分、采集与推送、认证、CSRF、SSE、服务白�
 
 phpMyAdmin 静态读取应用版本文件，不执行站点 PHP 代码。安装时生成的随机路径或 Basic Auth 固定路径由 LNMP 保存在 `/usr/local/etc/lnmp/security.conf`；辅助程序只解析该文件的数据，结合安装时填写的 IPv4 生成 `https://IPv4/实际路径/`，在卡片中提供“打开 phpMyAdmin”链接。配置和应用目录校验成功才显示链接，面板重启及升级后仍可恢复。旧安装缺少保护配置时检测 `/home/wwwroot/default/phpmyadmin`，显示版本但不猜测访问地址。组件 API 的 phpMyAdmin 条目增加可选 `access_url` 字段，未安装或路径无效时不返回该字段。
 
-采集异步执行，每个程序最多 8 秒，结果缓存 1 分钟，手动刷新间隔至少 5 秒。最新版本排除预发布，Node.js 按最高正式版本查询，可能高于 LTS 分支；Python 使用 python.org 发布列表与 CPython 对应标签的 NEWS，Go 使用 go.dev 下载接口及发布历史，Node.js 使用官方版本索引与对应标签 Changelog，Codex CLI、Composer 和 phpMyAdmin 分别使用各自官方仓库的正式 GitHub Release。联网查询与服务共用缓存、限流和失败处理。
+采集异步执行，每个程序最多 8 秒，结果缓存 1 分钟，手动刷新间隔至少 5 秒。最新版本排除预发布，Node.js 默认按最高正式版本查询，可能高于 LTS 分支；Node.js 和 Python 3 可在右上角版本检查对话框设置大版本／中版本范围；Python 使用 python.org 发布列表与 CPython 对应标签的 NEWS，Go 使用 go.dev 下载接口及发布历史，Node.js 使用官方版本索引与对应标签 Changelog，Codex CLI、Composer 和 phpMyAdmin 分别使用各自官方仓库的正式 GitHub Release。联网查询与服务共用缓存、限流和失败处理。
 
 已有安装需要同步更新面板、辅助程序和 sudoers，新增精确授权 `lnmp-gopanel-control components snapshot`；安装脚本会验证该权限，并以面板账号执行只读组件自检；工具未安装不阻止安装，辅助程序执行失败则回滚升级。无需修改 `services.yaml` 或放宽 `/root` 目录权限。
 
@@ -362,11 +362,11 @@ Composer 检测沿用 `components snapshot` 授权，升级时使用同一源码
 
 进入“LNMP 服务”页面后，后台独立查询每个已配置服务的最新正式版本。Nginx 默认选择官方 Stable 分支（不包括 Mainline），PHP 使用 php.net 发布接口与 php-src 的 NEWS，MariaDB 使用官方发布接口与 changelog，MySQL 使用官方源码仓库的正式标签及官方 Release Notes，Redis 使用官方 GitHub Releases。默认查询可能跨越本机版本分支，不表示当前安装分支的补丁更新建议。
 
-点击页面右上角“检查最新版本”，在弹出的“版本检查与设置”对话框内统一设置 Nginx、PHP、MariaDB 的“版本范围”：可填写大版本（如 `8`）或大版本＋中版本（如 `8.3`），查询该范围内最新正式版；留空不限。点击“保存并检查”后生效，对话框内“检查全部版本”使用各服务已保存范围，未保存的输入不影响查询。Nginx 留空或仅指定大版本时查询 Stable／Legacy 稳定分支；明确指定中版本（如 `1.29`）时也允许 Mainline。历史分支可返回官方仍提供的最后正式版本，不代表仍受维护；无匹配版本时显示失败，不自动改查其他范围。
+点击页面右上角“检查最新版本”，在弹出的“版本检查与设置”对话框内统一设置 Nginx、PHP、MariaDB、Node.js、Python 3 的“版本范围”：可填写大版本（如 `8`）或大版本＋中版本（如 `8.3`），查询该范围内最新正式版；留空不限。点击“保存并检查”后生效，对话框内“检查全部版本”使用各服务及组件已保存范围，未保存的输入不影响查询。Nginx 留空或仅指定大版本时查询 Stable／Legacy 稳定分支；明确指定中版本（如 `1.29`）时也允许 Mainline。Node.js 可填写 `22` 或 `22.23`，Python 3 可填写 `3` 或 `3.13`；两项始终可设置，不依赖 LNMP 服务配置或本机是否安装。Python 仅查询 Python 3，Node.js 不额外限制 LTS。历史分支可返回官方仍提供的最后正式版本，不代表仍受维护；无匹配版本时显示失败，不自动改查其他范围。
 
-范围由面板普通用户保存在 `metrics.state_dir/service-release-ranges.json`（生产默认 `/var/lib/lnmp-gopanel/service-release-ranges.json`），所有客户端共用，重启后保留；页面轮询同步保存结果，但不覆盖正在编辑的输入。目录和文件要求面板账号所有，权限为 0700／0600，不接受链接；保存采用原子替换，失败时保留原设置。配置文件不存在时默认全部不限；损坏或读取失败时暂停上述三项版本查询并显示错误，修复文件后重启面板，其他服务和组件继续查询。
+范围由面板普通用户保存在 `metrics.state_dir/service-release-ranges.json`（生产默认 `/var/lib/lnmp-gopanel/service-release-ranges.json`），所有客户端共用，重启后保留；页面轮询同步保存结果，但不覆盖正在编辑的输入。目录和文件要求面板账号所有，权限为 0700／0600，不接受链接；保存采用原子替换，失败时保留原设置。配置文件不存在时默认全部不限；损坏或读取失败时暂停上述五项版本查询并显示错误，修复文件后重启面板，其他服务和组件继续查询。
 
-`GET /api/v1/services/releases` 各项结果包含 `range` 字段（空串表示不限）。`PUT /api/v1/services/releases/:name/range` 仅支持已配置的 `nginx`、`php-fpm`、`mariadb`，JSON 请求示例为 `{"range":"8.3"}`；清空用 `{"range":""}`。成功返回 202 及该服务查询状态，参数错误返回 400，持久化不可用返回 503。范围只接受一段或两段数字，每段最多 9 位，不接受多余前导零、补丁版本、通配符和预发布后缀。
+`GET /api/v1/services/releases` 各项结果包含 `range` 字段（空串表示不限）。`PUT /api/v1/services/releases/:name/range` 支持已配置的 `nginx`、`php-fpm`、`mariadb`，以及固定展示的 `node`、`python3`，JSON 请求示例为 `{"range":"8.3"}`；清空用 `{"range":""}`。成功返回 202 及该服务查询状态，参数错误返回 400，持久化不可用返回 503。范围只接受一段或两段数字，每段最多 9 位，不接受多余前导零、补丁版本、通配符和预发布后缀。
 
 联网查询由普通面板进程执行，单次网络请求最多 12 秒，每个服务的网络与可取消阶段共用 30 秒预算；同步 HTML 解析不提供硬截止时间。网络访问限定为固定官方 HTTPS 域名，并限制响应大小与重定向。服务之间并行，状态 API 不等待联网；多个客户端按“服务＋版本范围”共享内存缓存、正在执行的查询和刷新限流；切换范围不会显示其他范围结果，同范围失败保留上次成功结果。成功缓存 6 小时，失败或 changelog 不可用时 15 分钟后自动重试；手动检查至少间隔 1 分钟。版本查询失败保留上次结果；changelog 失败仍展示最新版本与官方原文链接。上游限流、网络故障或 HTTP 403 会明确显示原因，不生成替代更新日志。更新日志以纯文本显示，长日志截断并提供完整原文链接，不执行上游 HTML。
 

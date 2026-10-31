@@ -187,7 +187,7 @@ test("programming component versions, changelogs and refresh without services", 
   expect(componentRefreshes).toBe(1);
   await page.getByRole("button", { name: "检查最新版本", exact: true }).click();
   const releaseDialog = page.getByRole("dialog", { name: "版本检查与设置" });
-  await expect(releaseDialog.getByRole("textbox")).toHaveCount(0);
+  await expect(releaseDialog.getByRole("textbox")).toHaveCount(2);
   expect(releaseRefreshes).toBe(0);
   await releaseDialog
     .getByRole("button", { name: "检查全部版本", exact: true })

@@ -13,7 +13,8 @@ func (s *Server) saveReleaseRange(c *gin.Context) {
 		return
 	}
 	name := c.Param("name")
-	configured := false
+	// These components are always listed, even without configured LNMP services.
+	configured := name == "node" || name == "python3"
 	for _, service := range s.Services.List() {
 		if service.Name == name {
 			configured = true

@@ -9,7 +9,7 @@ import (
 	"golang.org/x/net/html"
 )
 
-func (f *Fetcher) python(ctx context.Context) (Release, error) {
+func (f *Fetcher) python(ctx context.Context, scope string) (Release, error) {
 	const source = "https://www.python.org/downloads/"
 	data, err := f.get(ctx, source)
 	if err != nil {
@@ -19,12 +19,12 @@ func (f *Fetcher) python(ctx context.Context) (Release, error) {
 	// Match the complete release label so a beta/RC cannot be truncated to a stable version.
 	for _, match := range regexp.MustCompile(`>Python (3\.[0-9]+\.[0-9]+)</a>`).FindAllSubmatch(data, -1) {
 		version := string(match[1])
-		if newer(version, r.Version) {
+		if matchesRange(version, scope) && newer(version, r.Version) {
 			r.Version = version
 		}
 	}
 	if r.Version == "" {
-		return Release{}, fmt.Errorf("未找到 Python 3 正式版本")
+		return Release{}, fmt.Errorf("未找到范围 %q 内的 Python 3 正式版本", scope)
 	}
 	r.ChangelogURL = "https://docs.python.org/release/" + r.Version + "/whatsnew/changelog.html#python-" + strings.ReplaceAll(r.Version, ".", "-") + "-final"
 	// The full HTML contains many historical versions and exceeds the response limit.
@@ -111,7 +111,7 @@ func plainText(n *html.Node) string {
 	walk(n)
 	return strings.Join(strings.Fields(out.String()), " ")
 }
-func (f *Fetcher) node(ctx context.Context) (Release, error) {
+func (f *Fetcher) node(ctx context.Context, scope string) (Release, error) {
 	var versions []struct {
 		Version string `json:"version"`
 	}
@@ -121,12 +121,12 @@ func (f *Fetcher) node(ctx context.Context) (Release, error) {
 	r := Release{SourceURL: "https://nodejs.org/en/download/current"}
 	for _, item := range versions {
 		v := strings.TrimPrefix(item.Version, "v")
-		if stableVersion.MatchString(v) && newer(v, r.Version) {
+		if stableVersion.MatchString(v) && matchesRange(v, scope) && newer(v, r.Version) {
 			r.Version = v
 		}
 	}
 	if r.Version == "" {
-		return Release{}, fmt.Errorf("未找到 Node.js 正式版本")
+		return Release{}, fmt.Errorf("未找到范围 %q 内的 Node.js 正式版本", scope)
 	}
 	r.ChangelogURL = "https://nodejs.org/en/blog/release/v" + r.Version
 	major := strings.Split(r.Version, ".")[0]

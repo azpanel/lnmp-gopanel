@@ -173,8 +173,8 @@ func TestDamagedRangeSettingsBlockOnlyScopedServices(t *testing.T) {
 			if m.ConfigureRanges(dir) == nil {
 				t.Fatal("damaged settings accepted")
 			}
-			got := m.Latest([]string{"nginx", "redis"}, false)
-			if got["nginx"].Status != "failed" || got["redis"].Status != "loading" {
+			got := m.Latest([]string{"nginx", "node", "python3", "redis"}, false)
+			if got["nginx"].Status != "failed" || got["node"].Status != "failed" || got["python3"].Status != "failed" || got["redis"].Status != "loading" {
 				t.Fatalf("bad failure isolation: %+v", got)
 			}
 			if _, err := m.SaveRange("nginx", ""); !errors.Is(err, ErrRangeStorage) {
@@ -208,5 +208,36 @@ func TestRangeStoreRejectsLinks(t *testing.T) {
 	}
 	if _, err := openRangeStore(dir); err == nil {
 		t.Fatal("hardlink accepted")
+	}
+}
+
+func TestComponentRangesExtendExistingSettingsAndPersist(t *testing.T) {
+	m, source, dir := rangeManager(t)
+	if _, err := m.SaveRange("nginx", "1.28"); err != nil {
+		t.Fatal(err)
+	}
+	nextRangeRequest(t, source, "1.28")
+	// Reopening the old three-service file must preserve its values when components are added.
+	if err := m.ConfigureRanges(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, scope string }{{"node", "22.23"}, {"python3", "3.13"}} {
+		got, err := m.SaveRange(tc.name, tc.scope)
+		if err != nil || got.Range != tc.scope || got.Status != "loading" {
+			t.Fatalf("component range not applied: %+v %v", got, err)
+		}
+		select {
+		case req := <-source.calls:
+			if req.name != tc.name || req.scope != tc.scope {
+				t.Fatalf("wrong range request: %+v", req)
+			}
+			req.result <- sourceResult{release: Release{Version: tc.scope + ".10"}}
+		case <-time.After(time.Second):
+			t.Fatal("component range request not scheduled")
+		}
+	}
+	store, err := openRangeStore(dir)
+	if err != nil || store.values["nginx"] != "1.28" || store.values["node"] != "22.23" || store.values["python3"] != "3.13" {
+		t.Fatalf("lost saved ranges: %+v %v", store, err)
 	}
 }
