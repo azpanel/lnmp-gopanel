@@ -186,6 +186,15 @@ test("programming component versions, changelogs and refresh without services", 
   await expect(composer).toContainText("2.10.2");
   expect(componentRefreshes).toBe(1);
   await page.getByRole("button", { name: "检查最新版本", exact: true }).click();
+  const releaseDialog = page.getByRole("dialog", { name: "版本检查与设置" });
+  await expect(releaseDialog.getByRole("textbox")).toHaveCount(0);
+  expect(releaseRefreshes).toBe(0);
+  await releaseDialog
+    .getByRole("button", { name: "检查全部版本", exact: true })
+    .click();
+  await releaseDialog
+    .getByRole("button", { name: "关闭", exact: true })
+    .click();
   await expect(go).toContainText("Changelog 读取失败");
   await expect(go).toContainText("1.27.3");
   expect(releaseRefreshes).toBe(1);

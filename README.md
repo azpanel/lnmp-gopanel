@@ -311,7 +311,8 @@ sudo systemctl start lnmp-gopanel
 | GET | `/api/v1/services/releases` | 立即返回服务及编程组件的版本查询缓存，首次或过期时后台联网查询 |
 | GET | `/api/v1/components` | 异步读取本机 phpMyAdmin、Python 3、Go、Node.js、Codex CLI、Composer 版本 |
 | POST | `/api/v1/components/refresh` | 手动刷新本机编程组件版本（需要 CSRF，返回 202） |
-| POST | `/api/v1/services/releases/refresh` | 手动异步检查最新稳定版本（需要 CSRF，返回 202） |
+| POST | `/api/v1/services/releases/refresh` | 按已保存范围手动异步检查最新版本（需要 CSRF，返回 202） |
+| PUT | `/api/v1/services/releases/:name/range` | 保存 Nginx、PHP、MariaDB 版本范围并异步检查（需要 CSRF，返回 202） |
 | GET | `/api/v1/docker` | Docker 只读快照，首次及过期时后台刷新 |
 | POST | `/api/v1/docker/refresh` | 手动刷新 Docker 快照（需要 CSRF，返回 202） |
 | POST | `/api/v1/services/:name/actions/:action` | 服务操作，无请求体 |
@@ -359,9 +360,15 @@ Composer 检测沿用 `components snapshot` 授权，升级时使用同一源码
 
 服务卡片展示 Nginx、PHP-FPM、MySQL / MariaDB、Redis 的已安装版本。版本号通过固定的服务可执行文件及 `-v` / `--version` 参数读取，由面板普通用户执行，不连接数据库、不读取凭据；本机版本成功缓存 1 小时，失败后 1 分钟重试，失败不覆盖上次版本或服务运行状态。
 
-进入“LNMP 服务”页面后，后台独立查询每个已配置服务的最新正式版本。Nginx 选择官方 Stable 分支（不包括 Mainline），PHP 使用 php.net 发布接口与 php-src 的 NEWS，MariaDB 使用官方发布接口与 changelog，MySQL 使用官方源码仓库的正式标签及官方 Release Notes，Redis 使用官方 GitHub Releases。这里的“最新稳定版”可能跨越本机版本分支，不表示当前安装分支的补丁更新建议。
+进入“LNMP 服务”页面后，后台独立查询每个已配置服务的最新正式版本。Nginx 默认选择官方 Stable 分支（不包括 Mainline），PHP 使用 php.net 发布接口与 php-src 的 NEWS，MariaDB 使用官方发布接口与 changelog，MySQL 使用官方源码仓库的正式标签及官方 Release Notes，Redis 使用官方 GitHub Releases。默认查询可能跨越本机版本分支，不表示当前安装分支的补丁更新建议。
 
-联网查询由普通面板进程执行，单次网络请求最多 12 秒，每个服务的网络与可取消阶段共用 30 秒预算；同步 HTML 解析不提供硬截止时间。网络访问限定为固定官方 HTTPS 域名，并限制响应大小与重定向。服务之间并行，状态 API 不等待联网；多个客户端共享内存缓存和正在执行的查询，成功缓存 6 小时，失败或 changelog 不可用时 15 分钟后自动重试；手动检查至少间隔 1 分钟。版本查询失败保留上次结果；changelog 失败仍展示最新版本与官方原文链接。上游限流、网络故障或 HTTP 403 会明确显示原因，不生成替代更新日志。更新日志以纯文本显示，长日志截断并提供完整原文链接，不执行上游 HTML。
+点击页面右上角“检查最新版本”，在弹出的“版本检查与设置”对话框内统一设置 Nginx、PHP、MariaDB 的“版本范围”：可填写大版本（如 `8`）或大版本＋中版本（如 `8.3`），查询该范围内最新正式版；留空不限。点击“保存并检查”后生效，对话框内“检查全部版本”使用各服务已保存范围，未保存的输入不影响查询。Nginx 留空或仅指定大版本时查询 Stable／Legacy 稳定分支；明确指定中版本（如 `1.29`）时也允许 Mainline。历史分支可返回官方仍提供的最后正式版本，不代表仍受维护；无匹配版本时显示失败，不自动改查其他范围。
+
+范围由面板普通用户保存在 `metrics.state_dir/service-release-ranges.json`（生产默认 `/var/lib/lnmp-gopanel/service-release-ranges.json`），所有客户端共用，重启后保留；页面轮询同步保存结果，但不覆盖正在编辑的输入。目录和文件要求面板账号所有，权限为 0700／0600，不接受链接；保存采用原子替换，失败时保留原设置。配置文件不存在时默认全部不限；损坏或读取失败时暂停上述三项版本查询并显示错误，修复文件后重启面板，其他服务和组件继续查询。
+
+`GET /api/v1/services/releases` 各项结果包含 `range` 字段（空串表示不限）。`PUT /api/v1/services/releases/:name/range` 仅支持已配置的 `nginx`、`php-fpm`、`mariadb`，JSON 请求示例为 `{"range":"8.3"}`；清空用 `{"range":""}`。成功返回 202 及该服务查询状态，参数错误返回 400，持久化不可用返回 503。范围只接受一段或两段数字，每段最多 9 位，不接受多余前导零、补丁版本、通配符和预发布后缀。
+
+联网查询由普通面板进程执行，单次网络请求最多 12 秒，每个服务的网络与可取消阶段共用 30 秒预算；同步 HTML 解析不提供硬截止时间。网络访问限定为固定官方 HTTPS 域名，并限制响应大小与重定向。服务之间并行，状态 API 不等待联网；多个客户端按“服务＋版本范围”共享内存缓存、正在执行的查询和刷新限流；切换范围不会显示其他范围结果，同范围失败保留上次成功结果。成功缓存 6 小时，失败或 changelog 不可用时 15 分钟后自动重试；手动检查至少间隔 1 分钟。版本查询失败保留上次结果；changelog 失败仍展示最新版本与官方原文链接。上游限流、网络故障或 HTTP 403 会明确显示原因，不生成替代更新日志。更新日志以纯文本显示，长日志截断并提供完整原文链接，不执行上游 HTML。
 
 首次初始化自动识别 `redis.service` / `redis-server.service` 或 `/etc/init.d/redis` / `/etc/init.d/redis-server`。已有安装升级时，需要在 `/etc/lnmp-gopanel/services.yaml` 中增加实际对应的 Redis 配置，例如：
 

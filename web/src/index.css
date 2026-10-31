@@ -4854,3 +4854,28 @@ body,
     gap: 16px;
   }
 }
+
+.service-release-dialog {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+.service-release-forms {
+  display: grid;
+  gap: 1.25rem;
+}
+.service-release-range > label {
+  display: block;
+  margin-bottom: 0.375rem;
+  font-size: 0.8125rem;
+}
+.service-release-range-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.service-release-range-controls button {
+  flex-shrink: 0;
+}
+.service-release-range .small-note {
+  margin-top: 0.375rem;
+}

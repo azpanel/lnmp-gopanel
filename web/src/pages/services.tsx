@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
@@ -86,6 +87,21 @@ export function Services({
     onSuccess: (data) => client.setQueryData(["service-releases"], data),
     onError: (e) => toast.error(e.message),
   });
+  const saveRange = useSessionMutation({
+    mutationFn: ({ name, range }: { name: string; range: string }) =>
+      api<ServiceRelease>(`/services/releases/${name}/range`, {
+        method: "PUT",
+        body: JSON.stringify({ range }),
+      }),
+    onMutate: () => client.cancelQueries({ queryKey: ["service-releases"] }),
+    onSuccess: async (data, variables) => {
+      await client.cancelQueries({ queryKey: ["service-releases"] });
+      client.setQueryData<Record<string, ServiceRelease>>(
+        ["service-releases"],
+        (previous) => ({ ...previous, [variables.name]: data }),
+      );
+    },
+  });
   const checkingReleases =
     refreshReleases.isPending ||
     Object.values(releases.data ?? {}).some(
@@ -113,18 +129,80 @@ export function Services({
           <p>查看运行状态，管理你的核心服务。</p>
         </div>
         <div className="service-heading-actions">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={checkingReleases || releases.isPending}
-            onClick={() => refreshReleases.mutate()}
-          >
-            <RefreshCw
-              size={14}
-              className={checkingReleases ? "animate-spin" : ""}
-            />
-            {checkingReleases ? "查询版本中…" : "检查最新版本"}
-          </Button>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <RefreshCw
+                  size={14}
+                  className={checkingReleases ? "animate-spin" : ""}
+                />
+                检查最新版本
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="service-release-dialog">
+              <DialogHeader>
+                <DialogTitle>版本检查与设置</DialogTitle>
+                <DialogDescription>
+                  可填写大版本或大版本.中版本，留空不限。保存后所有客户端共用。
+                </DialogDescription>
+              </DialogHeader>
+              <div className="service-release-forms">
+                {services
+                  ?.filter((service) =>
+                    ["nginx", "php-fpm", "mariadb"].includes(service.name),
+                  )
+                  .map((service) => (
+                    <ReleaseRangeEditor
+                      key={service.name}
+                      name={service.name}
+                      range={releases.data?.[service.name]?.range ?? ""}
+                      disabled={
+                        releases.isPending ||
+                        Boolean(releases.error) ||
+                        refreshReleases.isPending ||
+                        saveRange.isPending
+                      }
+                      saving={
+                        saveRange.isPending &&
+                        saveRange.variables?.name === service.name
+                      }
+                      onSave={(range) =>
+                        saveRange.mutateAsync({ name: service.name, range })
+                      }
+                    />
+                  ))}
+              </div>
+              {releases.error && (
+                <p className="service-version-error" role="alert">
+                  最新版本查询失败：{releases.error.message}
+                </p>
+              )}
+              {checkingReleases && (
+                <p className="small-note" role="status">
+                  正在查询最新版本…
+                </p>
+              )}
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button variant="outline">关闭</Button>
+                </DialogClose>
+                <Button
+                  disabled={
+                    checkingReleases ||
+                    releases.isPending ||
+                    saveRange.isPending
+                  }
+                  onClick={() => refreshReleases.mutate()}
+                >
+                  <RefreshCw
+                    size={14}
+                    className={checkingReleases ? "animate-spin" : ""}
+                  />
+                  {checkingReleases ? "查询版本中…" : "检查全部版本"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <Button
             variant="outline"
             size="sm"
@@ -154,7 +232,7 @@ export function Services({
       )}
       <div className="service-cards">
         {services?.map((service) => (
-          <Card key={service.name}>
+          <Card key={service.name} data-service={service.name}>
             <CardContent>
               <div className="service-card-head">
                 <ServiceIcon name={service.name} />
@@ -515,6 +593,88 @@ function NginxBuildInfo({ service }: { service: Service }) {
   );
 }
 
+function ReleaseRangeEditor({
+  name,
+  range,
+  disabled,
+  saving,
+  onSave,
+}: {
+  name: string;
+  range: string;
+  disabled: boolean;
+  saving: boolean;
+  onSave: (range: string) => Promise<unknown>;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const value = draft ?? range;
+  return (
+    <form
+      className="service-release-range"
+      data-release-service={name}
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (disabled) return;
+        const scope = value.trim();
+        if (
+          scope &&
+          !/^(0|[1-9][0-9]{0,8})(\.(0|[1-9][0-9]{0,8}))?$/.test(scope)
+        ) {
+          setError(
+            "请填写大版本或大版本.中版本，例如 8 或 8.3；留空表示不限。",
+          );
+          return;
+        }
+        setError("");
+        try {
+          await onSave(scope);
+          setDraft(null);
+        } catch (error) {
+          setError(error instanceof Error ? error.message : "版本范围保存失败");
+        }
+      }}
+    >
+      <label htmlFor={`release-range-${name}`}>
+        {serviceInfo[name]?.title} 版本范围
+      </label>
+      <div className="service-release-range-controls">
+        <Input
+          id={`release-range-${name}`}
+          value={value}
+          maxLength={19}
+          placeholder={
+            name === "nginx"
+              ? "例如 1 或 1.28"
+              : name === "php-fpm"
+                ? "例如 8 或 8.3"
+                : "例如 11 或 11.4"
+          }
+          aria-describedby={`release-range-hint-${name}`}
+          aria-invalid={Boolean(error)}
+          disabled={disabled}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setError("");
+          }}
+        />
+        <Button type="submit" variant="outline" size="sm" disabled={disabled}>
+          {saving ? "保存中…" : "保存并检查"}
+        </Button>
+      </div>
+      <p id={`release-range-hint-${name}`} className="small-note">
+        留空不限。
+        {name === "nginx" && "明确填写中版本时支持 Mainline。"}
+      </p>
+      {error && (
+        <p className="service-version-error" role="alert">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
 function ReleaseInfo({
   release,
   failed,
@@ -525,7 +685,9 @@ function ReleaseInfo({
   return (
     <div className="service-release" aria-live="polite">
       <div className="service-release-heading">
-        <span>最新稳定版</span>
+        <span>
+          {release?.range ? `范围 ${release.range} 内最新版本` : "最新稳定版"}
+        </span>
         <strong className="font-mono">
           {release?.version ||
             (release?.status === "failed" || failed ? "暂不可用" : "查询中…")}

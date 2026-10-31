@@ -118,6 +118,9 @@ func run() error {
 	app.DNS = &vhosts.DNSChecker{PublicIPs: c.Vhosts.PublicIPs}
 	app.Components = components.NewManager(ctx, control.Helper{Path: c.Helper})
 	app.Releases = releases.NewManager(ctx, releases.NewFetcher())
+	if err := app.Releases.ConfigureRanges(c.Metrics.StateDir); err != nil {
+		slog.Warn("版本范围配置初始化失败，Nginx、PHP、MariaDB 版本查询暂停", "error", err)
+	}
 	app.Docker = docker.NewManager(ctx, control.Helper{Path: c.Helper})
 	app.Screenshots, err = screenshots.NewManager(ctx, c.Screenshots.StateDir, &screenshots.Chromium{Browser: c.Screenshots.Browser, StateDir: c.Screenshots.StateDir})
 	if err != nil {

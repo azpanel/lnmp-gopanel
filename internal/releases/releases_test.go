@@ -110,7 +110,7 @@ type blockingSource struct {
 	results chan sourceResult
 }
 
-func (s *blockingSource) Fetch(ctx context.Context, name string) (Release, error) {
+func (s *blockingSource) FetchRange(ctx context.Context, name, scope string) (Release, error) {
 	s.calls.Add(1)
 	select {
 	case result := <-s.results:

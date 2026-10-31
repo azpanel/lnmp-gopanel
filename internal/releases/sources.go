@@ -18,6 +18,7 @@ const maxBody = 4 * 1024 * 1024
 
 var stableVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 var seriesVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
+var prereleaseName = regexp.MustCompile(`(?i)\b(alpha|beta|rc|preview)\b`)
 
 type Fetcher struct{ client *http.Client }
 
@@ -110,15 +111,22 @@ func excerpt(value string) string {
 }
 
 func (f *Fetcher) Fetch(ctx context.Context, name string) (Release, error) {
+	return f.FetchRange(ctx, name, "")
+}
+
+func (f *Fetcher) FetchRange(ctx context.Context, name, scope string) (Release, error) {
+	if !ValidRange(scope) || (scope != "" && !RangeService(name)) {
+		return Release{}, ErrRangeInput
+	}
 	var release Release
 	var err error
 	switch name {
 	case "nginx":
-		release, err = f.nginx(ctx)
+		release, err = f.nginx(ctx, scope)
 	case "php-fpm":
-		release, err = f.php(ctx)
+		release, err = f.php(ctx, scope)
 	case "mariadb":
-		release, err = f.mariadb(ctx)
+		release, err = f.mariadb(ctx, scope)
 	case "mysql":
 		release, err = f.mysql(ctx)
 	case "redis":
@@ -162,24 +170,57 @@ func (f *Fetcher) notes(ctx context.Context, release *Release, url string, trans
 	release.Changelog = text
 }
 
-func (f *Fetcher) nginx(ctx context.Context) (Release, error) {
-	const source = "https://nginx.org/en/download.html"
+func (f *Fetcher) nginx(ctx context.Context, scope string) (Release, error) {
+	source := "https://nginx.org/en/download.html"
+	explicitSeries := strings.Contains(scope, ".")
+	if explicitSeries {
+		source = "https://nginx.org/download/"
+	}
 	data, err := f.get(ctx, source)
 	if err != nil {
 		return Release{}, err
 	}
-	match := regexp.MustCompile(`(?s)Stable version</h4>.*?nginx-([0-9]+\.[0-9]+\.[0-9]+)\.tar\.gz`).FindSubmatch(data)
-	if len(match) != 2 {
-		return Release{}, fmt.Errorf("未找到 Nginx 稳定版本")
+	r := Release{SourceURL: source}
+	if scope == "" {
+		match := regexp.MustCompile(`(?s)Stable version</h4>.*?nginx-([0-9]+\.[0-9]+\.[0-9]+)\.tar\.gz`).FindSubmatch(data)
+		if len(match) == 2 {
+			r.Version = string(match[1])
+		}
+	} else {
+		candidates := string(data)
+		if !explicitSeries {
+			// Only Stable and Legacy sections are eligible for a major-only range.
+			start := strings.Index(candidates, "Stable version</h4>")
+			if start < 0 {
+				return Release{}, fmt.Errorf("未找到 Nginx 稳定分支")
+			}
+			candidates = candidates[start:]
+			if end := strings.Index(candidates, "Source Code</h4>"); end >= 0 {
+				candidates = candidates[:end]
+			}
+		}
+		for _, match := range regexp.MustCompile(`nginx-([0-9]+\.[0-9]+\.[0-9]+)\.tar\.gz`).FindAllStringSubmatch(candidates, -1) {
+			if matchesRange(match[1], scope) && newer(match[1], r.Version) {
+				r.Version = match[1]
+			}
+		}
 	}
-	r := Release{Version: string(match[1]), SourceURL: source}
+	if r.Version == "" {
+		return Release{}, fmt.Errorf("未找到范围 %q 内的 Nginx 正式版本", scope)
+	}
 	r.ChangelogURL = "https://nginx.org/en/CHANGES-" + series(r.Version)
+	if explicitSeries {
+		minor, _ := strconv.Atoi(strings.Split(r.Version, ".")[1])
+		if minor%2 == 1 {
+			r.ChangelogURL = "https://nginx.org/en/CHANGES"
+		}
+	}
 	f.notes(ctx, &r, r.ChangelogURL, func(text string) string {
-		start := strings.Index(text, "Changes with nginx "+r.Version)
-		if start < 0 {
+		match := regexp.MustCompile(`Changes with nginx ` + regexp.QuoteMeta(r.Version) + `(?:[\t \r\n]|$)`).FindStringIndex(text)
+		if match == nil {
 			return ""
 		}
-		text = text[start:]
+		text = text[match[0]:]
 		if end := strings.Index(text[1:], "Changes with nginx "); end >= 0 {
 			text = text[:end+1]
 		}
@@ -188,21 +229,30 @@ func (f *Fetcher) nginx(ctx context.Context) (Release, error) {
 	return r, nil
 }
 
-func (f *Fetcher) php(ctx context.Context) (Release, error) {
+func (f *Fetcher) php(ctx context.Context, scope string) (Release, error) {
+	source := "https://www.php.net/releases/index.php?json"
+	if scope != "" {
+		source += "&version=" + scope + "&max=1"
+	}
 	var versions map[string]struct {
 		Version string `json:"version"`
 	}
-	if err := f.json(ctx, "https://www.php.net/releases/index.php?json", &versions); err != nil {
+	if err := f.json(ctx, source, &versions); err != nil {
 		return Release{}, err
 	}
 	r := Release{SourceURL: "https://www.php.net/downloads.php"}
-	for _, v := range versions {
-		if stableVersion.MatchString(v.Version) && newer(v.Version, r.Version) {
-			r.Version = v.Version
+	for key, v := range versions {
+		version := v.Version
+		if scope != "" {
+			// The filtered API uses full release versions as object keys.
+			version = key
+		}
+		if stableVersion.MatchString(version) && matchesRange(version, scope) && newer(version, r.Version) {
+			r.Version = version
 		}
 	}
 	if r.Version == "" {
-		return Release{}, fmt.Errorf("未找到 PHP 稳定版本")
+		return Release{}, fmt.Errorf("未找到范围 %q 内的 PHP 正式版本", scope)
 	}
 	r.ChangelogURL = "https://www.php.net/ChangeLog-" + strings.Split(r.Version, ".")[0] + ".php#" + r.Version
 	f.notes(ctx, &r, "https://raw.githubusercontent.com/php/php-src/php-"+r.Version+"/NEWS", func(text string) string {
@@ -223,39 +273,45 @@ func (f *Fetcher) php(ctx context.Context) (Release, error) {
 	return r, nil
 }
 
-func (f *Fetcher) mariadb(ctx context.Context) (Release, error) {
-	var majors struct {
-		Releases []struct {
-			ID     string `json:"release_id"`
-			Status string `json:"release_status"`
-		} `json:"major_releases"`
-	}
-	if err := f.json(ctx, "https://downloads.mariadb.org/rest-api/mariadb/", &majors); err != nil {
-		return Release{}, err
-	}
-	latestSeries := ""
-	for _, v := range majors.Releases {
-		if v.Status == "Stable" && seriesVersion.MatchString(v.ID) && newer(v.ID, latestSeries) {
-			latestSeries = v.ID
+func (f *Fetcher) mariadb(ctx context.Context, scope string) (Release, error) {
+	latestSeries := scope
+	if !strings.Contains(scope, ".") {
+		latestSeries = ""
+		var majors struct {
+			Releases []struct {
+				ID     string `json:"release_id"`
+				Status string `json:"release_status"`
+			} `json:"major_releases"`
+		}
+		if err := f.json(ctx, "https://downloads.mariadb.org/rest-api/mariadb/", &majors); err != nil {
+			return Release{}, err
+		}
+		for _, v := range majors.Releases {
+			if v.Status == "Stable" && seriesVersion.MatchString(v.ID) && matchesRange(v.ID, scope) && newer(v.ID, latestSeries) {
+				latestSeries = v.ID
+			}
+		}
+		if latestSeries == "" {
+			return Release{}, fmt.Errorf("未找到范围 %q 内的 MariaDB 稳定分支", scope)
 		}
 	}
-	if latestSeries == "" {
-		return Release{}, fmt.Errorf("未找到 MariaDB 稳定分支")
-	}
 	var versions struct {
-		Releases map[string]json.RawMessage `json:"releases"`
+		Releases map[string]struct {
+			Name string `json:"release_name"`
+		} `json:"releases"`
 	}
 	if err := f.json(ctx, "https://downloads.mariadb.org/rest-api/mariadb/"+latestSeries+"/", &versions); err != nil {
 		return Release{}, err
 	}
 	r := Release{SourceURL: "https://mariadb.org/download/"}
-	for version := range versions.Releases {
-		if stableVersion.MatchString(version) && series(version) == latestSeries && newer(version, r.Version) {
+	for version, metadata := range versions.Releases {
+		prerelease := prereleaseName.MatchString(metadata.Name)
+		if !prerelease && stableVersion.MatchString(version) && series(version) == latestSeries && newer(version, r.Version) {
 			r.Version = version
 		}
 	}
 	if r.Version == "" {
-		return Release{}, fmt.Errorf("未找到 MariaDB 稳定版本")
+		return Release{}, fmt.Errorf("未找到范围 %q 内的 MariaDB 正式版本", scope)
 	}
 	r.ChangelogURL = "https://mariadb.com/docs/release-notes/community-server/changelogs/" + latestSeries + "/" + r.Version
 	f.notes(ctx, &r, r.ChangelogURL+".md", func(text string) string {

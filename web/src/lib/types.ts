@@ -78,6 +78,7 @@ export type Service = {
   version_checked_at: string;
 };
 export type ServiceRelease = {
+  range: string;
   status: "loading" | "ready" | "failed";
   version: string;
   source_url: string;

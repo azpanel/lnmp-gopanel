@@ -137,6 +137,7 @@ func (s *Server) Handler() http.Handler {
 	private.GET("/services", func(c *gin.Context) { c.JSON(200, s.Services.List()) })
 	private.GET("/services/releases", func(c *gin.Context) { s.serviceReleases(c, false) })
 	private.POST("/services/releases/refresh", s.csrf, func(c *gin.Context) { s.serviceReleases(c, true) })
+	private.PUT("/services/releases/:name/range", s.csrf, s.saveReleaseRange)
 	private.POST("/services/:name/actions/:action", s.csrf, s.action)
 	private.GET("/services/:name/management-repair", s.managementRepairPreview)
 	private.POST("/services/:name/management-repair", s.csrf, s.managementRepair)

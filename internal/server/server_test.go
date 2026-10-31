@@ -247,7 +247,7 @@ func TestDockerAPIRequiresAuthAndCSRFAndReturnsAsyncSnapshot(t *testing.T) {
 	t.Fatal("Docker snapshot did not complete")
 }
 
-func (s *releaseSourceStub) Fetch(ctx context.Context, name string) (releases.Release, error) {
+func (s *releaseSourceStub) FetchRange(ctx context.Context, name, scope string) (releases.Release, error) {
 	s.calls.Add(1)
 	select {
 	case <-s.done:
