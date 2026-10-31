@@ -105,7 +105,9 @@ export function SystemLogging() {
                 >
                   <div className="min-w-0 flex-1 basis-48">
                     <div className="flex flex-wrap items-center gap-2 font-medium">
-                      <span>{labels[kind]}</span>
+                      <span className="text-[14px] leading-5">
+                        {labels[kind]}
+                      </span>
                       {view && !status.isError && (
                         <Badge
                           variant="outline"
@@ -119,7 +121,7 @@ export function SystemLogging() {
                         </Badge>
                       )}
                     </div>
-                    <p className="muted mt-1 text-xs break-all">
+                    <p className="muted mt-1 text-[12px] leading-5 break-all">
                       {view?.message}
                     </p>
                   </div>
