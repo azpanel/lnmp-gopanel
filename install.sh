@@ -306,8 +306,87 @@ verify_service_state() {
   fi
   [[ "$result" == "$expected" ]] || { printf '%s expected=%s actual=%s\n' "$operation" "$expected" "$result"; return 1; }
 }
+# Old helpers started init daemons in the panel's cgroup. Replacing the helper
+# cannot move those existing processes, and even rollback stops the panel.
+# Read /proc rather than assuming a cgroup mount layout (v1, v2 or hybrid).
+check_panel_cgroup_safety() {
+  local unit="$1" properties key value group="" main_pid="" load_state=""
+  local proc entry hierarchy controllers membership name executable member main_seen=false
+  local -a entries=() unsafe=()
+  if ! properties="$(systemctl show "$unit" --property=LoadState,ControlGroup,MainPID)"; then
+    printf '无法检查面板控制组，已阻止可能停止或重启面板的操作。\n' >&2
+    return 1
+  fi
+  while IFS='=' read -r key value; do
+    case "$key" in
+      LoadState) load_state="$value" ;;
+      ControlGroup) group="$value" ;;
+      MainPID) main_pid="$value" ;;
+    esac
+  done <<< "$properties"
+  if [[ -z "$load_state" || ! "$main_pid" =~ ^[0-9]+$ ]]; then
+    printf '面板控制组状态不完整，已阻止可能停止或重启面板的操作。\n' >&2
+    return 1
+  fi
+  if [[ -z "$group" && "$main_pid" == 0 ]]; then return 0; fi
+  if [[ "$group" != /* || "$group" == / || "$group" == *'/../'* || "$group" == */.. || ! -r /proc/self/cgroup ]] || ! command -v readlink >/dev/null; then
+    printf '无法可靠读取面板控制组或 /proc，已阻止可能停止或重启面板的操作。\n' >&2
+    return 1
+  fi
+  if [[ "$main_pid" != 0 && ! -r "/proc/$main_pid/cgroup" ]]; then
+    printf '无法读取面板主进程控制组：PID=%s；已阻止操作，请确认进程状态后重试。\n' "$main_pid" >&2
+    return 1
+  fi
+  for proc in /proc/[0-9]*; do
+    [[ -d "$proc" ]] || continue
+    if ! mapfile -t entries 2>/dev/null < "$proc/cgroup" || ((${#entries[@]} == 0)); then
+      [[ -d "$proc" ]] || continue
+      printf '无法读取进程控制组：%s/cgroup；已阻止可能停止或重启面板的操作。\n' "$proc" >&2
+      return 1
+    fi
+    member=false
+    for entry in "${entries[@]}"; do
+      IFS=: read -r hierarchy controllers membership <<< "$entry"
+      if [[ ( "$hierarchy" == 0 && -z "$controllers" ) || ",$controllers," == *,name=systemd,* ]]; then
+        if [[ "$membership" == "$group" || "$membership" == "$group/"* ]]; then member=true; break; fi
+      fi
+    done
+    "$member" || continue
+    if [[ "${proc##*/}" == "$main_pid" ]]; then main_seen=true; fi
+    if ! IFS= read -r name 2>/dev/null < "$proc/comm"; then
+      [[ -d "$proc" ]] || continue
+      printf '无法读取面板控制组内的进程名称：%s；已阻止操作。\n' "$proc" >&2
+      return 1
+    fi
+    # comm can differ from the executable name. Inspect both; never print argv,
+    # which can contain database passwords. Chromium/helper children are normal.
+    executable="$(readlink -- "$proc/exe" 2>/dev/null)" || executable=""
+    executable="${executable% (deleted)}"
+    executable="${executable##*/}"
+    case "$name" in
+      nginx|php-fpm*|php[0-9]*-fpm|mysqld*|mariadbd*|redis-server*) ;;
+      *) case "$executable" in
+        nginx|php-fpm*|php[0-9]*-fpm|mysqld*|mariadbd*|redis-server*) ;;
+        *) continue ;;
+      esac ;;
+    esac
+    unsafe+=("PID=${proc##*/} 进程=$name")
+  done
+  if [[ "$main_pid" != 0 ]] && ! "$main_seen"; then
+    printf '面板主进程与 systemd 控制组记录不一致，已阻止操作，请确认进程状态后重试。\n' >&2
+    return 1
+  fi
+  if ((${#unsafe[@]})); then
+    printf '发现业务进程仍属于面板控制组 %s：\n' "$group" >&2
+    printf '  %s\n' "${unsafe[@]}" >&2
+    printf '已阻止操作，避免停止或重启面板时带停业务服务。请勿直接重启面板；在维护窗口通过独立 systemd 单元或 scope 重新托管这些服务，确认进程已离开面板控制组后重试。仅 reload 不会迁移已有进程。\n' >&2
+    return 1
+  fi
+  return 0
+}
 stop_recovery_service() {
   local load_state
+  check_panel_cgroup_safety lnmp-gopanel.service || return 1
   load_state="$(systemctl show lnmp-gopanel --property=LoadState --value)" || return 1
   [[ -n "$load_state" ]] || return 1
   if [[ "$load_state" != not-found ]]; then systemctl stop lnmp-gopanel || return 1; fi
@@ -472,6 +551,7 @@ uninstall_panel() {
   fi
   load_state="$(systemctl show lnmp-gopanel --property=LoadState --value)" || die "Cannot determine panel service state"
   if [[ "$load_state" != not-found ]]; then
+    check_panel_cgroup_safety lnmp-gopanel.service || die "卸载已中止，未删除面板文件"
     systemctl stop lnmp-gopanel || die "Cannot stop panel; no panel files were removed"
     systemctl disable lnmp-gopanel || die "Cannot disable panel; no panel files were removed"
   fi
@@ -508,6 +588,7 @@ reset_panel_password() (
   fi
   printf '将重置管理员密码，同时清除 TOTP 和恢复码。\n'
   if systemctl is-active --quiet lnmp-gopanel; then reset_was_active=true; fi
+  check_panel_cgroup_safety lnmp-gopanel.service || die "密码重置已中止"
   # Invoked indirectly by the EXIT trap below.
   # shellcheck disable=SC2317
   restore_reset_service() {
@@ -552,6 +633,7 @@ configure_panel_metrics() {
     printf '服务监控配置需要交互终端，请运行 sudo bash install.sh --configure-metrics。\n' >&2
     return 1
   fi
+  check_panel_cgroup_safety lnmp-gopanel.service || return 1
   /usr/local/bin/lnmp-gopanel metrics configure --config /etc/lnmp-gopanel/config.yaml
 }
 if [[ "$action" == configure-metrics ]]; then
@@ -561,7 +643,7 @@ fi
 if [[ "$action" == update ]]; then
   [[ -f /etc/lnmp-gopanel/config.yaml && -f /etc/lnmp-gopanel/services.yaml && -f /usr/local/bin/lnmp-gopanel ]] || die "No complete panel installation found; use --install to install or repair it"
 fi
-for program in tar gzip sha256sum awk install stat cp mv mkdir rm mktemp sync chown chmod date; do
+for program in tar gzip sha256sum awk install stat cp mv mkdir rm mktemp sync chown chmod date readlink; do
   command -v "$program" >/dev/null || die "Missing command: $program"
 done
 
@@ -847,6 +929,9 @@ elif [[ ! -e /etc/lnmp-gopanel/config.yaml && ! -e /etc/lnmp-gopanel/services.ya
 else
   die "Incomplete configuration: expected both config.yaml and services.yaml"
 fi
+# Always check, including --no-start: a later failure can enter rollback, which
+# stops the panel even when normal installation was not going to restart it.
+check_panel_cgroup_safety lnmp-gopanel.service || die "安装或升级已中止，未替换面板文件"
 visudo -cf "$payload/deploy/lnmp-gopanel.sudoers"
 tls_args=(--tls-dir /etc/lnmp-gopanel/tls)
 if "$fresh_install" || [[ -n "$tls_mode" ]] || ! "$payload/bin/lnmp-gopanel" https --check >/dev/null 2>&1; then
@@ -910,6 +995,7 @@ else
 fi
 systemctl daemon-reload
 if "$start_service"; then
+  check_panel_cgroup_safety lnmp-gopanel.service || die "面板重启已中止，请按提示处理后运行 --recover"
   systemctl enable lnmp-gopanel
   systemctl restart lnmp-gopanel
   sleep 1

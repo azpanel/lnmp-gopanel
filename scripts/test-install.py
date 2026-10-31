@@ -76,7 +76,16 @@ case "$1" in
   # A stopped unit may be unloaded by the reload performed during disable.
   reset-failed) [[ -f /run/panel.active ]] ;;
   show)
-    if [[ "$*" == *--property=LoadState* ]]; then
+    if [[ "$*" == *--property=LoadState,ControlGroup,MainPID* ]]; then
+      [[ ! -f /run/fail-cgroup-check ]] || exit 1
+      if [[ -f /run/panel.cgroup ]]; then
+        printf 'LoadState=loaded\\nControlGroup=%s\\nMainPID=4242\\n' "$(cat /run/panel.cgroup)"
+      elif [[ -e /etc/systemd/system/lnmp-gopanel.service || -f /run/panel.active ]]; then
+        printf 'LoadState=loaded\\nControlGroup=\\nMainPID=0\\n'
+      else
+        printf 'LoadState=not-found\\nControlGroup=\\nMainPID=0\\n'
+      fi
+    elif [[ "$*" == *--property=LoadState* ]]; then
       if [[ -e /etc/systemd/system/lnmp-gopanel.service || -f /run/panel.active ]]; then
         printf 'loaded\\n'
       else
@@ -231,7 +240,7 @@ class InstallerTests(unittest.TestCase):
             "bash", "uname", "tar", "gzip", "sha256sum", "awk", "install", "stat",
             "cp", "mv", "mkdir", "rm", "mktemp", "cat", "chmod", "chown", "id",
             "date", "sleep", "getent", "groupadd", "useradd", "userdel", "groupdel", "flock", "nologin",
-            "touch", "visudo", "grep", "sync",
+            "touch", "visudo", "grep", "sync", "readlink",
         ):
             copy_executable(cls.template, command)
         # The installer intentionally uses /bin/bash and /usr/bin/sudo.
@@ -282,6 +291,9 @@ printf '%s\\n' "$*" >> /run/apparmor.log
 """, 0o755)
         write(cls.template, "/run/panel.pid", "4242\n")
         write(cls.template, "/proc/4242/status", "Uid:\t999\t999\t999\t999\nNoNewPrivs:\t0\nSeccomp:\t2\n")
+        write(cls.template, "/proc/self/cgroup", "0::/test-installer.scope\n")
+        write(cls.template, "/proc/4242/cgroup", "0::/system.slice/lnmp-gopanel.service\n")
+        write(cls.template, "/proc/4242/comm", "lnmp-gopanel\n")
         shutil.copy2(PROJECT / "install.sh", cls.template / "install.sh")
 
     @classmethod
@@ -386,6 +398,129 @@ printf '%s\\n' "$*" >> /run/apparmor.log
         write(self.root, "/etc/lnmp-gopanel/config.yaml", "incomplete")
         self.run_script("--update", success=False)
         self.assertFalse((self.root / "run/downloads.log").exists())
+
+    def panel_cgroup_process(self, name, group=None, executable=None):
+        panel_group = "/system.slice/lnmp-gopanel.service"
+        write(self.root, "/run/panel.cgroup", panel_group + "\n")
+        write(self.root, "/proc/4343/cgroup", group or "0::" + panel_group + "\n")
+        write(self.root, "/proc/4343/comm", name + "\n")
+        link = self.root / "proc/4343/exe"
+        link.unlink(missing_ok=True)
+        if executable:
+            link.symlink_to(executable)
+
+    def assert_no_panel_stop(self):
+        log = self.root / "run/systemctl.log"
+        operations = log.read_text().splitlines() if log.exists() else []
+        self.assertFalse(any(line.startswith(("stop ", "restart ")) for line in operations), operations)
+        self.assertTrue((self.root / "run/panel.active").exists())
+
+    def test_legacy_service_cgroup_blocks_upgrade_before_any_replacement(self):
+        previous = self.old_installation(https=True)
+        for name, group, executable in (
+            ("php-fpm", None, None),
+            ("nginx", "0::/system.slice/lnmp-gopanel.service/children\n", None),
+            ("mariadbd", "9:memory:/unrelated\n1:name=systemd:/system.slice/lnmp-gopanel.service\n", None),
+            ("mysqld_safe", None, None),
+            ("redis-server", None, None),
+            ("renamed-master", None, "/usr/local/php/sbin/php-fpm (deleted)"),
+        ):
+            with self.subTest(name=name):
+                self.panel_cgroup_process(name, group, executable)
+                result = self.run_script("--update", success=False)
+                self.assertIn("发现业务进程仍属于面板控制组", result.stderr)
+                self.assertIn("PID=4343", result.stderr)
+                self.assertIn("仅 reload 不会迁移", result.stderr)
+                self.assert_previous_files(previous)
+                self.assertFalse((self.root / "var/backups/lnmp-gopanel/pending").exists())
+                self.assertFalse((self.root / "run/helper.log").exists())
+                self.assert_no_panel_stop()
+        self.run_installer("--no-start", automatic_tls=False, success=False)
+        self.assert_previous_files(previous)
+        self.assert_no_panel_stop()
+
+    def test_independent_services_and_normal_panel_children_allow_upgrade(self):
+        self.old_installation(https=True)
+        for pid, name, group in (
+            (4343, "php-fpm", "/system.slice/lnmp-gopanel-managed-php-fpm-test.scope"),
+            (4344, "nginx", "/system.slice/nginx.service"),
+            (4345, "mariadbd", "/system.slice/lnmp-gopanel.service-other"),
+            (4346, "chromium", "/system.slice/lnmp-gopanel.service/browser"),
+            (4347, "lnmp-gopanel-co", "/system.slice/lnmp-gopanel.service"),
+        ):
+            write(self.root, f"/proc/{pid}/cgroup", "0::" + group + "\n")
+            write(self.root, f"/proc/{pid}/comm", name + "\n")
+        write(self.root, "/run/panel.cgroup", "/system.slice/lnmp-gopanel.service\n")
+        self.run_installer(automatic_tls=False)
+        self.assertIn("restart lnmp-gopanel", (self.root / "run/systemctl.log").read_text())
+
+    def test_unverifiable_cgroup_blocks_upgrade_without_rollback(self):
+        previous = self.old_installation(https=True)
+        write(self.root, "/run/fail-cgroup-check", "")
+        result = self.run_script("--update", success=False)
+        self.assertIn("无法检查面板控制组", result.stderr)
+        (self.root / "run/fail-cgroup-check").unlink()
+        self.panel_cgroup_process("php-fpm")
+        (self.root / "proc/4343/cgroup").unlink()
+        result = self.run_script("--update", success=False)
+        self.assertIn("无法读取进程控制组", result.stderr)
+        (self.root / "proc/4343").rename(self.root / "proc/exited-process")
+        write(self.root, "/proc/4242/cgroup", "0::/different-namespace\n")
+        result = self.run_script("--update", success=False)
+        self.assertIn("面板主进程与 systemd 控制组记录不一致", result.stderr)
+        self.assert_previous_files(previous)
+        self.assert_no_panel_stop()
+        self.assertFalse((self.root / "var/backups/lnmp-gopanel/pending").exists())
+
+    def test_legacy_service_blocks_recovery_and_preserves_retry_state(self):
+        previous = self.old_installation(https=True)
+        self.arm_interruption(TARGETS[1])
+        self.assertEqual(self.run_installer(automatic_tls=False, success=False).returncode, -9)
+        transaction = self.pending_transaction()
+        interrupted = {p: (self.root / p.lstrip("/")).read_bytes() for p in TARGETS}
+        self.panel_cgroup_process("php-fpm")
+        result = self.run_script("--recover", success=False)
+        self.assertIn("发现业务进程仍属于面板控制组", result.stderr)
+        self.assert_previous_files(interrupted)
+        self.assertEqual((transaction / "status").read_text(), "pending\n")
+        self.assertTrue((transaction.parent / "pending").exists())
+        self.assert_no_panel_stop()
+        self.panel_cgroup_process("php-fpm", "0::/system.slice/independent.scope\n")
+        self.run_script("--recover")
+        self.assert_previous_files(previous)
+        self.assertFalse((transaction.parent / "pending").exists())
+
+    def test_service_appearing_during_upgrade_blocks_restart_and_rollback_stop(self):
+        self.old_installation(https=True)
+        self.hook_command("mv", r'''
+if [[ "${@: -1}" == /usr/local/libexec/lnmp-gopanel-control ]]; then
+  printf '/system.slice/lnmp-gopanel.service\n' > /run/panel.cgroup
+  mkdir -p /proc/4343
+  printf '0::/system.slice/lnmp-gopanel.service\n' > /proc/4343/cgroup
+  printf 'php-fpm\n' > /proc/4343/comm
+fi
+''')
+        result = self.run_installer(automatic_tls=False, success=False)
+        self.assertIn("面板重启已中止", result.stderr)
+        self.assertIn("恢复未完成", result.stderr)
+        self.assertEqual(self.pending_transaction().joinpath("status").read_text(), "pending\n")
+        self.assert_no_panel_stop()
+
+    def test_legacy_service_blocks_other_installer_stop_paths(self):
+        previous = self.old_installation(https=True)
+        write(self.root, "/usr/local/bin/lnmp-gopanel", PANEL, 0o755)
+        previous[TARGETS[0]] = PANEL.encode()
+        self.panel_cgroup_process("php-fpm")
+        for args, terminal in (
+            (("--uninstall", "--yes"), False),
+            (("--reset-password", "--password-stdin"), False),
+            (("--configure-metrics",), True),
+        ):
+            with self.subTest(args=args):
+                result = self.run_script(*args, terminal=terminal, success=False)
+                self.assertIn("发现业务进程仍属于面板控制组", result.stderr)
+                self.assert_previous_files(previous)
+                self.assert_no_panel_stop()
 
     def test_update_failures_preserve_installation(self):
         previous = self.old_installation(https=True)
@@ -678,7 +813,8 @@ exit 0
         log = (self.root / "run/systemctl.log").read_text()
         self.assertNotIn("restart lnmp-gopanel", log)
         self.assertNotIn("enable lnmp-gopanel", log)
-        self.assertNotIn("show lnmp-gopanel", log)
+        self.assertEqual(log.count("show lnmp-gopanel.service --property=LoadState,ControlGroup,MainPID\n"), 1)
+        self.assertNotIn("--property=MainPID --value", log)
         self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\ncomponents snapshot\n")
         self.assertTrue(list((self.root / "var/backups/lnmp-gopanel").glob("*/manifest")))
 
@@ -868,7 +1004,7 @@ exit 0
         write(self.root, "/proc/4242/status", "NoNewPrivs:\t1\n")
         result = self.run_installer("--password-stdin", "--no-start")
         self.assertIn("Helper permissions checked", result.stdout)
-        self.assertNotIn("show lnmp-gopanel", (self.root / "run/systemctl.log").read_text())
+        self.assertNotIn("--property=MainPID --value", (self.root / "run/systemctl.log").read_text())
         self.assertFalse((self.root / "run/panel.active").exists())
 
     def test_failed_restart_restores_previous_files(self):

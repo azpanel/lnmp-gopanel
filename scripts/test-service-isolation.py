@@ -55,7 +55,7 @@ def simulator(path, state):
     # Both fork and setsid are intentional: detaching from the process group is
     # insufficient to escape the caller's cgroup, which is the original bug.
     path.write_text("""#!/usr/bin/python3
-import json,os,signal,sys,time
+import ctypes,json,os,signal,sys,time
 from pathlib import Path
 STATE=Path(%r)
 def current():
@@ -82,6 +82,7 @@ if os.fork(): os._exit(0)
 fd=os.open('/dev/null',os.O_RDWR)
 for target in (0,1,2): os.dup2(fd,target)
 if fd>2: os.close(fd)
+ctypes.CDLL(None).prctl(15,b'php-fpm',0,0,0)
 pid=os.getpid()
 start=Path('/proc/self/stat').read_text().split(') ',1)[1].split()[19]
 data={'pid':pid,'start':start,'cgroup':Path('/proc/self/cgroup').read_text().strip()}
@@ -106,6 +107,8 @@ def main():
             run("go", "test", "-c", "-o", str(binary), "./internal/control", cwd=PROJECT,
                 env=dict(os.environ, CGO_ENABLED="0"))
         parents, scopes = set(), set()
+        installer = (PROJECT / "install.sh").read_text()
+        safety = "check_panel_cgroup_safety() {" + installer.split("check_panel_cgroup_safety() {", 1)[1].split("\nstop_recovery_service()", 1)[0]
 
         def record(state):
             try:
@@ -143,6 +146,17 @@ def main():
                     assert cgroup(before).endswith("/" + unit), before
                 else:
                     assert cgroup(before).rsplit("/", 1)[-1] in scopes, before
+                # Exercise the installer's actual read-only preflight against
+                # real /proc and real systemd units. Never run the installer.
+                check = subprocess.run(["/bin/bash", "-c", "set -euo pipefail\n" + safety + '\ncheck_panel_cgroup_safety "$1"',
+                                        "safety-check", unit], text=True, capture_output=True, timeout=15)
+                if mode == "raw":
+                    assert check.returncode != 0 and f"PID={before['pid']}" in check.stderr, check
+                    assert live(before), "Read-only preflight disturbed the legacy daemon"
+                    print("升级保护验证：检测到真实控制组内的遗留业务进程并拒绝继续，原进程保持运行。", flush=True)
+                else:
+                    assert check.returncode == 0, check.stderr
+                    print("升级保护验证：独立 scope 内的业务进程不会阻止升级。", flush=True)
                 run("/usr/bin/systemctl", "restart", unit)
                 if mode == "raw":
                     wait_for(lambda: not live(before), "original daemon stopped with parent")
