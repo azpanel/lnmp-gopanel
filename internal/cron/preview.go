@@ -55,18 +55,7 @@ func NextRuns(view Snapshot, task Task, now time.Time) Preview {
 	if location == time.Local {
 		result.Timezone = "服务器时区 · " + now.In(location).Format("MST (UTC-07:00)")
 	}
-	expression := task.Schedule
-	fields := strings.Fields(expression)
-	if len(fields) == 5 {
-		weekday, err := normalizeSunday(fields[4])
-		if err != nil {
-			result.Message = "表达式无效，无法计算执行时间。"
-			return result
-		}
-		fields[4] = weekday
-		expression = strings.Join(fields, " ")
-	}
-	schedule, err := cronlib.ParseStandard(expression)
+	schedule, err := ParseSchedule(task.Schedule)
 	if err != nil {
 		result.Message = "表达式无效或暂不支持，无法计算执行时间。"
 		return result
@@ -81,6 +70,20 @@ func NextRuns(view Snapshot, task Task, now time.Time) Preview {
 		result.Times = append(result.Times, current.In(location))
 	}
 	return result
+}
+
+// ParseSchedule shares Unix weekday normalization with configuration forms.
+func ParseSchedule(expression string) (cronlib.Schedule, error) {
+	fields := strings.Fields(expression)
+	if len(fields) == 5 {
+		weekday, err := normalizeSunday(fields[4])
+		if err != nil {
+			return nil, err
+		}
+		fields[4] = weekday
+		expression = strings.Join(fields, " ")
+	}
+	return cronlib.ParseStandard(expression)
 }
 
 // Unix cron accepts both 0 and 7 for Sunday; robfig/cron only accepts 0.

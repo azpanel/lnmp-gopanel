@@ -62,7 +62,7 @@ export const widgetOptions: {
   {
     id: "processes",
     title: "进程资源排行",
-    description: "CPU／内存占用前 10 名",
+    description: "CPU/内存占用前 10 名",
   },
   {
     id: "nginx",

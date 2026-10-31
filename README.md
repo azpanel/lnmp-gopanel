@@ -293,11 +293,17 @@ Composer 检测沿用 `components snapshot` 授权，升级时使用同一源码
 
 ## 网站备份
 
-“网站备份”页面（`/backups`）展示 gdrive、rclone 的本机安装状态和实际版本。右上角“安装组件”弹窗支持勾选一个或两个组件后统一安装，逐项展示结果；已安装组件不可重复选择。当前仅提供组件安装和检测，不包含备份任务、云盘授权或恢复功能。
+“网站备份”页面（`/backups`）提供备份政策配置和 gdrive、rclone 组件安装。右上角“添加备份政策”打开三个 Tab，支持新增、查看、编辑、删除及启停政策。当前只保存配置，不创建 crontab、不执行备份、不生成压缩包，也不删除旧备份；不要求已安装传输或压缩组件。
 
-安装通过固定的 root 辅助程序启动 systemd 后台任务，关闭弹窗、刷新页面或重启面板不会停止任务。每个组件最多安装 10 分钟，一项失败后继续另一项，失败项可重新选择安装。gdrive 每次安装查询 GitHub 最新正式 Release，下载 Linux x64 包至临时目录，安装到 `/usr/local/bin/gdrive`；ARM64 主机不提供 gdrive 安装。rclone 使用官方 `https://rclone.org/install.sh`，需要系统已具备 curl 和受支持的解压工具，缺少依赖时显示错误。
+- **基本设置**：名称、备注、启用状态；通过常用频率、五字段表单或直接输入组装 Cron，按服务器时区预览接下来五次计划时间。默认每天 02:00，启用；ZIP 等级 0–9，7z 等级 0、1、3、5、7、9，默认 ZIP/5/不加密；数据库和文件分别默认保留 7 份，通过滑块调整 1–100 份（已有更大值会扩展滑块上限），当前不执行清理。
+- **数据库**：默认全部数据库并自动包含新增库，默认排除 `mysql`、`information_schema`、`performance_schema`、`phpmyadmin`、`sys`，可手动修改；也可切换为指定数据库。每个库可选择全部表、仅备份所选表、跳过所选表，表列表支持搜索与分页。库表大小为数据及索引的元数据估算，视图大小不可用时显示“—”。仅连接本机 MySQL/MariaDB root 账号，复用可信客户端配置与 Socket；认证失败时在弹窗临时输入密码重试，密码不保存、不进入 URL 或日志。
+- **文件与目录**：填写规范绝对路径；目录排除规则每行一条，支持相对路径、`*`、`?`、`**`，例如 `cache/`、`logs/*.log`、`**/node_modules/**`。排除目录时同时排除后代，规则不能越出来源目录。独立统计原始逻辑大小与排除后预计大小，不读取文件内容、不展开内部符号链接，不支持 `/proc`、`/sys`、`/dev`；最多同时统计两个来源，单次最多 60 秒，超时及扫描变化显示部分结果。
 
-升级已有部署时需同步更新面板、辅助程序和 sudoers，新增精确授权 `lnmp-gopanel-control backup-components inspect`、`lnmp-gopanel-control backup-components install`；安装脚本仅检查这些权限，不触发组件安装。任务状态保存在 root 私有目录 `/var/lib/lnmp-gopanel-backups`。 gdrive 和 rclone 均通过 `version` 子命令检测版本；rclone 脚本的 `TMPDIR` 指向本次任务目录，下载与解压文件不会占用 `/tmp`，失败后也会清理。
+政策保存在 `/var/lib/lnmp-gopanel-backups/policies.json`，压缩密码由独立的 `policies.key` 使用 AES-GCM 加密，两者均为 root 私有 `0600` 文件；备份及恢复配置时必须同时保留密钥。列表及详情只返回密码是否已设置，编辑可保持、更换或清除密码。政策写入带文件锁、原子替换及修订号校验，过期编辑返回冲突；大小估算和数据库临时密码不存入政策。
+
+“安装组件”弹窗可勾选 gdrive、rclone 后统一安装并显示实际版本，已安装组件不能重复选择。安装通过固定 root 辅助程序启动 systemd 后台任务，关闭弹窗、刷新页面或重启面板不终止任务；每个组件最多 10 分钟，一项失败后继续另一项。gdrive 每次查询 GitHub 最新正式 Release，安装至 `/usr/local/bin/gdrive`，仅支持 amd64；rclone 使用官方 `https://rclone.org/install.sh`，需系统具备 curl 和解压工具。两者通过 `version` 子命令检测版本，rclone 的 `TMPDIR` 指向任务目录，失败也会清理下载与解压文件。
+
+升级部署时同步更新面板、辅助程序和 sudoers。除已有 `backup-components inspect/install` 外，新增精确授权 `backup-policies list/get/save/delete/databases/tables/files`；安装脚本只检查授权，不查询数据库、不扫描来源、不启动备份。政策请求上限 256 KiB，辅助响应上限 1 MiB；政策最多 1000 个，总配置上限 8 MiB，每个政策最多 100 个文件来源，每个目录最多 200 条排除规则。
 
 ## 在线安装 LNMP
 
@@ -804,6 +810,8 @@ bash scripts/package.sh arm64 vX.Y.Z
 | 服务管理修复   | `GET /services/:name/management-repair`、`POST /services/:name/management-repair`                                                                                                                                          |
 | 版本查询       | `GET /services/releases`、`POST /services/releases/refresh`、`PUT /services/releases/:name/range`                                                                                                                          |
 | LNMP 安装      | `GET /lnmp-installation`、`POST /lnmp-installation/prepare`、`POST /lnmp-installation/jobs/:id/start`、`GET /lnmp-installation/jobs/:id`、`GET /lnmp-installation/jobs/:id/events`、`GET /lnmp-installation/jobs/:id/logs` |
+| 备份政策       | `GET/POST /backups/policies`、`GET/PUT/DELETE /backups/policies/:id`（更新和删除携带 revision） |
+| 备份来源与频率 | `POST /backups/databases/inspect`、`POST /backups/databases/tables`、`POST /backups/files/inspect`、`POST /backups/schedule/preview` |
 | 网站备份组件   | `GET /backups/components`、`POST /backups/components/install`（请求体为 `{"components":["gdrive","rclone"]}`） |
 | 网站列表与配置 | `GET /vhosts`、`GET /vhosts/count`、`POST /vhosts/refresh`、`GET /vhosts/config`、`POST /vhosts/config/format`、`POST /vhosts/toggle`                                                                                      |
 | 建站与 SSL     | `GET /vhosts/options`、`POST /vhosts/check-dns`、`POST /vhosts`、`POST /vhosts/ssl/retry`、`POST /vhosts/ssl/renew/preview`、`POST /vhosts/ssl/renew`                                                                      |

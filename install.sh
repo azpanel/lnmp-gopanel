@@ -704,7 +704,7 @@ check_helper() {
   # Only check authorization for cron, logs and virtual hosts: these sources
   # are optional. Never read site/account data, create sites, issue certificates
   # or change managed services as an installation self-check.
-  for name in backup-components-inspect backup-components-install nginx nginx-repair-preview nginx-repair docker components storage cron logs-list logs-read logging-status logging-enable-php logging-enable-database lnmp-install-inspect lnmp-install-prepare lnmp-install-start lnmp-install-read \
+  for name in backup-policies-list backup-policies-get backup-policies-save backup-policies-delete backup-policies-databases backup-policies-tables backup-policies-files backup-components-inspect backup-components-install nginx nginx-repair-preview nginx-repair docker components storage cron logs-list logs-read logging-status logging-enable-php logging-enable-database lnmp-install-inspect lnmp-install-prepare lnmp-install-start lnmp-install-read \
     vhosts-list vhosts-config vhosts-format vhosts-usage vhosts-toggle vhosts-options vhosts-create vhosts-ssl-renew-preview vhosts-ssl-renew \
     vhosts-basic-auth-get vhosts-basic-auth-set vhosts-basic-auth-disable; do
     case "$name" in
@@ -717,6 +717,7 @@ check_helper() {
       logs-list) name=logs; action=list ;;
       logs-read) name=logs; action="read" ;;
       logging-*) action="${name#logging-}"; name=logging ;;
+      backup-policies-*) action="${name#backup-policies-}"; name=backup-policies ;;
       backup-components-*) action="${name#backup-components-}"; name=backup-components ;;
       lnmp-install-*) action="${name#lnmp-install-}"; name=lnmp-install ;;
       vhosts-*) action="${name#vhosts-}"; name=vhosts ;;

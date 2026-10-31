@@ -3,6 +3,7 @@ module github.com/azpanel/lnmp-gopanel
 go 1.26.0
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/chromedp/cdproto v0.157.8
 	github.com/chromedp/chromedp v0.21.0
 	github.com/gin-contrib/sse v1.1.0

@@ -1,3 +1,5 @@
+import { BackupPolicyEditor } from "@/components/backup-policy-editor";
+import { BackupPolicyList } from "@/components/backup-policy-list";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, Download, Loader2 } from "lucide-react";
@@ -50,6 +52,10 @@ const descriptions = {
 };
 
 export function Backups() {
+  const [editor, setEditor] = useState<{
+    id?: string;
+    readOnly: boolean;
+  } | null>(null);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<ComponentName[]>([]);
   const client = useQueryClient();
@@ -93,135 +99,151 @@ export function Backups() {
         <div>
           <div className="eyebrow muted">WEBSITE BACKUP</div>
           <h1>网站备份</h1>
-          <p>安装并查看网站备份所需的组件。</p>
+          <p>配置数据库与文件备份政策，管理备份所需组件。</p>
         </div>
-        <Dialog
-          open={open}
-          onOpenChange={(value) => {
-            setOpen(value);
-            if (value) {
-              setSelected([]);
-              if (!install.isPending) install.reset();
-            }
-          }}
-        >
-          <DialogTrigger asChild>
-            <Button size="sm">
-              <Download size={14} />
-              安装组件
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="backup-install-dialog">
-            <DialogHeader>
-              <DialogTitle>安装组件</DialogTitle>
-              <DialogDescription>
-                选择需要安装的组件，将下载最新正式版。关闭弹窗后安装仍会继续。
-              </DialogDescription>
-            </DialogHeader>
-            {query.isPending && <p role="status">正在读取组件状态…</p>}
-            {query.error && (
-              <div className="notice" role="alert">
-                组件状态读取失败：{query.error.message}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void query.refetch()}
-                >
-                  重试
-                </Button>
-              </div>
-            )}
-            <div className="backup-component-list">
-              {items.map((item) => {
-                const result = job?.items.find(
-                  (entry) => entry.name === item.name,
-                );
-                return (
-                  <div className="backup-component" key={item.name}>
-                    <label className="backup-component-choice">
-                      <Checkbox
-                        aria-label={`安装 ${item.name}`}
-                        checked={available.includes(item.name)}
-                        disabled={
-                          running ||
-                          item.status === "ready" ||
-                          !item.supported ||
-                          query.isError
-                        }
-                        onCheckedChange={(checked) =>
-                          setSelected((old) =>
-                            checked === true
-                              ? [...old, item.name]
-                              : old.filter((name) => name !== item.name),
-                          )
-                        }
-                      />
-                      <span>
-                        <strong>{item.name}</strong>
-                        <span className="backup-component-description">
-                          {descriptions[item.name]}
-                        </span>
-                      </span>
-                    </label>
-                    <div className="backup-component-status" role="status">
-                      {result ? (
+        <div className="policy-heading-actions">
+          <Button size="sm" onClick={() => setEditor({ readOnly: false })}>
+            添加备份政策
+          </Button>
+          <Dialog
+            open={open}
+            onOpenChange={(value) => {
+              setOpen(value);
+              if (value) {
+                setSelected([]);
+                if (!install.isPending) install.reset();
+              }
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button size="sm" variant="outline">
+                <Download size={14} />
+                安装组件
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="backup-install-dialog">
+              <DialogHeader>
+                <DialogTitle>安装组件</DialogTitle>
+                <DialogDescription>
+                  选择需要安装的组件，将下载最新正式版。关闭弹窗后安装仍会继续。
+                </DialogDescription>
+              </DialogHeader>
+              {query.isPending && <p role="status">正在读取组件状态…</p>}
+              {query.error && (
+                <div className="notice" role="alert">
+                  组件状态读取失败：{query.error.message}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void query.refetch()}
+                  >
+                    重试
+                  </Button>
+                </div>
+              )}
+              <div className="backup-component-list">
+                {items.map((item) => {
+                  const result = job?.items.find(
+                    (entry) => entry.name === item.name,
+                  );
+                  return (
+                    <div className="backup-component" key={item.name}>
+                      <label className="backup-component-choice">
+                        <Checkbox
+                          aria-label={`安装 ${item.name}`}
+                          checked={available.includes(item.name)}
+                          disabled={
+                            running ||
+                            item.status === "ready" ||
+                            !item.supported ||
+                            query.isError
+                          }
+                          onCheckedChange={(checked) =>
+                            setSelected((old) =>
+                              checked === true
+                                ? [...old, item.name]
+                                : old.filter((name) => name !== item.name),
+                            )
+                          }
+                        />
                         <span>
-                          {result.status === "running" && (
-                            <Loader2 size={14} className="animate-spin" />
-                          )}
-                          {labels[result.status]}
-                          {result.version ? ` · ${result.version}` : ""}
+                          <strong>{item.name}</strong>
+                          <span className="backup-component-description">
+                            {descriptions[item.name]}
+                          </span>
                         </span>
-                      ) : (
-                        <span>
-                          {item.status === "ready"
-                            ? `已安装 · ${item.version}`
-                            : item.status === "failed"
-                              ? "版本读取失败"
-                              : "未安装"}
-                        </span>
-                      )}
-                      {(result?.error || item.error) && (
-                        <p className="small-note">
-                          {result?.error || item.error}
-                        </p>
-                      )}
+                      </label>
+                      <div className="backup-component-status" role="status">
+                        {result ? (
+                          <span>
+                            {result.status === "running" && (
+                              <Loader2 size={14} className="animate-spin" />
+                            )}
+                            {labels[result.status]}
+                            {result.version ? ` · ${result.version}` : ""}
+                          </span>
+                        ) : (
+                          <span>
+                            {item.status === "ready"
+                              ? `已安装 · ${item.version}`
+                              : item.status === "failed"
+                                ? "版本读取失败"
+                                : "未安装"}
+                          </span>
+                        )}
+                        {(result?.error || item.error) && (
+                          <p className="small-note">
+                            {result?.error || item.error}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-            {job?.error && (
-              <div className="notice" role="alert">
-                {job.error}
+                  );
+                })}
               </div>
-            )}
-            {install.error && (
-              <div className="notice" role="alert">
-                {install.error.message}
-              </div>
-            )}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)}>
-                关闭
-              </Button>
-              <Button
-                disabled={running || !available.length || query.isError}
-                onClick={() => install.mutate(available)}
-              >
-                {running ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" />
-                    安装中…
-                  </>
-                ) : (
-                  "开始安装"
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              {job?.error && (
+                <div className="notice" role="alert">
+                  {job.error}
+                </div>
+              )}
+              {install.error && (
+                <div className="notice" role="alert">
+                  {install.error.message}
+                </div>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setOpen(false)}>
+                  关闭
+                </Button>
+                <Button
+                  disabled={running || !available.length || query.isError}
+                  onClick={() => install.mutate(available)}
+                >
+                  {running ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      安装中…
+                    </>
+                  ) : (
+                    "开始安装"
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
+      <BackupPolicyList
+        onOpen={(id, readOnly) => setEditor({ id, readOnly })}
+      />
+      {editor && (
+        <BackupPolicyEditor
+          key={`${editor.id ?? "new"}-${editor.readOnly}`}
+          policyId={editor.id}
+          readOnly={editor.readOnly}
+          onClose={() => setEditor(null)}
+        />
+      )}
       {query.error && (
         <div className="notice" role="alert">
           组件状态读取失败：{query.error.message}

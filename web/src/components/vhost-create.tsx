@@ -87,7 +87,7 @@ const dnsLabels = {
   matched: "已解析到本机",
   partial: "部分 IP 匹配",
   mismatch: "未解析到本机",
-  no_records: "无 A／AAAA 记录",
+  no_records: "无 A/AAAA 记录",
   unknown: "无法确认",
 };
 

@@ -32,6 +32,8 @@ import (
 
 type Server struct {
 	Backups             backups.Backend
+	BackupPolicies      backups.PolicyBackend
+	backupScanSlots     chan struct{}
 	Installation        lnmpinstall.Backend
 	ServicesFile        string
 	installationMu      sync.Mutex
@@ -70,7 +72,7 @@ type Server struct {
 }
 
 func New(c config.Config, m *metrics.Collector, svc *control.Manager, assets fs.FS) *Server {
-	return &Server{Backups: control.Helper{Path: c.Helper}, Components: components.NewManager(context.Background(), control.Helper{Path: c.Helper}), Config: c, Sessions: auth.New(), Metrics: m, Services: svc, Logs: control.Helper{Path: c.Helper}, logReads: make(chan struct{}, 4), Cron: control.Helper{Path: c.Helper}, Docker: docker.NewManager(context.Background(), control.Helper{Path: c.Helper}), Releases: releases.NewManager(context.Background(), releases.NewFetcher()), Host: metrics.HostInfo(context.Background()), Storage: storage.NewManager(context.Background(), control.Helper{Path: c.Helper}), Vhosts: vhosts.NewManager(context.Background(), control.Helper{Path: c.Helper}), Assets: assets, streams: make(chan struct{}, 32)}
+	return &Server{BackupPolicies: control.Helper{Path: c.Helper}, backupScanSlots: make(chan struct{}, 2), Backups: control.Helper{Path: c.Helper}, Components: components.NewManager(context.Background(), control.Helper{Path: c.Helper}), Config: c, Sessions: auth.New(), Metrics: m, Services: svc, Logs: control.Helper{Path: c.Helper}, logReads: make(chan struct{}, 4), Cron: control.Helper{Path: c.Helper}, Docker: docker.NewManager(context.Background(), control.Helper{Path: c.Helper}), Releases: releases.NewManager(context.Background(), releases.NewFetcher()), Host: metrics.HostInfo(context.Background()), Storage: storage.NewManager(context.Background(), control.Helper{Path: c.Helper}), Vhosts: vhosts.NewManager(context.Background(), control.Helper{Path: c.Helper}), Assets: assets, streams: make(chan struct{}, 32)}
 }
 func fail(c *gin.Context, status int, msg string) { c.AbortWithStatusJSON(status, gin.H{"error": msg}) }
 func (s *Server) Handler() http.Handler {
@@ -89,6 +91,9 @@ func (s *Server) Handler() http.Handler {
 		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
 			c.Header("Cache-Control", "no-store")
 			limit := int64(4096)
+			if strings.HasPrefix(c.Request.URL.Path, "/api/v1/backups/") {
+				limit = backups.MaxPolicyBytes
+			}
 			if c.Request.Method == http.MethodPost && (c.Request.URL.Path == "/api/v1/vhosts" || c.Request.URL.Path == "/api/v1/vhosts/ssl/retry" || c.Request.URL.Path == "/api/v1/vhosts/check-dns") {
 				limit = 32 * 1024
 			}
@@ -123,6 +128,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	s.registerAccountSecurity(private)
 	s.registerBackupComponents(private)
+	s.registerBackupPolicies(private)
 	s.registerDashboard(private)
 	s.registerLNMPInstallation(private)
 	private.GET("/system/logging", s.loggingStatus)

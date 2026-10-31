@@ -43,6 +43,11 @@ func run() error {
 	if len(os.Args) == 3 && os.Args[1] == "backup-components-worker" {
 		return control.RunBackupComponentsWorker(os.Args[2])
 	}
+	if len(os.Args) == 3 && os.Args[1] == "backup-policies" {
+		ctx, cancel := context.WithTimeout(context.Background(), 65*time.Second)
+		defer cancel()
+		return control.HandleBackupPolicy(ctx, os.Args[2], os.Stdin, os.Stdout)
+	}
 	if len(os.Args) == 3 && os.Args[1] == "backup-components" {
 		ctx, cancel := context.WithTimeout(context.Background(), 22*time.Second)
 		defer cancel()
