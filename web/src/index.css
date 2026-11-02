@@ -5945,7 +5945,7 @@ select,
   min-height: 160px;
 }
 .backup-runtime-section h3,
-.backup-runtime-help h3 {
+.backup-runtime-help summary {
   margin: 0 0 10px;
   font-size: 14px;
   font-weight: 600;
@@ -6002,8 +6002,26 @@ select,
   border-top: 1px solid var(--border);
   padding-top: 16px;
 }
-.backup-runtime-help ul {
+.backup-runtime-help summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin: 0;
+  cursor: pointer;
+  list-style: none;
+}
+.backup-runtime-help summary::-webkit-details-marker {
+  display: none;
+}
+.backup-runtime-help summary > svg {
+  color: var(--muted-foreground);
+  transition: transform var(--motion-feedback) var(--motion-ease);
+}
+.backup-runtime-help[open] summary > svg {
+  transform: rotate(180deg);
+}
+.backup-runtime-help ul {
+  margin: 10px 0 0;
   padding-left: 18px;
   color: var(--muted-foreground);
   font-size: 13px;

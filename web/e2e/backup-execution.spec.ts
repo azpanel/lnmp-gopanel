@@ -206,6 +206,19 @@ test("backup runtime loads on demand, refreshes and restores trigger focus", asy
     });
   });
   await openBackupExecution(page);
+  const refresh = page.getByRole("button", { name: "刷新政策", exact: true });
+  await expect(refresh).toHaveText("");
+  await expect(refresh.locator("svg")).toHaveCount(1);
+  const heading = refresh.locator("..");
+  expect(
+    await heading.evaluate((el) => getComputedStyle(el).justifyContent),
+  ).toBe("space-between");
+  const refreshed = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/backups/policies",
+  );
+  await refresh.click();
+  expect((await refreshed).ok()).toBe(true);
   const trigger = page.getByRole("button", {
     name: "备份运行环境",
     exact: true,
@@ -227,9 +240,15 @@ test("backup runtime loads on demand, refreshes and restores trigger focus", asy
   await expect(dialog.getByRole("region", { name: "依赖工具" })).toContainText(
     "数据库导出程序权限不安全",
   );
-  await expect(dialog.getByRole("region", { name: "使用说明" })).toContainText(
-    "gdrive 和 rclone 仅在使用对应云存储时需要",
-  );
+  const help = dialog.locator(".backup-runtime-help");
+  await expect(help).not.toHaveAttribute("open");
+  await expect(help.locator("ul")).not.toBeVisible();
+  await help.locator("summary").click();
+  await expect(help.locator("ul")).toBeVisible();
+  await expect(help).toContainText("gdrive 和 rclone 仅在使用对应云存储时需要");
+  await help.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(help.locator("ul")).not.toBeVisible();
   await expect(dialog).toHaveCSS("background-color", "rgb(255, 255, 255)");
   expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
     true,
@@ -248,6 +267,7 @@ test("backup runtime loads on demand, refreshes and restores trigger focus", asy
   await expect(trigger).toBeFocused();
   await trigger.click();
   await expect.poll(() => reads).toBe(3);
+  await expect(help).not.toHaveAttribute("open");
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toBeFocused();

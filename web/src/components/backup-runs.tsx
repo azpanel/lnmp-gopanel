@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ArchiveRestore,
   Clock3,
+  ChevronDown,
   CloudDownload,
   Database,
   FolderSync,
@@ -151,15 +152,18 @@ export function BackupRuntimeStatus() {
               </section>
             </>
           )}
-          <section className="backup-runtime-help" aria-label="使用说明">
-            <h3>使用说明</h3>
+          <details className="backup-runtime-help">
+            <summary>
+              使用说明
+              <ChevronDown size={16} aria-hidden="true" />
+            </summary>
             <ul>
               <li>缺少或权限不安全的工具，请由管理员安装或修复。</li>
               <li>gdrive 和 rclone 仅在使用对应云存储时需要。</li>
               <li>定时认证使用服务器 root 客户端配置或 Socket。</li>
               <li>表单临时查询密码仅用于查询，不会用于自动备份。</li>
             </ul>
-          </section>
+          </details>
         </div>
         <DialogFooter>
           <Button

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -98,15 +99,21 @@ export function BackupPolicyList({
   );
   return (
     <Card className="backup-policy-list">
-      <CardHeader>
+      <CardHeader className="flex items-center justify-between">
         <CardTitle>备份政策</CardTitle>
         <Button
-          size="sm"
+          size="icon-sm"
           variant="outline"
+          aria-label="刷新政策"
+          title="刷新政策"
           disabled={query.isFetching}
           onClick={() => void query.refetch()}
         >
-          刷新政策
+          <RefreshCw
+            size={14}
+            className={query.isFetching ? "animate-spin" : ""}
+            aria-hidden="true"
+          />
         </Button>
       </CardHeader>
       <CardContent>
