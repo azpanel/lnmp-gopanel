@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,7 +18,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/azpanel/lnmp-gopanel/internal/backups"
 	"github.com/go-sql-driver/mysql"
@@ -26,6 +29,7 @@ import (
 
 type backupManifest struct {
 	Version   int                    `json:"version"`
+	Metadata  string                 `json:"metadata,omitempty"`
 	PolicyID  string                 `json:"policy_id"`
 	RunID     string                 `json:"run_id"`
 	Revision  uint64                 `json:"revision"`
@@ -38,6 +42,51 @@ type backupManifestSource struct {
 	ArchivePath string   `json:"archive_path"`
 	Tables      []string `json:"tables,omitempty"`
 }
+
+// Metadata is authoritative for ownership and special permission bits: ZIP/7z
+// extraction alone cannot reliably restore them. Never chown staged copies.
+type backupFileMetadata struct {
+	ArchivePath string    `json:"archive_path"`
+	Type        string    `json:"type"`
+	UID         uint32    `json:"uid"`
+	GID         uint32    `json:"gid"`
+	Mode        uint32    `json:"mode"`
+	ModifiedAt  time.Time `json:"modified_at"`
+}
+
+func writeBackupFileMetadata(encoder *json.Encoder, name string, info os.FileInfo) error {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !utf8.ValidString(name) || (!info.IsDir() && !info.Mode().IsRegular()) {
+		return errors.New("无法完整记录文件元数据")
+	}
+	kind := "file"
+	if info.IsDir() {
+		kind = "directory"
+	}
+	return encoder.Encode(backupFileMetadata{ArchivePath: filepath.ToSlash(name), Type: kind, UID: stat.Uid, GID: stat.Gid, Mode: stat.Mode & 07777, ModifiedAt: info.ModTime().UTC()})
+}
+
+func sameBackupFileMetadata(before, after os.FileInfo) bool {
+	a, okA := before.Sys().(*syscall.Stat_t)
+	b, okB := after.Sys().(*syscall.Stat_t)
+	return okA && okB && os.SameFile(before, after) && a.Uid == b.Uid && a.Gid == b.Gid && a.Mode == b.Mode && a.Ctim == b.Ctim && before.Size() == after.Size() && before.ModTime().Equal(after.ModTime())
+}
+
+// Check the inode observed before opening as well as its type. A source replaced
+// during traversal is an error, even when the replacement is a special file.
+func openBackupEntry(base *os.File, relative string, expected os.FileInfo) (*os.File, os.FileInfo, error) {
+	file, err := openBackupRelative(base, relative)
+	if err != nil {
+		return nil, nil, errors.New("文件路径在备份期间变化或不可读取")
+	}
+	current, err := file.Stat()
+	if err != nil || !os.SameFile(expected, current) || expected.Mode().Type() != current.Mode().Type() {
+		file.Close()
+		return nil, nil, errors.New("文件路径在备份期间变化或不可读取")
+	}
+	return file, current, nil
+}
+
 type backupContextReader struct {
 	ctx context.Context
 	r   io.Reader
@@ -255,7 +304,7 @@ func openBackupRelative(base *os.File, name string) (*os.File, error) {
 	}
 	return os.NewFile(uintptr(fd), name), nil
 }
-func copyBackupFile(ctx context.Context, source *os.File, destination string) error {
+func copyBackupFile(ctx context.Context, source *os.File, destination string, record func(os.FileInfo) error) error {
 	before, err := source.Stat()
 	if err != nil || !before.Mode().IsRegular() {
 		return errors.New("备份来源已变化或不是普通文件")
@@ -273,16 +322,29 @@ func copyBackupFile(ctx context.Context, source *os.File, destination string) er
 		copyErr = closeErr
 	}
 	after, statErr := source.Stat()
-	if copyErr != nil || statErr != nil || n != before.Size() || after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+	if copyErr != nil || statErr != nil || n != before.Size() || !sameBackupFileMetadata(before, after) {
 		return errors.New("文件读取失败或在备份期间发生变化，请重试")
 	}
-	return os.Chtimes(destination, before.ModTime(), before.ModTime())
+	if err := os.Chtimes(destination, before.ModTime(), before.ModTime()); err != nil {
+		return err
+	}
+	if record != nil {
+		return record(before)
+	}
+	return nil
 }
 func (e backupExecutor) stageBackupFiles(ctx context.Context, sources []backups.FileSource, stage string, manifest *backupManifest) error {
 	workRoot, err := filepath.EvalSymlinks(filepath.Join(e.store.state, "work"))
 	if err != nil {
 		return err
 	}
+	metadata, err := os.OpenFile(filepath.Join(stage, "metadata.jsonl"), os.O_WRONLY|os.O_CREATE|os.O_EXCL|unix.O_NOFOLLOW, 0600)
+	if err != nil {
+		return err
+	}
+	defer metadata.Close()
+	encoder := json.NewEncoder(metadata)
+	record := func(name string, info os.FileInfo) error { return writeBackupFileMetadata(encoder, name, info) }
 	for n, source := range sources {
 		if _, err = backupSourceInfo(source); err != nil {
 			return err
@@ -308,7 +370,9 @@ func (e backupExecutor) stageBackupFiles(ctx context.Context, sources []backups.
 		}
 		manifest.Sources = append(manifest.Sources, backupManifestSource{Original: source.Path, ArchivePath: prefix})
 		if info.Mode().IsRegular() {
-			err = copyBackupFile(ctx, base, filepath.Join(target, filepath.Base(source.Path)))
+			err = copyBackupFile(ctx, base, filepath.Join(target, filepath.Base(source.Path)), func(info os.FileInfo) error {
+				return record(filepath.Join(prefix, filepath.Base(source.Path)), info)
+			})
 			base.Close()
 			if err != nil {
 				return err
@@ -349,29 +413,36 @@ func (e backupExecutor) stageBackupFiles(ctx context.Context, sources []backups.
 			}
 			if relative == "." {
 				dirs = append(dirs, directory{target, info.Mode().Perm(), info.ModTime()})
-				return nil
+				return record(prefix, info)
 			}
-			file, err := openBackupRelative(base, relative)
+			expected, err := entry.Info()
 			if err != nil {
 				return errors.New("文件路径在备份期间变化或不可读取")
 			}
-			defer file.Close()
-			current, err := file.Stat()
+			if entry.Type() != expected.Mode().Type() {
+				return errors.New("文件类型在备份期间变化")
+			}
+			// Root-backed DirEntry.Info uses a no-follow stat and resolves unknown
+			// directory entry types before we open sockets or devices.
+			if !expected.IsDir() && !expected.Mode().IsRegular() {
+				return nil
+			}
+			file, current, err := openBackupEntry(base, relative, expected)
 			if err != nil {
 				return err
 			}
+			defer file.Close()
 			destination := filepath.Join(target, relative)
 			if current.IsDir() {
 				if err = os.Mkdir(destination, 0700); err != nil {
 					return err
 				}
 				dirs = append(dirs, directory{destination, current.Mode().Perm(), current.ModTime()})
-				return nil
+				return record(filepath.Join(prefix, relative), current)
 			}
-			if !current.Mode().IsRegular() {
-				return nil
-			}
-			return copyBackupFile(ctx, file, destination)
+			return copyBackupFile(ctx, file, destination, func(info os.FileInfo) error {
+				return record(filepath.Join(prefix, relative), info)
+			})
 		})
 		root.Close()
 		base.Close()
@@ -388,6 +459,14 @@ func (e backupExecutor) stageBackupFiles(ctx context.Context, sources []backups.
 			}
 		}
 	}
+	if err := metadata.Sync(); err != nil {
+		return err
+	}
+	if err := metadata.Close(); err != nil {
+		return err
+	}
+	manifest.Version = 2
+	manifest.Metadata = "metadata.jsonl"
 	return nil
 }
 

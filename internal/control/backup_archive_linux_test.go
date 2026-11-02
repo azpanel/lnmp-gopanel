@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,6 +179,11 @@ func TestBackupFileExecutionPublishesCompleteArchiveAndHandlesPartialDelivery(t 
 	if err := os.WriteFile(filepath.Join(site, "file.txt"), []byte("backup-content"), 0640); err != nil {
 		t.Fatal(err)
 	}
+	listener, err := net.Listen("unix", filepath.Join(site, "app.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
 	r := sampleBackupPolicy()
 	r.Databases.Enabled = false
 	r.Files = []backups.FileSource{{Path: site}}
@@ -228,6 +234,15 @@ func TestBackupFileExecutionPublishesCompleteArchiveAndHandlesPartialDelivery(t 
 	data, err = os.ReadFile(filepath.Join(output, "manifest.json"))
 	if err != nil || json.Unmarshal(data, &manifest) != nil || manifest.PolicyID != p.ID {
 		t.Fatal(string(data), err)
+	}
+	if manifest.Version != 2 || manifest.Metadata != "metadata.jsonl" {
+		t.Fatal(manifest)
+	}
+	if records := readBackupMetadataTest(t, output); len(records) != 2 {
+		t.Fatal(records)
+	}
+	if _, err := os.Lstat(filepath.Join(output, "source-001/app.sock")); !os.IsNotExist(err) {
+		t.Fatal("socket archived", err)
 	}
 	public, _ := json.Marshal(stored.Run)
 	disk, _ := os.ReadFile(e.runPath(j.ID))
