@@ -17,7 +17,8 @@ type backupBackend struct {
 
 func (b *backupBackend) BackupComponents(context.Context) (backups.Snapshot, error) {
 	b.calls++
-	return backups.Snapshot{Items: []backups.Item{{Name: "gdrive", Status: "ready", Version: "3.9.1", Supported: true}}}, b.err
+	return backups.Snapshot{Items: []backups.Item{{Name: "gdrive", Status: "ready", Version: "3.9.1", Supported: true,
+		Accounts: &backups.AccountSnapshot{Status: "ready", Items: []backups.Account{{Name: "backup@example.com", Type: "drive", Current: true}}}}}}, b.err
 }
 func (b *backupBackend) InstallBackupComponents(_ context.Context, r backups.Request) (backups.Job, error) {
 	b.calls++
@@ -52,7 +53,7 @@ func TestBackupAPIAuthValidationAndErrors(t *testing.T) {
 	if b.calls != 0 {
 		t.Fatal("invalid request reached helper")
 	}
-	if w := request(h, "GET", get, "", cookie, "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"version":"3.9.1"`) {
+	if w := request(h, "GET", get, "", cookie, "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"version":"3.9.1"`) || !strings.Contains(w.Body.String(), `"name":"backup@example.com","type":"drive","current":true`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	if w := request(h, "POST", post, `{"components":["gdrive","rclone"]}`, cookie, session.CSRF, ""); w.Code != 202 {

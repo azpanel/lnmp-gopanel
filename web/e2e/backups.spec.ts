@@ -152,3 +152,117 @@ test("backup component architecture restrictions and failed installation retry",
   await dialog.getByRole("button", { name: "开始安装" }).click();
   await expect.poll(() => submissions).toBe(2);
 });
+
+test("backup components display local account metadata and refresh changed configuration", async ({
+  page,
+}) => {
+  let refreshed = false;
+  await page.route("**/api/v1/backups/components", (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            name: "gdrive",
+            status: "ready",
+            supported: true,
+            version: "3.9.1",
+            accounts: {
+              status: "ready",
+              items: [
+                { name: "backup@example.com", type: "drive", current: true },
+              ],
+            },
+          },
+          {
+            name: "rclone",
+            status: "ready",
+            supported: true,
+            version: "1.75.2",
+            accounts: refreshed
+              ? {
+                  status: "ready",
+                  items: [{ name: "archive-onedrive", type: "onedrive" }],
+                }
+              : { status: "missing", items: [] },
+          },
+        ],
+      },
+    }),
+  );
+  await openBackups(page);
+  const gdrive = page.getByRole("region", { name: "gdrive 账户信息" });
+  const rclone = page.getByRole("region", { name: "rclone 账户信息" });
+  await expect(
+    gdrive.getByText("backup@example.com", { exact: true }),
+  ).toBeVisible();
+  await expect(gdrive.getByText("当前账户", { exact: true })).toBeVisible();
+  await expect(gdrive.getByText("Google Drive", { exact: true })).toBeVisible();
+  await expect(
+    rclone.getByText("尚未配置账户。", { exact: true }),
+  ).toBeVisible();
+  refreshed = true;
+  await page.getByRole("button", { name: "刷新组件信息" }).click();
+  await expect(
+    rclone.getByText("archive-onedrive", { exact: true }),
+  ).toBeVisible();
+  await expect(rclone.getByText("onedrive", { exact: true })).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBeTruthy();
+});
+
+test("backup account configuration errors remain separate from installation state", async ({
+  page,
+}) => {
+  let encrypted = true;
+  await page.route("**/api/v1/backups/components", (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            name: "gdrive",
+            status: "ready",
+            supported: true,
+            version: "3.9.1",
+            accounts: { status: "missing", items: [] },
+          },
+          {
+            name: "rclone",
+            status: "ready",
+            supported: true,
+            version: "1.75.2",
+            accounts: encrypted
+              ? { status: "encrypted", items: [] }
+              : {
+                  status: "failed",
+                  items: [],
+                  error: "账户配置无法读取，请检查文件格式和权限",
+                },
+          },
+        ],
+      },
+    }),
+  );
+  await openBackups(page);
+  await expect(
+    page.getByText("已安装 · 1.75.2", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("配置文件已加密，无法读取账户信息。", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "gdrive 账户信息" })
+      .getByText("尚未配置账户。", { exact: true }),
+  ).toBeVisible();
+  encrypted = false;
+  await page.getByRole("button", { name: "刷新组件信息" }).click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "账户配置无法读取" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("已安装 · 1.75.2", { exact: true }),
+  ).toBeVisible();
+});

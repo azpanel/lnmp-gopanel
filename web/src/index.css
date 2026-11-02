@@ -4945,6 +4945,56 @@ body,
 .backup-components-card {
   padding: 24px;
 }
+.backup-components-heading,
+.backup-component-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.backup-component.backup-component-details {
+  display: block;
+  min-width: 0;
+}
+.backup-accounts {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.backup-accounts h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.backup-account-list {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  font-size: 13px;
+}
+.backup-account-list li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.backup-account-name {
+  min-width: 0;
+}
+.backup-account-type,
+.backup-account-path {
+  color: var(--muted-foreground);
+}
+.backup-account-current {
+  font-size: 12px;
+  color: var(--primary);
+}
+.backup-accounts .small-note {
+  margin: 8px 0 0;
+}
 .backup-component-list {
   display: grid;
   gap: 12px;
@@ -4990,7 +5040,9 @@ body,
   overflow-y: auto;
 }
 @media (max-width: 520px) {
-  .backup-component {
+  .backup-component,
+  .backup-components-heading,
+  .backup-component-summary {
     align-items: flex-start;
     flex-direction: column;
     gap: 10px;

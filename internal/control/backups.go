@@ -19,16 +19,19 @@ func (h Helper) backupCall(ctx context.Context, action string, input, output any
 	cmd := exec.CommandContext(ctx, "/usr/bin/sudo", "-n", h.Path, "backup-components", action)
 	configureProcess(cmd)
 	cmd.Stdin = bytes.NewReader(data)
-	out, stderr := &limitedBuffer{}, &limitedBuffer{}
+	out, stderr := &policyBuffer{}, &limitedBuffer{}
 	cmd.Stdout, cmd.Stderr = out, stderr
 	if err = cmd.Run(); err != nil {
 		return errors.New("备份组件辅助程序不可用，请检查安装及 sudoers 授权")
+	}
+	if out.overflow {
+		return errors.New("备份组件辅助程序响应过大")
 	}
 	var failure struct {
 		Error string `json:"error"`
 		Kind  string `json:"kind"`
 	}
-	if json.Unmarshal(out.data, &failure) != nil {
+	if json.Unmarshal(out.Bytes(), &failure) != nil {
 		return errors.New("备份组件辅助程序响应无效")
 	}
 	if failure.Error != "" {
@@ -40,7 +43,7 @@ func (h Helper) backupCall(ctx context.Context, action string, input, output any
 		}
 		return errors.New(failure.Error)
 	}
-	return json.Unmarshal(out.data, output)
+	return json.Unmarshal(out.Bytes(), output)
 }
 func (h Helper) BackupComponents(ctx context.Context) (v backups.Snapshot, err error) {
 	err = h.backupCall(ctx, "inspect", struct{}{}, &v)

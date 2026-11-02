@@ -84,6 +84,7 @@ func probeBackup(ctx context.Context, name, arch string) backups.Item {
 
 type backupInstaller struct {
 	state, helper, arch string
+	accountHome         string
 	run                 CommandRunner
 	probe               func(context.Context, string, string) backups.Item
 	install             func(context.Context, string, string) error
@@ -91,7 +92,7 @@ type backupInstaller struct {
 
 func defaultBackupInstaller() backupInstaller {
 	return backupInstaller{state: "/var/lib/lnmp-gopanel-backups", helper: "/usr/local/libexec/lnmp-gopanel-control", arch: runtime.GOARCH,
-		run: RunCommand, probe: probeBackup, install: installBackupTool}
+		accountHome: "/root", run: RunCommand, probe: probeBackup, install: installBackupTool}
 }
 func (p backupInstaller) lock() (func(), error) {
 	if err := os.MkdirAll(p.state, 0700); err != nil {
@@ -196,7 +197,10 @@ func (p backupInstaller) inspect(ctx context.Context) (backups.Snapshot, error) 
 	}
 	items := make([]backups.Item, 0, 2)
 	for _, name := range backups.Names() {
-		items = append(items, p.probe(ctx, name, p.arch))
+		item := p.probe(ctx, name, p.arch)
+		accounts := inspectBackupAccounts(name, p.accountHome)
+		item.Accounts = &accounts
+		items = append(items, item)
 	}
 	return backups.Snapshot{Items: items, Job: j}, nil
 }

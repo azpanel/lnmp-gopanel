@@ -32,11 +32,24 @@ func (r Request) Validate() error {
 }
 
 type Item struct {
-	Name      string `json:"name"`
-	Status    string `json:"status"`
-	Version   string `json:"version"`
-	Supported bool   `json:"supported"`
-	Error     string `json:"error,omitempty"`
+	Name      string           `json:"name"`
+	Status    string           `json:"status"`
+	Version   string           `json:"version"`
+	Supported bool             `json:"supported"`
+	Error     string           `json:"error,omitempty"`
+	Accounts  *AccountSnapshot `json:"accounts,omitempty"`
+}
+
+// Account metadata is an allowlist. Never include raw configuration or credentials.
+type Account struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Current bool   `json:"current,omitempty"`
+}
+type AccountSnapshot struct {
+	Status string    `json:"status"`
+	Items  []Account `json:"items"`
+	Error  string    `json:"error,omitempty"`
 }
 type Result struct {
 	Name    string `json:"name"`

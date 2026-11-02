@@ -144,6 +144,7 @@ func backupTestInstaller(t *testing.T) backupInstaller {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	p := defaultBackupInstaller()
 	p.state = dir
+	p.accountHome = filepath.Join(dir, "home")
 	p.helper = "/bin/true"
 	p.arch = "amd64"
 	p.run = func(context.Context, string, ...string) (string, error) { return "ActiveState=active\n", nil }

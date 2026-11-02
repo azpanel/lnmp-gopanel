@@ -1,8 +1,12 @@
 import { BackupPolicyEditor } from "@/components/backup-policy-editor";
 import { BackupPolicyList } from "@/components/backup-policy-list";
+import {
+  BackupComponentAccounts,
+  type BackupAccounts,
+} from "@/components/backup-component-accounts";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, Download, Loader2 } from "lucide-react";
+import { Archive, Download, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -25,6 +29,7 @@ type ComponentItem = {
   version: string;
   supported: boolean;
   error?: string;
+  accounts?: BackupAccounts;
 };
 type InstallResult = {
   name: ComponentName;
@@ -261,41 +266,64 @@ export function Backups() {
       ) : (
         <Card>
           <CardContent className="backup-components-card">
-            <h2 className="card-title-icon">
-              <Archive size={17} />
-              备份组件
-            </h2>
+            <div className="backup-components-heading">
+              <h2 className="card-title-icon">
+                <Archive size={17} />
+                备份组件
+              </h2>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={query.isFetching}
+                onClick={() => void query.refetch()}
+              >
+                <RefreshCw
+                  size={14}
+                  className={query.isFetching ? "animate-spin" : ""}
+                />
+                刷新组件信息
+              </Button>
+            </div>
             <div className="backup-component-list">
               {items.map((item) => {
                 const result = job?.items.find(
                   (entry) => entry.name === item.name,
                 );
                 return (
-                  <div className="backup-component" key={item.name}>
-                    <div>
-                      <strong>{item.name}</strong>
-                      <span className="backup-component-description">
-                        {descriptions[item.name]}
-                      </span>
+                  <div
+                    className="backup-component backup-component-details"
+                    key={item.name}
+                  >
+                    <div className="backup-component-summary">
+                      <div>
+                        <strong>{item.name}</strong>
+                        <span className="backup-component-description">
+                          {descriptions[item.name]}
+                        </span>
+                      </div>
+                      <div className="backup-component-status" role="status">
+                        <span>
+                          {running &&
+                          result &&
+                          ["pending", "running"].includes(result.status)
+                            ? labels[result.status]
+                            : item.status === "ready"
+                              ? `已安装 · ${item.version}`
+                              : item.status === "failed"
+                                ? "版本读取失败"
+                                : "未安装"}
+                        </span>
+                        {(item.error || result?.error) && (
+                          <p className="small-note">
+                            {item.error || result?.error}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <div className="backup-component-status" role="status">
-                      <span>
-                        {running &&
-                        result &&
-                        ["pending", "running"].includes(result.status)
-                          ? labels[result.status]
-                          : item.status === "ready"
-                            ? `已安装 · ${item.version}`
-                            : item.status === "failed"
-                              ? "版本读取失败"
-                              : "未安装"}
-                      </span>
-                      {(item.error || result?.error) && (
-                        <p className="small-note">
-                          {item.error || result?.error}
-                        </p>
-                      )}
-                    </div>
+                    <BackupComponentAccounts
+                      name={item.name}
+                      accounts={item.accounts}
+                    />
                   </div>
                 );
               })}

@@ -303,6 +303,8 @@ Composer 检测沿用 `components snapshot` 授权，升级时使用同一源码
 
 “安装组件”弹窗可勾选 gdrive、rclone 后统一安装并显示实际版本，已安装组件不能重复选择。安装通过固定 root 辅助程序启动 systemd 后台任务，关闭弹窗、刷新页面或重启面板不终止任务；每个组件最多 10 分钟，一项失败后继续另一项。gdrive 每次查询 GitHub 最新正式 Release，安装至 `/usr/local/bin/gdrive`，仅支持 amd64；rclone 使用官方 `https://rclone.org/install.sh`，需系统具备 curl 和解压工具。两者通过 `version` 子命令检测版本，rclone 的 `TMPDIR` 指向任务目录，失败也会清理下载与解压文件。
 
+“备份组件”同时显示本机账户信息，可通过“刷新组件信息”重新读取。固定 root 辅助程序只返回白名单元数据：gdrive 3 从 `/root/.config/gdrive3` 读取账户名称及当前账户标记，rclone 从 `/root/.config/rclone/rclone.conf` 读取远程名称和存储类型。加密的 rclone 配置显示“配置文件已加密”；缺失、损坏或权限不安全的配置分别提示，不影响组件版本和安装状态。读取不创建目录、不修改配置、不访问云端验证授权，也不返回密码、令牌、密钥、原始配置或解析器诊断。仅支持 root 管理的普通配置文件，单文件上限 1 MiB、账户上限 1000 个；无需新增 sudoers 授权。
+
 升级部署时同步更新面板、辅助程序和 sudoers。除已有 `backup-components inspect/install` 外，新增精确授权 `backup-policies list/get/save/delete/databases/tables/files`；安装脚本只检查授权，不查询数据库、不扫描来源、不启动备份。政策请求上限 256 KiB，辅助响应上限 1 MiB；政策最多 1000 个，总配置上限 8 MiB，每个政策最多 100 个文件来源，每个目录最多 200 条排除规则。
 
 ## 在线安装 LNMP
