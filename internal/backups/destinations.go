@@ -25,6 +25,7 @@ type PathDiagnostic struct {
 	Field   string `json:"field"`
 	Index   int    `json:"index"`
 	Message string `json:"message"`
+	Control string `json:"control,omitempty"`
 }
 type PathsResult struct {
 	Errors   []PathDiagnostic `json:"errors"`

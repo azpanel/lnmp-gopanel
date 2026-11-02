@@ -1,10 +1,14 @@
 import { Cloud, FolderOutput, UserRound, HardDrive } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { PolicySelect, PolicyLabel } from "@/components/backup-policy-fields";
+import {
+  PolicyFieldError,
+  PolicySelect,
+  PolicyLabel,
+} from "@/components/backup-policy-fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
-import type { Destination } from "@/lib/backup-policies";
+import type { Destination, PathDiagnostic } from "@/lib/backup-policies";
 import type { BackupAccounts } from "@/components/backup-component-accounts";
 
 export function BackupPolicyStorage({
@@ -13,12 +17,18 @@ export function BackupPolicyStorage({
   readOnly,
   active,
   enabled,
+  diagnostics = [],
+  submitted = false,
+  onBlur,
 }: {
   value: Destination[];
   onChange: (v: Destination[]) => void;
   readOnly: boolean;
   active: boolean;
   enabled: boolean;
+  diagnostics?: PathDiagnostic[];
+  submitted?: boolean;
+  onBlur?: (index: number, control: string) => void;
 }) {
   const accounts = useQuery({
     queryKey: ["backup-components"],
@@ -62,7 +72,10 @@ export function BackupPolicyStorage({
         </p>
       )}
       {!value.length && (
-        <p className={enabled ? "form-error" : "small-note"}>
+        <p
+          className={enabled && submitted ? "form-error" : "small-note"}
+          role={enabled && submitted ? "alert" : undefined}
+        >
           尚未配置存储位置
           {enabled ? "，启用政策前至少添加一个。" : "，可保存为停用草稿。"}
         </p>
@@ -80,8 +93,24 @@ export function BackupPolicyStorage({
           name,
           names.includes(name) ? name : `${name}（当前不可用）`,
         ]);
+        const issues = diagnostics.filter((item) => item.index === index);
+        const fieldError = (control: string) =>
+          issues.find((item) => item.control === control)?.message;
+        const inputProps = (control: string) => ({
+          id: `policy-destination-${index}-${control}`,
+          "aria-invalid": !!fieldError(control),
+          "aria-describedby": fieldError(control)
+            ? `policy-destination-${index}-${control}-error`
+            : undefined,
+          onBlur: () => onBlur?.(index, control),
+        });
         return (
-          <fieldset className="policy-destination" key={index}>
+          <fieldset
+            className="policy-destination"
+            id={`policy-destination-${index}`}
+            tabIndex={-1}
+            key={index}
+          >
             <legend>存储位置 {index + 1}</legend>
             <div className="policy-grid">
               <PolicySelect
@@ -109,6 +138,7 @@ export function BackupPolicyStorage({
                 <label>
                   <PolicyLabel icon={FolderOutput}>本地目录</PolicyLabel>
                   <Input
+                    {...inputProps("path")}
                     aria-label="本地目录"
                     placeholder="例如 /var/backups/websites"
                     value={d.path ?? ""}
@@ -117,11 +147,20 @@ export function BackupPolicyStorage({
                       update(index, { ...d, path: e.target.value })
                     }
                   />
+                  <PolicyFieldError
+                    id={`policy-destination-${index}-path`}
+                    message={fieldError("path")}
+                  />
                 </label>
               ) : (
                 <PolicySelect
                   label={d.type === "gdrive" ? "gdrive 账户" : "rclone 远程"}
                   icon={UserRound}
+                  id={`policy-destination-${index}-${d.type === "gdrive" ? "account" : "remote"}`}
+                  error={fieldError(d.type === "gdrive" ? "account" : "remote")}
+                  onBlur={() =>
+                    onBlur?.(index, d.type === "gdrive" ? "account" : "remote")
+                  }
                   value={selected}
                   disabled={readOnly}
                   options={options}
@@ -139,6 +178,7 @@ export function BackupPolicyStorage({
                 <label>
                   <PolicyLabel icon={Cloud}>文件夹 ID</PolicyLabel>
                   <Input
+                    {...inputProps("folder_id")}
                     aria-label="文件夹 ID"
                     placeholder="填写文件夹 ID，或 root 使用根目录"
                     value={d.folder_id}
@@ -147,22 +187,40 @@ export function BackupPolicyStorage({
                       update(index, { ...d, folder_id: e.target.value })
                     }
                   />
+                  <PolicyFieldError
+                    id={`policy-destination-${index}-folder_id`}
+                    message={fieldError("folder_id")}
+                  />
                 </label>
               )}
               {d.type === "rclone" && (
                 <label>
                   <PolicyLabel icon={FolderOutput}>远程内路径</PolicyLabel>
                   <Input
+                    {...inputProps("path")}
                     aria-label="远程内路径"
                     placeholder="例如 backups/web，留空使用远程根目录"
-                    value={d.path}
+                    value={d.path ?? ""}
                     disabled={readOnly}
                     onChange={(e) =>
                       update(index, { ...d, path: e.target.value })
                     }
                   />
+                  <PolicyFieldError
+                    id={`policy-destination-${index}-path`}
+                    message={fieldError("path")}
+                  />
                 </label>
               )}
+            </div>
+            <div className="policy-card-feedback" aria-live="polite">
+              {issues
+                .filter((item) => !item.control)
+                .map((item, i) => (
+                  <p className="form-error" role="alert" key={i}>
+                    {item.message}
+                  </p>
+                ))}
             </div>
             {d.type !== "local" &&
               !accounts.isPending &&

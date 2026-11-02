@@ -279,3 +279,21 @@ func TestBackupRulePreviewSampleBudget(t *testing.T) {
 		t.Fatal("oversized helper response")
 	}
 }
+
+func TestBackupPathDiagnosticsIdentifyControlsWithoutInstallerPrefix(t *testing.T) {
+	request := backups.PathsRequest{Destinations: []backups.Destination{{Type: "local", Path: ""}, {Type: "gdrive", Account: "", FolderID: "root"}, {Type: "gdrive", Account: "backup@example.com", FolderID: ""}, {Type: "rclone", Remote: ""}}}
+	got, err := inspectBackupPaths(request)
+	if err != nil || len(got.Errors) != 4 {
+		t.Fatal(got, err)
+	}
+	for i, control := range []string{"path", "account", "folder_id", "remote"} {
+		if got.Errors[i].Control != control || strings.Contains(got.Errors[i].Message, "组件安装参数无效") {
+			t.Fatal(got.Errors[i])
+		}
+	}
+	root := backupTestInstaller(t).state
+	got, err = inspectBackupPaths(backups.PathsRequest{Destinations: []backups.Destination{{Type: "local", Path: root}, {Type: "local", Path: root}}})
+	if err != nil || len(got.Errors) != 1 || got.Errors[0].Control != "" || !strings.Contains(got.Errors[0].Message, "存储位置 1") {
+		t.Fatal(got, err)
+	}
+}

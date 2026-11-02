@@ -5078,6 +5078,7 @@ body,
 }
 .policy-destination .policy-grid {
   margin-bottom: 10px;
+  align-items: start;
 }
 .policy-site-picker {
   margin-bottom: 12px;
@@ -5117,14 +5118,52 @@ body,
   padding-left: 18px;
   margin-top: 6px;
 }
-.policy-path-check {
-  flex-shrink: 0;
-  padding-inline: 24px;
-  max-height: 130px;
+.policy-card-feedback:empty {
+  display: none;
+}
+.policy-field-error {
+  display: block;
+  margin-top: 4px;
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.policy-card-feedback .form-error,
+.policy-save-error {
+  margin: 0 0 10px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.policy-save-error {
+  max-height: 96px;
   overflow-y: auto;
 }
-.policy-path-check:empty {
-  display: none;
+.policy-precheck-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+.policy-tab-error {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding-inline: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--danger) 12%, white);
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1;
+}
+.policy-destination:focus-visible,
+.policy-file-source:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.policy-select-trigger[aria-invalid="true"] {
+  border-color: var(--danger);
 }
 .policy-password-fields > button {
   justify-self: start;

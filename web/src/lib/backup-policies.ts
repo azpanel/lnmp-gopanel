@@ -21,6 +21,7 @@ export type Destination =
   | { type: "gdrive"; account: string; folder_id: string }
   | { type: "rclone"; remote: string; path?: string };
 export type PathDiagnostic = {
+  control?: string;
   field: "files" | "destinations";
   index: number;
   message: string;

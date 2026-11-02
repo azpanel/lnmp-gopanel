@@ -5,6 +5,8 @@ import { PolicyLabel } from "@/components/backup-policy-fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
+import { policyMessage } from "@/lib/backup-policy-feedback";
+import type { PathsResult, PathDiagnostic } from "@/lib/backup-policies";
 import { captureSession } from "@/lib/session-scope";
 import {
   readableBytes,
@@ -52,11 +54,13 @@ export function BackupPolicyFiles({
   onChange,
   readOnly,
   active,
+  diagnostics,
 }: {
   value: FileSource[];
   onChange: (v: FileSource[]) => void;
   readOnly: boolean;
   active: boolean;
+  diagnostics?: PathsResult;
 }) {
   const [path, setPath] = useState("");
   const [error, setError] = useState("");
@@ -131,6 +135,17 @@ export function BackupPolicyFiles({
         <FileSourceRow
           key={source.path}
           source={source}
+          index={index}
+          errors={
+            diagnostics?.errors.filter(
+              (item) => item.field === "files" && item.index === index,
+            ) ?? []
+          }
+          warnings={
+            diagnostics?.warnings.filter(
+              (item) => item.field === "files" && item.index === index,
+            ) ?? []
+          }
           active={active}
           expanded={expandedPath === source.path}
           onExpand={() =>
@@ -157,7 +172,13 @@ function FileSourceRow({
   onExpand,
   active,
   readOnly,
+  index,
+  errors,
+  warnings,
 }: {
+  index: number;
+  errors: PathDiagnostic[];
+  warnings: PathDiagnostic[];
   source: FileSource;
   onChange: (v: FileSource) => void;
   onRemove: () => void;
@@ -213,7 +234,11 @@ function FileSourceRow({
   }, [revision, active, retry, scope]);
   const directory = !result || result.type === "directory";
   return (
-    <div className="policy-file-source">
+    <div
+      className="policy-file-source"
+      id={`policy-file-source-${index}`}
+      tabIndex={-1}
+    >
       <div className="policy-file-summary">
         <div className="policy-file-identity">
           <strong className="font-mono" title={source.path}>
@@ -286,9 +311,19 @@ function FileSourceRow({
         </div>
       </div>
       <div className="policy-file-feedback" aria-live="polite">
-        {error && (
+        {errors.map((item, i) => (
+          <p className="form-error" role="alert" key={i}>
+            {policyMessage(item.message)}
+          </p>
+        ))}
+        {warnings.map((item, i) => (
+          <p className="small-note" key={i}>
+            {policyMessage(item.message)}
+          </p>
+        ))}
+        {error && !errors.length && (
           <p className="form-error" role="alert">
-            {error}
+            {policyMessage(error)}
           </p>
         )}
         {result && !result.complete && (

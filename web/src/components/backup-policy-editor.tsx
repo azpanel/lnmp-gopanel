@@ -31,12 +31,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { BackupPolicyStorage } from "@/components/backup-policy-storage";
-import { BackupPolicyPathCheck } from "@/components/backup-policy-path-check";
-import type { PathsResult } from "@/lib/backup-policies";
+import { useBackupPolicyPaths } from "@/components/backup-policy-path-check";
+import {
+  destinationDiagnostics,
+  policyMessage,
+} from "@/lib/backup-policy-feedback";
 import { BackupPolicyCron } from "@/components/backup-policy-cron";
 import { BackupPolicyDatabases } from "@/components/backup-policy-databases";
 import { BackupPolicyFiles } from "@/components/backup-policy-files";
 import {
+  PolicyFieldError,
   PolicyLabel,
   PolicyRetentionSlider,
   PolicySelect,
@@ -68,7 +72,84 @@ export function BackupPolicyEditor({
   const [confirmation, setConfirmation] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [passwordChosen, setPasswordChosen] = useState(false);
-  const [paths, setPaths] = useState<PathsResult>();
+  const [submitted, setSubmitted] = useState(false);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [errorField, setErrorField] = useState<string>();
+  const [errorTab, setErrorTab] = useState<Tab>();
+  const pathCheck = useBackupPolicyPaths(draft.files, draft.destinations);
+  const paths = pathCheck.result;
+  const storageIssues = destinationDiagnostics(
+    draft.destinations,
+    paths,
+    touched,
+    submitted,
+  );
+  const inlineFields = [
+    "policy-name",
+    "policy-password",
+    "policy-password-confirm",
+    "policy-password-action",
+    "policy-cron",
+  ];
+  const fieldError = (field: string) =>
+    errorField === field ? error : undefined;
+  const counts: Record<Tab, number> = {
+    basic: 0,
+    databases: 0,
+    files: paths?.errors.filter((item) => item.field === "files").length ?? 0,
+    storage:
+      storageIssues.length +
+      (submitted && draft.enabled && !draft.destinations.length ? 1 : 0),
+  };
+  if (error && errorTab) counts[errorTab]++;
+  function focusIssue(
+    target: Tab,
+    field?: string,
+    index?: number,
+    control?: string,
+  ) {
+    requestAnimationFrame(() => {
+      const first =
+        target === "storage"
+          ? storageIssues[0]
+          : target === "files"
+            ? paths?.errors.find((item) => item.field === "files")
+            : undefined;
+      const row = index ?? first?.index ?? 0;
+      const input = control ?? first?.control;
+      const id =
+        field ??
+        (target === "storage"
+          ? `policy-destination-${row}${input ? `-${input}` : ""}`
+          : target === "files"
+            ? `policy-file-source-${row}`
+            : undefined);
+      const element =
+        (id ? document.getElementById(id) : null) ??
+        panel.current?.querySelector<HTMLElement>(
+          '[role="tabpanel"][data-state="active"] [aria-invalid="true"], [role="tabpanel"][data-state="active"] input, [role="tabpanel"][data-state="active"] button',
+        );
+      element?.focus({ preventScroll: true });
+      (
+        element?.closest("label, .policy-select-field") ?? element
+      )?.scrollIntoView({ block: "nearest" });
+    });
+  }
+  function report(message: string, target: Tab, field?: string) {
+    setError(policyMessage(message));
+    setErrorTab(target);
+    setErrorField(field);
+    setTab(target);
+    focusIssue(target, field);
+  }
+  function tabBadge(target: Tab) {
+    return counts[target] > 0 ? (
+      <span className="policy-tab-error" aria-hidden="true">
+        {counts[target]}
+      </span>
+    ) : null;
+  }
+
   const [discard, setDiscard] = useState(false);
   const original = useRef(JSON.stringify(draft));
   const initialized = useRef(false);
@@ -150,23 +231,23 @@ export function BackupPolicyEditor({
       onClose();
     },
     onError: (e) => {
-      setError(e.message);
-      if (
-        e.message.includes("存储") ||
-        e.message.includes("账户") ||
-        e.message.includes("远程") ||
-        e.message.includes("目的地")
-      )
-        setTab("storage");
-      else if (
-        e.message.includes("路径") ||
-        e.message.includes("来源") ||
-        e.message.includes("排除")
-      )
-        setTab("files");
-      else if (e.message.includes("库") || e.message.includes("表规则"))
-        setTab("databases");
-      else setTab("basic");
+      const message = policyMessage(e.message);
+      const target: Tab | undefined = /存储|账户|远程|目的地/.test(message)
+        ? "storage"
+        : /路径|来源|排除/.test(message)
+          ? "files"
+          : /数据库|表规则/.test(message)
+            ? "databases"
+            : /密码|名称|Cron/.test(message)
+              ? "basic"
+              : undefined;
+      setError(message);
+      setErrorField(undefined);
+      setErrorTab(target);
+      if (target) {
+        setTab(target);
+        focusIssue(target);
+      }
     },
   });
   const update = <K extends keyof PolicySave>(
@@ -174,7 +255,16 @@ export function BackupPolicyEditor({
     value: PolicySave[K],
   ) => {
     setError("");
-    if (field === "files" || field === "destinations") setPaths(undefined);
+    if (field === "destinations") {
+      const next = value as PolicySave["destinations"];
+      if (
+        next.length !== draft.destinations.length ||
+        next.some((d, i) => d.type !== draft.destinations[i]?.type)
+      ) {
+        setTouched({});
+        setSubmitted(false);
+      }
+    }
     setDraft((old) => ({ ...old, [field]: value }));
   };
   function close() {
@@ -186,41 +276,54 @@ export function BackupPolicyEditor({
     onClose();
   }
   function save() {
+    setSubmitted(true);
     if (copy && draft.compression.has_password && !passwordChosen) {
-      setError("请选择复制后的压缩密码处理方式");
-      setTab("basic");
+      report(
+        "请选择复制后的压缩密码处理方式",
+        "basic",
+        "policy-password-action",
+      );
       return;
     }
     if (
       draft.password_action === "replace" &&
       draft.password !== confirmation
     ) {
-      setError("两次输入的压缩密码不一致");
-      setTab("basic");
-      requestAnimationFrame(() =>
-        document.getElementById("policy-password-confirm")?.focus(),
-      );
-      return;
-    }
-    if (paths?.errors.length) {
-      setError(paths.errors[0].message);
-      setTab(paths.errors[0].field === "destinations" ? "storage" : "files");
+      report("两次输入的压缩密码不一致", "basic", "policy-password-confirm");
       return;
     }
     const failure = policyValidation(draft);
-    if (failure) {
-      setError(failure.message);
-      setTab(failure.tab);
-      requestAnimationFrame(() => {
-        if (failure.field) document.getElementById(failure.field)?.focus();
-        else
-          panel.current?.querySelector<HTMLElement>('[role="alert"]')?.focus();
-      });
+    if (failure && failure.tab !== "storage") {
+      report(failure.message, failure.tab, failure.field);
+      return;
+    }
+    const storage = destinationDiagnostics(
+      draft.destinations,
+      paths,
+      touched,
+      true,
+    );
+    if (storage.length || (draft.enabled && !draft.destinations.length)) {
+      setError("");
+      setErrorTab(undefined);
+      setTab("storage");
+      focusIssue("storage", undefined, storage[0]?.index, storage[0]?.control);
+      return;
+    }
+    const source = paths?.errors.find((item) => item.field === "files");
+    if (source) {
+      setError("");
+      setErrorTab(undefined);
+      setTab("files");
+      focusIssue("files", undefined, source.index);
       return;
     }
     setError("");
+    setErrorTab(undefined);
+    setErrorField(undefined);
     mutation.mutate();
   }
+
   const disabled = readOnly || mutation.isPending;
   const loading = !!policyId && (query.isPending || !initialized.current);
   return (
@@ -275,33 +378,83 @@ export function BackupPolicyEditor({
                   className="policy-tabs-list"
                   aria-label="备份政策设置"
                 >
-                  <Tabs.Trigger value="basic">
+                  <Tabs.Trigger
+                    value="basic"
+                    aria-label="基本设置"
+                    title={
+                      counts.basic
+                        ? `${counts.basic} 项错误，点击定位`
+                        : undefined
+                    }
+                    onClick={() => {
+                      if (counts.basic)
+                        focusIssue(
+                          "basic",
+                          errorTab === "basic" ? errorField : undefined,
+                        );
+                    }}
+                  >
                     <Settings2 size={16} aria-hidden="true" />
-                    基本设置
+                    基本设置{tabBadge("basic")}
                   </Tabs.Trigger>
-                  <Tabs.Trigger value="databases">
+                  <Tabs.Trigger
+                    value="databases"
+                    aria-label="数据库"
+                    title={
+                      counts.databases
+                        ? `${counts.databases} 项错误，点击定位`
+                        : undefined
+                    }
+                    onClick={() => {
+                      if (counts.databases)
+                        focusIssue(
+                          "databases",
+                          errorTab === "databases" ? errorField : undefined,
+                        );
+                    }}
+                  >
                     <Database size={16} aria-hidden="true" />
-                    数据库
+                    数据库{tabBadge("databases")}
                   </Tabs.Trigger>
-                  <Tabs.Trigger value="storage">
+                  <Tabs.Trigger
+                    value="storage"
+                    aria-label="存储位置"
+                    title={
+                      counts.storage
+                        ? `${counts.storage} 项错误，点击定位`
+                        : undefined
+                    }
+                    onClick={() => {
+                      if (counts.storage)
+                        focusIssue(
+                          "storage",
+                          errorTab === "storage" ? errorField : undefined,
+                        );
+                    }}
+                  >
                     <HardDrive size={16} aria-hidden="true" />
-                    存储位置
+                    存储位置{tabBadge("storage")}
                   </Tabs.Trigger>
-                  <Tabs.Trigger value="files">
+                  <Tabs.Trigger
+                    value="files"
+                    aria-label="文件与目录"
+                    title={
+                      counts.files
+                        ? `${counts.files} 项错误，点击定位`
+                        : undefined
+                    }
+                    onClick={() => {
+                      if (counts.files)
+                        focusIssue(
+                          "files",
+                          errorTab === "files" ? errorField : undefined,
+                        );
+                    }}
+                  >
                     <FolderOpen size={16} aria-hidden="true" />
-                    文件与目录
+                    文件与目录{tabBadge("files")}
                   </Tabs.Trigger>
                 </Tabs.List>
-                <BackupPolicyPathCheck
-                  files={draft.files}
-                  destinations={draft.destinations}
-                  onResult={setPaths}
-                />
-                {error && (
-                  <p className="form-error" role="alert" tabIndex={-1}>
-                    {error}
-                  </p>
-                )}
                 <Tabs.Content
                   forceMount
                   value="basic"
@@ -318,10 +471,21 @@ export function BackupPolicyEditor({
                           <PolicyLabel icon={Tag}>名称</PolicyLabel>
                           <Input
                             id="policy-name"
+                            aria-label="名称"
+                            aria-invalid={!!fieldError("policy-name")}
+                            aria-describedby={
+                              fieldError("policy-name")
+                                ? "policy-name-error"
+                                : undefined
+                            }
                             maxLength={80}
                             value={draft.name}
                             disabled={disabled}
                             onChange={(e) => update("name", e.target.value)}
+                          />
+                          <PolicyFieldError
+                            id="policy-name"
+                            message={fieldError("policy-name")}
                           />
                         </label>
                         <label className="policy-switch">
@@ -358,6 +522,10 @@ export function BackupPolicyEditor({
                         value={draft.schedule}
                         readOnly={disabled}
                         onChange={(v) => update("schedule", v)}
+                      />
+                      <PolicyFieldError
+                        id="policy-cron"
+                        message={fieldError("policy-cron")}
                       />
                     </section>
                     <section
@@ -407,6 +575,8 @@ export function BackupPolicyEditor({
                         {" "}
                         <PolicySelect
                           label="压缩密码"
+                          id="policy-password-action"
+                          error={fieldError("policy-password-action")}
                           icon={ShieldCheck}
                           value={
                             copy &&
@@ -449,6 +619,13 @@ export function BackupPolicyEditor({
                               </PolicyLabel>
                               <Input
                                 id="policy-password"
+                                aria-label="新压缩密码"
+                                aria-invalid={!!fieldError("policy-password")}
+                                aria-describedby={
+                                  fieldError("policy-password")
+                                    ? "policy-password-error"
+                                    : undefined
+                                }
                                 type={showPassword ? "text" : "password"}
                                 autoComplete="new-password"
                                 maxLength={4096}
@@ -458,6 +635,10 @@ export function BackupPolicyEditor({
                                   update("password", e.target.value)
                                 }
                               />
+                              <PolicyFieldError
+                                id="policy-password"
+                                message={fieldError("policy-password")}
+                              />
                             </label>
                             <label htmlFor="policy-password-confirm">
                               <PolicyLabel icon={BadgeCheck}>
@@ -465,6 +646,15 @@ export function BackupPolicyEditor({
                               </PolicyLabel>
                               <Input
                                 id="policy-password-confirm"
+                                aria-label="确认压缩密码"
+                                aria-invalid={
+                                  !!fieldError("policy-password-confirm")
+                                }
+                                aria-describedby={
+                                  fieldError("policy-password-confirm")
+                                    ? "policy-password-confirm-error"
+                                    : undefined
+                                }
                                 type={showPassword ? "text" : "password"}
                                 autoComplete="new-password"
                                 maxLength={4096}
@@ -474,6 +664,10 @@ export function BackupPolicyEditor({
                                   setConfirmation(e.target.value);
                                   setError("");
                                 }}
+                              />
+                              <PolicyFieldError
+                                id="policy-password-confirm"
+                                message={fieldError("policy-password-confirm")}
                               />
                             </label>
                             <Button
@@ -551,6 +745,14 @@ export function BackupPolicyEditor({
                     enabled={draft.enabled}
                     readOnly={disabled}
                     active={tab === "storage"}
+                    submitted={submitted}
+                    diagnostics={storageIssues}
+                    onBlur={(index, control) =>
+                      setTouched((old) => ({
+                        ...old,
+                        [`${index}:${control}`]: true,
+                      }))
+                    }
                     onChange={(v) => update("destinations", v)}
                   />
                 </Tabs.Content>
@@ -561,6 +763,7 @@ export function BackupPolicyEditor({
                 >
                   <BackupPolicyFiles
                     active={tab === "files"}
+                    diagnostics={paths}
                     value={draft.files}
                     readOnly={disabled}
                     onChange={(v) => update("files", v)}
@@ -571,6 +774,16 @@ export function BackupPolicyEditor({
           )}
         </div>
         <div className="policy-footer-zone">
+          {error && !inlineFields.includes(errorField ?? "") && (
+            <p className="form-error policy-save-error" role="alert">
+              {error}
+            </p>
+          )}
+          {pathCheck.error && (
+            <p className="small-note policy-precheck-note">
+              路径预检暂不可用：{pathCheck.error}。保存时将重新检查。
+            </p>
+          )}
           {discard && (
             <div
               className="policy-discard"

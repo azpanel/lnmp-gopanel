@@ -721,7 +721,7 @@ test("multiple destinations, site sources, rule previews and password confirmati
     .getByLabel("本地目录", { exact: true })
     .fill("/srv/project/backups");
   await expect(
-    dialog.getByText(/存储位置 1：本地存储位置不能位于备份来源内部/),
+    dialog.getByText(/本地存储位置不能位于备份来源内部/),
   ).toBeVisible();
   await dialog.getByRole("button", { name: "保存政策", exact: true }).click();
   expect(f.saves).toHaveLength(0);
@@ -805,4 +805,92 @@ test("copy is an unsaved disabled draft with explicit secret handling and legacy
   expect(JSON.stringify([...f.policies.values()])).not.toContain(
     "source-private",
   );
+});
+
+test("destination feedback is inline, delayed for empty rows, and error tabs locate the field", async ({
+  page,
+}, testInfo) => {
+  const f = await policyFixture(page);
+  await page.route("**/api/v1/backups/policies/validate-paths", (route) => {
+    const { destinations } = route.request().postDataJSON();
+    const errors = destinations.flatMap(
+      (d: { type: string; path: string }, index: number) =>
+        d.type === "local" && (!d.path || !d.path.startsWith("/"))
+          ? [
+              {
+                field: "destinations",
+                index,
+                control: "path",
+                message: "组件安装参数无效：本地存储位置须为规范的绝对目录",
+              },
+            ]
+          : [],
+    );
+    return route.fulfill({ json: { errors, warnings: [] } });
+  });
+  await page.getByRole("button", { name: "添加备份政策", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("名称", { exact: true }).fill("字段提示布局");
+  await dialog.getByRole("tab", { name: "存储位置", exact: true }).click();
+  await expect(dialog.locator(".form-error")).toHaveCount(0);
+  await dialog
+    .getByRole("button", { name: "添加存储位置", exact: true })
+    .click();
+  const first = dialog.getByRole("group", { name: "存储位置 1", exact: true });
+  const input = first.getByLabel("本地目录", { exact: true });
+  await expect(first.getByRole("alert")).toHaveCount(0);
+  await input.focus();
+  await input.press("Tab");
+  await expect(first.getByRole("alert")).toHaveText("请填写本地目录");
+  await expect(input).toHaveAttribute("aria-invalid", "true");
+  await expect(input).toHaveAccessibleDescription("请填写本地目录");
+  await expect(
+    dialog
+      .locator(".policy-tabs-list")
+      .getByRole("tab", { name: "存储位置", exact: true })
+      .locator(".policy-tab-error"),
+  ).toHaveText("1");
+  await dialog.getByRole("tab", { name: "基本设置", exact: true }).click();
+  await dialog.getByRole("tab", { name: "存储位置", exact: true }).click();
+  await expect(input).toBeFocused();
+  await input.fill("relative/path");
+  await expect(first.getByRole("alert")).toHaveText(
+    "请输入规范的绝对路径，例如 /var/backups/websites",
+  );
+  await page.screenshot({
+    path: testInfo.outputPath("backup-policy-inline-error.png"),
+    animations: "disabled",
+  });
+  await input.fill("/var/backups/valid");
+  await expect(first.getByRole("alert")).toHaveCount(0);
+  await expect(input).toHaveAttribute("aria-invalid", "false");
+  await dialog
+    .getByRole("button", { name: "添加存储位置", exact: true })
+    .click();
+  const second = dialog.getByRole("group", { name: "存储位置 2", exact: true });
+  await expect(second.getByRole("alert")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "保存政策", exact: true }).click();
+  await expect(second.getByRole("alert")).toHaveText("请填写本地目录");
+  await expect(second.getByLabel("本地目录", { exact: true })).toBeFocused();
+  expect(f.saves).toHaveLength(0);
+  await second
+    .getByLabel("本地目录", { exact: true })
+    .fill("/var/backups/another");
+  await page.route("**/api/v1/backups/policies", (route) =>
+    route.request().method() === "POST"
+      ? route.fulfill({
+          status: 502,
+          json: { error: "备份服务暂不可用，请稍后重试" },
+        })
+      : route.fallback(),
+  );
+  await dialog.getByRole("button", { name: "保存政策", exact: true }).click();
+  await expect(
+    dialog.locator(".policy-footer-zone").getByRole("alert"),
+  ).toHaveText("备份服务暂不可用，请稍后重试");
+  await expect(dialog.locator(".policy-tabs > .form-error")).toHaveCount(0);
+  await expect(dialog).not.toContainText("组件安装参数无效");
+  expect(
+    await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth),
+  ).toBeTruthy();
 });

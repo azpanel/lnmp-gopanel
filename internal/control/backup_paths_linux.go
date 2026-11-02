@@ -61,8 +61,15 @@ func inspectBackupPaths(r backups.PathsRequest) (backups.PathsResult, error) {
 	if len(r.Files) > 100 || len(r.Destinations) > 100 {
 		return result, backups.ErrInvalid
 	}
-	add := func(field string, index int, message string) {
-		result.Errors = append(result.Errors, backups.PathDiagnostic{Field: field, Index: index, Message: message})
+	add := func(field string, index int, message string, control ...string) {
+		for strings.HasPrefix(message, backups.ErrInvalid.Error()+"：") {
+			message = strings.TrimPrefix(message, backups.ErrInvalid.Error()+"：")
+		}
+		item := backups.PathDiagnostic{Field: field, Index: index, Message: message}
+		if len(control) > 0 {
+			item.Control = control[0]
+		}
+		result.Errors = append(result.Errors, item)
 	}
 	type sourcePath struct {
 		path      string
@@ -96,17 +103,27 @@ func inspectBackupPaths(r backups.PathsRequest) (backups.PathsResult, error) {
 		}
 		sources = append(sources, sourcePath{resolved, info.IsDir(), i})
 	}
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	for i, d := range r.Destinations {
 		if err := backups.ValidateDestination(d); err != nil {
-			add("destinations", i, err.Error())
+			control := "path"
+			if d.Type == "gdrive" {
+				control = "folder_id"
+				if d.Account == "" {
+					control = "account"
+				}
+			}
+			if d.Type == "rclone" && d.Remote == "" {
+				control = "remote"
+			}
+			add("destinations", i, err.Error(), control)
 			continue
 		}
 		key := backups.DestinationKey(d)
 		if d.Type == "local" {
 			resolved, err := resolveBackupDestination(d.Path)
 			if err != nil {
-				add("destinations", i, err.Error())
+				add("destinations", i, err.Error(), "path")
 				continue
 			}
 			key = "local\x00" + resolved
@@ -117,10 +134,10 @@ func inspectBackupPaths(r backups.PathsRequest) (backups.PathsResult, error) {
 				}
 			}
 		}
-		if seen[key] {
-			add("destinations", i, "存储位置重复（包含指向相同目录的路径）")
+		if previous, ok := seen[key]; ok {
+			add("destinations", i, fmt.Sprintf("与存储位置 %d 重复（指向同一目标）", previous+1))
 		}
-		seen[key] = true
+		seen[key] = i
 	}
 	return result, nil
 }

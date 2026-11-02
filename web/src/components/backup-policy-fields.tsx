@@ -84,6 +84,9 @@ export function PolicySelect({
   options,
   onChange,
   disabled,
+  id: providedId,
+  error,
+  onBlur,
 }: {
   label: string;
   icon: LucideIcon;
@@ -91,8 +94,12 @@ export function PolicySelect({
   options: [string, string][];
   onChange: (value: string) => void;
   disabled?: boolean;
+  id?: string;
+  error?: string;
+  onBlur?: () => void;
 }) {
-  const id = useId();
+  const generatedId = useId();
+  const id = providedId ?? generatedId;
   const [open, setOpen] = useState(false);
   return (
     <div className="policy-select-field">
@@ -109,6 +116,11 @@ export function PolicySelect({
         <SelectTrigger
           id={id}
           aria-label={label}
+          aria-invalid={!!error}
+          aria-describedby={error ? `${id}-error` : undefined}
+          onBlur={() => {
+            if (!open) onBlur?.();
+          }}
           className="policy-select-trigger"
         >
           <SelectValue placeholder="请选择" />
@@ -129,6 +141,21 @@ export function PolicySelect({
           ))}
         </SelectContent>
       </Select>
+      <PolicyFieldError id={id} message={error} />
     </div>
   );
+}
+
+export function PolicyFieldError({
+  id,
+  message,
+}: {
+  id: string;
+  message?: string;
+}) {
+  return message ? (
+    <span id={`${id}-error`} className="policy-field-error" role="alert">
+      {message}
+    </span>
+  ) : null;
 }
