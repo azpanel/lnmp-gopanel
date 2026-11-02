@@ -50,6 +50,17 @@ func (s *Server) registerBackupPolicies(r *gin.RouterGroup) {
 			s.policyCall(c, action, input, 18*time.Second)
 		})
 	}
+	r.POST("/backups/policies/validate-paths", s.csrf, func(c *gin.Context) {
+		var input backups.PathsRequest
+		if !policyBody(c, &input) {
+			return
+		}
+		if len(input.Files) > 100 || len(input.Destinations) > 100 {
+			fail(c, 400, "路径数量超过限制")
+			return
+		}
+		s.policyCall(c, "paths", input, 20*time.Second)
+	})
 	r.POST("/backups/files/inspect", s.csrf, func(c *gin.Context) {
 		var input backups.FileSource
 		if !policyBody(c, &input) {

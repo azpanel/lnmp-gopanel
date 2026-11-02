@@ -293,11 +293,21 @@ Composer 检测沿用 `components snapshot` 授权，升级时使用同一源码
 
 ## 网站备份
 
-“网站备份”页面（`/backups`）提供备份政策配置和 gdrive、rclone 组件安装。右上角“添加备份政策”打开三个 Tab，支持新增、查看、编辑、删除及启停政策。当前只保存配置，不创建 crontab、不执行备份、不生成压缩包，也不删除旧备份；不要求已安装传输或压缩组件。
+“网站备份”页面（`/backups`）提供备份政策配置和 gdrive、rclone 组件安装。右上角“添加备份政策”打开四个 Tab，支持新增、查看、编辑、删除及启停政策。当前只保存配置，不创建 crontab、不执行备份、不生成压缩包，也不删除旧备份；不要求已安装传输或压缩组件。
 
 - **基本设置**：名称、备注、启用状态；通过常用频率、五字段表单或直接输入组装 Cron，按服务器时区预览接下来五次计划时间。默认每天 02:00，启用；ZIP 等级 0–9，7z 等级 0、1、3、5、7、9，默认 ZIP/5/不加密；数据库和文件分别默认保留 7 份，通过滑块调整 1–100 份（已有更大值会扩展滑块上限），当前不执行清理。
+- **存储位置**：一条政策可添加多个本地、gdrive 或 rclone 目的地。本地目录允许尚未创建，保存不创建目录；gdrive 绑定具体账户并填写文件夹 ID（`root` 为根目录），rclone 绑定远程名称并填写远程内路径（空值为根目录）。本轮不连接云端或验证上传权限。启用政策必须配置至少一个完整目的地，且云端账户能从本机配置识别；停用政策允许无目的地并保留当前缺失的账户。旧政策读取时补空目的地列表，不自动改写文件或启用状态，需补齐目的地后才能保存为启用状态。
+
 - **数据库**：默认全部数据库并自动包含新增库，默认排除 `mysql`、`information_schema`、`performance_schema`、`phpmyadmin`、`sys`，可手动修改；也可切换为指定数据库。每个库可选择全部表、仅备份所选表、跳过所选表，表列表支持搜索与分页。库表大小为数据及索引的元数据估算，视图大小不可用时显示“—”。仅连接本机 MySQL/MariaDB root 账号，复用可信客户端配置与 Socket；认证失败时在弹窗临时输入密码重试，密码不保存、不进入 URL 或日志。
 - **文件与目录**：填写规范绝对路径；目录排除规则每行一条，支持相对路径、`*`、`?`、`**`，例如 `cache/`、`logs/*.log`、`**/node_modules/**`。排除目录时同时排除后代，规则不能越出来源目录。独立统计原始逻辑大小与排除后预计大小，不读取文件内容、不展开内部符号链接，不支持 `/proc`、`/sys`、`/dev`；最多同时统计两个来源，单次最多 60 秒，超时及扫描变化显示部分结果。
+
+“从网站添加”复用站点目录清单，可搜索并多选目录，共享路径自动去重。`public` 站点默认添加项目完整目录，可改选仅 `public`；动态 root 和无本地目录的站点不可选。添加后是独立的普通来源，不随站点配置自动变化、不推断关联数据库。排除规则预览与大小统计共用一次扫描，每条规则独立显示命中文件数及最多 5 条相对路径样例，目录规则包含后代；重叠命中不重复扣减大小。编码后的路径样例总量上限 128 KiB，完整扫描零命中才显示“未命中”，扫描超时或不可访问显示部分结果。
+
+路径预检识别来源父子重叠并提示，允许保存；相同实际来源重复、重复目的地，以及本地目标与目录来源相同或位于其内部时拦截保存。检查解析符号链接，未创建目标通过最近已存在的父目录计算，不依赖字符串前缀，也不创建目录；保存时辅助程序重新检查。云端和 rclone 远程不推断为本机路径。
+
+“复制”打开未保存的停用草稿，取消不创建副本；保存时检查源政策修订号。已有压缩密码必须明确选择沿用、更换或清除；沿用由辅助程序在内存中解密并绑定新政策 ID 重新加密，浏览器不接触旧密码。新密码提供显示/隐藏及确认输入，确认字段不发送或保存。
+
+政策的 `destinations` 数组按类型保存本地 `{type:"local",path}`、gdrive `{type:"gdrive",account,folder_id}` 或 rclone `{type:"rclone",remote,path}`；rclone 空路径可省略。复制仍使用新增接口，通过可选 `copy_from:{id,revision}` 指定源政策；该字段不存入政策，更新接口不接受复制来源。路径预检返回 `errors` 和 `warnings`，每项包含 `field`、零起始 `index` 和 `message`。
 
 政策保存在 `/var/lib/lnmp-gopanel-backups/policies.json`，压缩密码由独立的 `policies.key` 使用 AES-GCM 加密，两者均为 root 私有 `0600` 文件；备份及恢复配置时必须同时保留密钥。列表及详情只返回密码是否已设置，编辑可保持、更换或清除密码。政策写入带文件锁、原子替换及修订号校验，过期编辑返回冲突；大小估算和数据库临时密码不存入政策。
 
@@ -305,7 +315,7 @@ Composer 检测沿用 `components snapshot` 授权，升级时使用同一源码
 
 “备份组件”同时显示本机账户信息，可通过“刷新组件信息”重新读取。固定 root 辅助程序只返回白名单元数据：gdrive 3 从 `/root/.config/gdrive3` 读取账户名称及当前账户标记，rclone 从 `/root/.config/rclone/rclone.conf` 读取远程名称和存储类型。加密的 rclone 配置显示“配置文件已加密”；缺失、损坏或权限不安全的配置分别提示，不影响组件版本和安装状态。读取不创建目录、不修改配置、不访问云端验证授权，也不返回密码、令牌、密钥、原始配置或解析器诊断。仅支持 root 管理的普通配置文件，单文件上限 1 MiB、账户上限 1000 个；无需新增 sudoers 授权。
 
-升级部署时同步更新面板、辅助程序和 sudoers。除已有 `backup-components inspect/install` 外，新增精确授权 `backup-policies list/get/save/delete/databases/tables/files`；安装脚本只检查授权，不查询数据库、不扫描来源、不启动备份。政策请求上限 256 KiB，辅助响应上限 1 MiB；政策最多 1000 个，总配置上限 8 MiB，每个政策最多 100 个文件来源，每个目录最多 200 条排除规则。
+升级部署时同步更新面板、辅助程序和 sudoers。除已有 `backup-components inspect/install` 外，新增精确授权 `backup-policies list/get/save/delete/databases/tables/files/paths`；安装脚本只检查授权，不查询数据库、不扫描来源、不启动备份。政策请求上限 256 KiB，辅助响应上限 1 MiB；每个政策最多 100 个存储位置；政策最多 1000 个，总配置上限 8 MiB，每个政策最多 100 个文件来源，每个目录最多 200 条排除规则。
 
 ## 在线安装 LNMP
 
@@ -813,6 +823,7 @@ bash scripts/package.sh arm64 vX.Y.Z
 | 版本查询       | `GET /services/releases`、`POST /services/releases/refresh`、`PUT /services/releases/:name/range`                                                                                                                          |
 | LNMP 安装      | `GET /lnmp-installation`、`POST /lnmp-installation/prepare`、`POST /lnmp-installation/jobs/:id/start`、`GET /lnmp-installation/jobs/:id`、`GET /lnmp-installation/jobs/:id/events`、`GET /lnmp-installation/jobs/:id/logs` |
 | 备份政策       | `GET/POST /backups/policies`、`GET/PUT/DELETE /backups/policies/:id`（更新和删除携带 revision） |
+| 备份路径预检   | `POST /backups/policies/validate-paths`（请求包含 files、destinations，仅检查元数据） |
 | 备份来源与频率 | `POST /backups/databases/inspect`、`POST /backups/databases/tables`、`POST /backups/files/inspect`、`POST /backups/schedule/preview` |
 | 网站备份组件   | `GET /backups/components`、`POST /backups/components/install`（请求体为 `{"components":["gdrive","rclone"]}`） |
 | 网站列表与配置 | `GET /vhosts`、`GET /vhosts/count`、`POST /vhosts/refresh`、`GET /vhosts/config`、`POST /vhosts/config/format`、`POST /vhosts/toggle`                                                                                      |

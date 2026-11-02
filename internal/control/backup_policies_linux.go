@@ -27,7 +27,7 @@ type storedBackupPolicy struct {
 	backups.Policy
 	Ciphertext string `json:"password_ciphertext,omitempty"`
 }
-type backupPolicyStore struct{ state string }
+type backupPolicyStore struct{ state, accountHome string }
 
 func (s backupPolicyStore) lock() (func(), error) { return (backupInstaller{state: s.state}).lock() }
 func readPrivateBackupFile(path string, limit int64) ([]byte, error) {
@@ -53,6 +53,11 @@ func (s backupPolicyStore) load() ([]storedBackupPolicy, error) {
 	var policies []storedBackupPolicy
 	if json.Unmarshal(data, &policies) != nil || policies == nil {
 		return nil, errors.New("政策文件损坏，请恢复备份")
+	}
+	for i := range policies {
+		if policies[i].Destinations == nil {
+			policies[i].Destinations = []backups.Destination{}
+		}
 	}
 	return policies, nil
 }
@@ -148,9 +153,19 @@ func (s backupPolicyStore) save(r backups.SavePolicyRequest) (backups.Policy, er
 	if err := backups.ValidatePolicy(r); err != nil {
 		return backups.Policy{}, err
 	}
-	// Check filesystem metadata only; saving never starts a backup.
-	for _, source := range r.Files {
-		if _, err := backupSourceInfo(source); err != nil {
+	paths, err := inspectBackupPaths(backups.PathsRequest{Files: r.Files, Destinations: r.Destinations})
+	if err != nil {
+		return backups.Policy{}, err
+	}
+	if len(paths.Errors) > 0 {
+		return backups.Policy{}, fmt.Errorf("%w：%s", backups.ErrInvalid, paths.Errors[0].Message)
+	}
+	if r.Enabled {
+		home := s.accountHome
+		if home == "" {
+			home = "/root"
+		}
+		if err := checkBackupAccounts(r.Destinations, home); err != nil {
 			return backups.Policy{}, err
 		}
 	}
@@ -162,6 +177,23 @@ func (s backupPolicyStore) save(r backups.SavePolicyRequest) (backups.Policy, er
 	policies, err := s.load()
 	if err != nil {
 		return backups.Policy{}, err
+	}
+	var source storedBackupPolicy
+	if r.CopyFrom != nil {
+		found := false
+		for _, candidate := range policies {
+			if candidate.ID == r.CopyFrom.ID {
+				source = candidate
+				found = true
+				break
+			}
+		}
+		if !found {
+			return backups.Policy{}, backups.ErrNotFound
+		}
+		if source.Revision != r.CopyFrom.Revision {
+			return backups.Policy{}, backups.ErrConflict
+		}
 	}
 	index := -1
 	var old storedBackupPolicy
@@ -190,6 +222,26 @@ func (s backupPolicyStore) save(r backups.SavePolicyRequest) (backups.Policy, er
 		r.ID = hex.EncodeToString(id)
 	}
 	p := storedBackupPolicy{Policy: r.Policy, Ciphertext: old.Ciphertext}
+	if r.CopyFrom != nil && r.PasswordAction == "keep" && source.Ciphertext != "" {
+		aead, err := s.aead()
+		if err != nil {
+			return backups.Policy{}, err
+		}
+		encoded, err := base64.StdEncoding.DecodeString(source.Ciphertext)
+		if err != nil || len(encoded) < aead.NonceSize()+aead.Overhead() {
+			return backups.Policy{}, errors.New("源政策密码无法解密")
+		}
+		plaintext, err := aead.Open(nil, encoded[:aead.NonceSize()], encoded[aead.NonceSize():], []byte(source.ID))
+		if err != nil {
+			return backups.Policy{}, errors.New("源政策密码无法解密")
+		}
+		defer clear(plaintext)
+		nonce := make([]byte, aead.NonceSize())
+		if _, err = rand.Read(nonce); err != nil {
+			return backups.Policy{}, err
+		}
+		p.Ciphertext = base64.StdEncoding.EncodeToString(aead.Seal(nonce, nonce, plaintext, []byte(p.ID)))
+	}
 	switch r.PasswordAction {
 	case "clear":
 		p.Ciphertext = ""
@@ -203,6 +255,9 @@ func (s backupPolicyStore) save(r backups.SavePolicyRequest) (backups.Policy, er
 			return backups.Policy{}, err
 		}
 		p.Ciphertext = base64.StdEncoding.EncodeToString(aead.Seal(nonce, nonce, []byte(r.Password), []byte(p.ID)))
+	}
+	if p.Destinations == nil {
+		p.Destinations = []backups.Destination{}
 	}
 	p.Name = strings.TrimSpace(p.Name)
 	p.Schedule = strings.Join(strings.Fields(p.Schedule), " ")
@@ -306,6 +361,12 @@ func HandleBackupPolicy(ctx context.Context, action string, in io.Reader, out io
 		err = decodeBackupPolicy(in, &r)
 		if err == nil {
 			result, err = inspectBackupDatabase(ctx, action, r)
+		}
+	case "paths":
+		var r backups.PathsRequest
+		err = decodeBackupPolicy(in, &r)
+		if err == nil {
+			result, err = inspectBackupPaths(r)
 		}
 	case "files":
 		var r struct {

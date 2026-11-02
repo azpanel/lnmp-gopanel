@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { BackupPolicySiteSources } from "@/components/backup-policy-site-sources";
 import { FilterX, FolderInput } from "lucide-react";
 import { PolicyLabel } from "@/components/backup-policy-fields";
 import { Button } from "@/components/ui/button";
@@ -78,6 +79,25 @@ export function BackupPolicyFiles({
   return (
     <div className="policy-section">
       {!readOnly && (
+        <BackupPolicySiteSources
+          onAdd={(paths) => {
+            const additions = paths.filter(
+              (p) => !value.some((s) => s.path === p),
+            );
+            if (value.length + additions.length > 100) {
+              setError("最多添加 100 个文件来源");
+              return;
+            }
+            onChange([
+              ...value,
+              ...additions.map((path) => ({ path, excludes: [] })),
+            ]);
+            if (additions.length) setExpandedPath(additions[0]);
+            setError(additions.length ? "" : "所选目录已在来源列表中");
+          }}
+        />
+      )}
+      {!readOnly && (
         <div className="policy-inline">
           <div className="policy-search-field policy-path-input">
             <FolderInput size={16} aria-hidden="true" />
@@ -148,7 +168,12 @@ function FileSourceRow({
 }) {
   const id = useId();
   const [excludeText, setExcludeText] = useState(source.excludes.join("\n"));
-  const [result, setResult] = useState<FileSize>();
+  const [snapshot, setResult] = useState<{
+    revision: string;
+    data: FileSize;
+  }>();
+  const result =
+    snapshot?.revision === JSON.stringify(source) ? snapshot.data : undefined;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -170,7 +195,8 @@ function FileSourceRow({
             body: revision,
             signal: controller.signal,
           });
-          if (!controller.signal.aborted && scope.current()) setResult(data);
+          if (!controller.signal.aborted && scope.current())
+            setResult({ revision, data });
         } catch (e) {
           if (!controller.signal.aborted && scope.current())
             setError((e as Error).message);
@@ -272,33 +298,69 @@ function FileSourceRow({
         )}
       </div>
       {directory && expanded && (
-        <label
-          className="policy-file-exclusions"
-          id={id + "-rules"}
-          htmlFor={id}
-        >
-          <PolicyLabel icon={FilterX}>
-            排除子目录或文件（相对路径，每行一条）
-          </PolicyLabel>
-          <textarea
-            id={id}
-            aria-label="排除子目录或文件（相对路径，每行一条）"
-            className="policy-textarea font-mono"
-            rows={3}
-            placeholder={"cache/\nlogs/*.log\n**/node_modules/**"}
-            disabled={readOnly}
-            value={excludeText}
-            onChange={(e) => {
-              setExcludeText(e.target.value);
-              onChange({
-                ...source,
-                excludes: e.target.value
-                  .split("\n")
-                  .filter((line) => line.trim() !== ""),
-              });
-            }}
-          />
-        </label>
+        <div className="policy-rule-editor">
+          <label
+            className="policy-file-exclusions"
+            id={id + "-rules"}
+            htmlFor={id}
+          >
+            <PolicyLabel icon={FilterX}>
+              排除子目录或文件（相对路径，每行一条）
+            </PolicyLabel>
+            <textarea
+              id={id}
+              aria-label="排除子目录或文件（相对路径，每行一条）"
+              className="policy-textarea font-mono"
+              rows={3}
+              placeholder={"cache/\nlogs/*.log\n**/node_modules/**"}
+              disabled={readOnly}
+              value={excludeText}
+              onChange={(e) => {
+                setExcludeText(e.target.value);
+                onChange({
+                  ...source,
+                  excludes: e.target.value
+                    .split("\n")
+                    .filter((line) => line.trim() !== ""),
+                });
+              }}
+            />
+          </label>
+          {busy && <p className="small-note">规则已变更，正在更新命中预览…</p>}
+          {!busy && result?.rules && (
+            <div className="policy-rule-preview" aria-label="排除规则预览">
+              <p className="small-note">
+                各规则独立计数，同一文件可能命中多条规则。样例为相对路径。
+              </p>
+              {result.rules.map((rule, index) => (
+                <div className="policy-rule-result" key={index}>
+                  <strong className="font-mono">{rule.pattern}</strong>
+                  <span>
+                    {result.complete
+                      ? rule.count
+                        ? `命中 ${rule.count} 个文件`
+                        : "未命中"
+                      : `已扫描命中 ${rule.count} 个文件（部分结果）`}
+                  </span>
+                  {!!rule.samples.length && (
+                    <ul>
+                      {rule.samples.map((sample) => (
+                        <li className="font-mono" key={sample}>
+                          {sample}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {rule.truncated && (
+                    <p className="small-note">
+                      样例已截断，命中计数包含其他文件。
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

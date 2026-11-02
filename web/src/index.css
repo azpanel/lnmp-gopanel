@@ -5053,6 +5053,82 @@ body,
 }
 
 /* Website backup policy workspace. */
+.policy-storage,
+.policy-password-fields,
+.policy-site-choices,
+.policy-site-choice,
+.policy-rule-editor {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.policy-destination,
+.policy-site-choices {
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+.policy-destination legend {
+  padding: 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.policy-destination .policy-grid {
+  margin-bottom: 10px;
+}
+.policy-site-picker {
+  margin-bottom: 12px;
+}
+.policy-site-choices {
+  margin-top: 12px;
+}
+.policy-site-choice {
+  padding-block: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.policy-site-path {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+}
+.policy-site-path span,
+.policy-rule-result,
+.policy-destination-summary {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.policy-rule-preview {
+  display: grid;
+  gap: 10px;
+}
+.policy-rule-result {
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+  font-size: 13px;
+}
+.policy-rule-result > span {
+  display: block;
+  margin-top: 4px;
+}
+.policy-rule-result ul {
+  padding-left: 18px;
+  margin-top: 6px;
+}
+.policy-path-check {
+  flex-shrink: 0;
+  padding-inline: 24px;
+  max-height: 130px;
+  overflow-y: auto;
+}
+.policy-path-check:empty {
+  display: none;
+}
+.policy-password-fields > button {
+  justify-self: start;
+}
 .policy-heading-actions,
 .policy-inline,
 .policy-switch,
@@ -5773,6 +5849,8 @@ select,
     padding: 18px 16px 12px;
   }
   .policy-tabs-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     padding: 0 12px;
     gap: 0;
   }

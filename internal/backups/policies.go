@@ -46,45 +46,48 @@ type FileSource struct {
 	Excludes []string `json:"excludes"`
 }
 type Policy struct {
-	ID          string            `json:"id"`
-	Revision    uint64            `json:"revision"`
-	Name        string            `json:"name"`
-	Notes       string            `json:"notes"`
-	Enabled     bool              `json:"enabled"`
-	Schedule    string            `json:"schedule"`
-	Compression Compression       `json:"compression"`
-	Retention   Retention         `json:"retention"`
-	Databases   DatabaseSelection `json:"databases"`
-	Files       []FileSource      `json:"files"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	ID           string            `json:"id"`
+	Revision     uint64            `json:"revision"`
+	Name         string            `json:"name"`
+	Notes        string            `json:"notes"`
+	Enabled      bool              `json:"enabled"`
+	Schedule     string            `json:"schedule"`
+	Compression  Compression       `json:"compression"`
+	Retention    Retention         `json:"retention"`
+	Databases    DatabaseSelection `json:"databases"`
+	Files        []FileSource      `json:"files"`
+	Destinations []Destination     `json:"destinations"`
+	CreatedAt    time.Time         `json:"created_at"`
+	UpdatedAt    time.Time         `json:"updated_at"`
 }
 type SavePolicyRequest struct {
 	Policy
-	PasswordAction string `json:"password_action"`
-	Password       string `json:"password"`
+	PasswordAction string          `json:"password_action"`
+	Password       string          `json:"password"`
+	CopyFrom       *PolicyIdentity `json:"copy_from,omitempty"`
 }
 type PolicyIdentity struct {
 	ID       string `json:"id"`
 	Revision uint64 `json:"revision"`
 }
 type PolicySummary struct {
-	ID              string      `json:"id"`
-	Revision        uint64      `json:"revision"`
-	Name            string      `json:"name"`
-	Enabled         bool        `json:"enabled"`
-	Schedule        string      `json:"schedule"`
-	Compression     Compression `json:"compression"`
-	Retention       Retention   `json:"retention"`
-	DatabaseEnabled bool        `json:"database_enabled"`
-	DatabaseMode    string      `json:"database_mode"`
-	DatabaseCount   int         `json:"database_count"`
-	FileCount       int         `json:"file_count"`
-	UpdatedAt       time.Time   `json:"updated_at"`
+	ID              string        `json:"id"`
+	Revision        uint64        `json:"revision"`
+	Name            string        `json:"name"`
+	Enabled         bool          `json:"enabled"`
+	Schedule        string        `json:"schedule"`
+	Compression     Compression   `json:"compression"`
+	Retention       Retention     `json:"retention"`
+	DatabaseEnabled bool          `json:"database_enabled"`
+	DatabaseMode    string        `json:"database_mode"`
+	DatabaseCount   int           `json:"database_count"`
+	FileCount       int           `json:"file_count"`
+	UpdatedAt       time.Time     `json:"updated_at"`
+	Destinations    []Destination `json:"destinations"`
 }
 
 func (p Policy) Summary() PolicySummary {
-	return PolicySummary{p.ID, p.Revision, p.Name, p.Enabled, p.Schedule, p.Compression, p.Retention, p.Databases.Enabled, p.Databases.Mode, len(p.Databases.Selected), len(p.Files), p.UpdatedAt}
+	return PolicySummary{p.ID, p.Revision, p.Name, p.Enabled, p.Schedule, p.Compression, p.Retention, p.Databases.Enabled, p.Databases.Mode, len(p.Databases.Selected), len(p.Files), p.UpdatedAt, p.Destinations}
 }
 func ValidPolicyID(id string) bool {
 	if len(id) != 32 {
@@ -152,6 +155,12 @@ func SchedulePreview(expression string, now time.Time) (cronpreview.Preview, err
 }
 func ValidatePolicy(r SavePolicyRequest) error {
 	p := r.Policy
+	if r.CopyFrom != nil && (p.ID != "" || !ValidPolicyID(r.CopyFrom.ID) || r.CopyFrom.Revision == 0) {
+		return invalidPolicy("复制来源无效，复制只能创建新政策")
+	}
+	if err := ValidateDestinations(p.Destinations, p.Enabled); err != nil {
+		return err
+	}
 	if p.ID != "" && !ValidPolicyID(p.ID) {
 		return invalidPolicy("政策标识无效")
 	}
@@ -259,11 +268,18 @@ type TableList struct {
 	PageSize int         `json:"page_size"`
 }
 type FileSize struct {
-	Path          string `json:"path"`
-	Type          string `json:"type"`
-	Valid         bool   `json:"valid"`
-	OriginalBytes int64  `json:"original_bytes"`
-	IncludedBytes int64  `json:"included_bytes"`
-	Complete      bool   `json:"complete"`
-	Error         string `json:"error,omitempty"`
+	Path          string        `json:"path"`
+	Type          string        `json:"type"`
+	Valid         bool          `json:"valid"`
+	OriginalBytes int64         `json:"original_bytes"`
+	IncludedBytes int64         `json:"included_bytes"`
+	Complete      bool          `json:"complete"`
+	Error         string        `json:"error,omitempty"`
+	Rules         []RulePreview `json:"rules"`
+}
+type RulePreview struct {
+	Pattern   string   `json:"pattern"`
+	Count     int64    `json:"count"`
+	Samples   []string `json:"samples"`
+	Truncated bool     `json:"truncated"`
 }

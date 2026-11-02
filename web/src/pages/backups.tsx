@@ -60,6 +60,7 @@ export function Backups() {
   const [editor, setEditor] = useState<{
     id?: string;
     readOnly: boolean;
+    copy?: boolean;
   } | null>(null);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<ComponentName[]>([]);
@@ -239,12 +240,13 @@ export function Backups() {
         </div>
       </div>
       <BackupPolicyList
-        onOpen={(id, readOnly) => setEditor({ id, readOnly })}
+        onOpen={(id, readOnly, copy) => setEditor({ id, readOnly, copy })}
       />
       {editor && (
         <BackupPolicyEditor
-          key={`${editor.id ?? "new"}-${editor.readOnly}`}
+          key={`${editor.id ?? "new"}-${editor.readOnly}-${editor.copy}`}
           policyId={editor.id}
+          copy={editor.copy}
           readOnly={editor.readOnly}
           onClose={() => setEditor(null)}
         />

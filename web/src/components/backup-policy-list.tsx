@@ -14,12 +14,13 @@ import {
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { useSessionMutation } from "@/lib/use-session-mutation";
+import { destinationLabel } from "@/lib/backup-policies";
 import type { Policy, PolicySummary } from "@/lib/backup-policies";
 
 export function BackupPolicyList({
   onOpen,
 }: {
-  onOpen: (id: string, readOnly: boolean) => void;
+  onOpen: (id: string, readOnly: boolean, copy?: boolean) => void;
 }) {
   const client = useQueryClient();
   const [remove, setRemove] = useState<PolicySummary>();
@@ -126,6 +127,11 @@ export function BackupPolicyList({
                           : "不备份数据库"}{" "}
                         · {p.file_count} 个文件来源
                       </p>
+                      <p className="small-note policy-destination-summary">
+                        {p.destinations?.length
+                          ? p.destinations.map(destinationLabel).join("； ")
+                          : "尚未配置存储位置"}
+                      </p>
                       <p className="small-note">
                         保留数据库备份 {p.retention.databases} 份，文件备份{" "}
                         {p.retention.files} 份（暂不自动清理）
@@ -157,6 +163,13 @@ export function BackupPolicyList({
                           onClick={() => onOpen(p.id, false)}
                         >
                           编辑
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => onOpen(p.id, false, true)}
+                        >
+                          复制
                         </Button>
                         <Button
                           size="sm"

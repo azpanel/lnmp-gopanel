@@ -19,7 +19,7 @@ import (
 )
 
 func sampleBackupPolicy() backups.SavePolicyRequest {
-	return backups.SavePolicyRequest{Policy: backups.Policy{Name: "网站每日备份", Enabled: true, Schedule: "0 2 * * *", Compression: backups.Compression{Format: "zip", Level: 5}, Retention: backups.Retention{Databases: 7, Files: 7}, Databases: backups.DatabaseSelection{Enabled: true, Mode: "all", Excluded: []string{"information_schema", "performance_schema", "phpmyadmin", "sys"}}, Files: []backups.FileSource{}}, PasswordAction: "keep"}
+	return backups.SavePolicyRequest{Policy: backups.Policy{Name: "网站每日备份", Enabled: true, Schedule: "0 2 * * *", Compression: backups.Compression{Format: "zip", Level: 5}, Retention: backups.Retention{Databases: 7, Files: 7}, Databases: backups.DatabaseSelection{Enabled: true, Mode: "all", Excluded: []string{"information_schema", "performance_schema", "phpmyadmin", "sys"}}, Destinations: []backups.Destination{{Type: "local", Path: "/var/backups/lnmp-gopanel-test"}}, Files: []backups.FileSource{}}, PasswordAction: "keep"}
 }
 func TestBackupPolicyPersistenceEncryptionAndRevision(t *testing.T) {
 	p := backupTestInstaller(t)

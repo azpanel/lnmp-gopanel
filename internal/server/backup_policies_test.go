@@ -34,13 +34,16 @@ func (b *policyTestBackend) BackupPolicy(_ context.Context, action string, input
 	if action == "list" {
 		return json.RawMessage(`[]`), nil
 	}
+	if action == "paths" {
+		return json.RawMessage(`{"errors":[],"warnings":[]}`), nil
+	}
 	if action == "files" {
 		return json.RawMessage(`{"path":"/srv","type":"directory","valid":true,"complete":false,"original_bytes":100,"included_bytes":50,"error":"部分结果"}`), nil
 	}
 	return json.RawMessage(`{}`), nil
 }
 func policyRequestBody() string {
-	return `{"name":"网站备份","notes":"","enabled":true,"schedule":"0 2 * * *","compression":{"format":"zip","level":5,"has_password":false},"retention":{"databases":7,"files":7},"databases":{"enabled":true,"mode":"all","excluded":["information_schema","performance_schema","phpmyadmin","sys"],"selected":[],"rules":[]},"files":[],"password_action":"replace","password":"secret-password"}`
+	return `{"name":"网站备份","notes":"","enabled":true,"schedule":"0 2 * * *","compression":{"format":"zip","level":5,"has_password":false},"retention":{"databases":7,"files":7},"databases":{"enabled":true,"mode":"all","excluded":["information_schema","performance_schema","phpmyadmin","sys"],"selected":[],"rules":[]},"files":[],"destinations":[{"type":"local","path":"/var/backups/test"}],"password_action":"replace","password":"secret-password"}`
 }
 func TestBackupPolicyRoutesAuthenticationValidationAndLimits(t *testing.T) {
 	s, _ := testServer(t)
@@ -51,7 +54,7 @@ func TestBackupPolicyRoutesAuthenticationValidationAndLimits(t *testing.T) {
 	id, session := s.Sessions.Create()
 	cookie := &http.Cookie{Name: auth.CookieName, Value: id}
 	policyID := strings.Repeat("a", 32)
-	routes := []struct{ method, path, body string }{{"GET", "/backups/policies", ""}, {"GET", "/backups/policies/" + policyID, ""}, {"POST", "/backups/policies", policyRequestBody()}, {"PUT", "/backups/policies/" + policyID, policyRequestBody()}, {"DELETE", "/backups/policies/" + policyID, `{"revision":1}`}, {"POST", "/backups/schedule/preview", `{"schedule":"0 2 * * *"}`}, {"POST", "/backups/databases/inspect", `{"password":"temporary"}`}, {"POST", "/backups/databases/tables", `{"database":"app","password":"temporary","page":1}`}, {"POST", "/backups/files/inspect", `{"path":"/srv","excludes":[]}`}}
+	routes := []struct{ method, path, body string }{{"POST", "/backups/policies/validate-paths", `{"files":[],"destinations":[]}`}, {"GET", "/backups/policies", ""}, {"GET", "/backups/policies/" + policyID, ""}, {"POST", "/backups/policies", policyRequestBody()}, {"PUT", "/backups/policies/" + policyID, policyRequestBody()}, {"DELETE", "/backups/policies/" + policyID, `{"revision":1}`}, {"POST", "/backups/schedule/preview", `{"schedule":"0 2 * * *"}`}, {"POST", "/backups/databases/inspect", `{"password":"temporary"}`}, {"POST", "/backups/databases/tables", `{"database":"app","password":"temporary","page":1}`}, {"POST", "/backups/files/inspect", `{"path":"/srv","excludes":[]}`}}
 	for _, r := range routes {
 		if w := request(h, r.method, "/api/v1"+r.path, r.body, nil, "", ""); w.Code != 401 {
 			t.Fatal(r.path, w.Code)

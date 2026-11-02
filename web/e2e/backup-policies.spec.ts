@@ -44,14 +44,22 @@ async function policyFixture(page: Page) {
     if (route.request().method() === "POST") {
       const body = route.request().postDataJSON() as PolicySave;
       saves.push(body);
-      const { password: _password, password_action, ...data } = body;
+      const { password: _password, password_action, copy_from, ...data } = body;
+      const source = copy_from ? policies.get(copy_from.id) : undefined;
+      if (copy_from && (!source || source.revision !== copy_from.revision))
+        return route.fulfill({
+          status: 409,
+          json: { error: "备份政策已被修改，请刷新后重试" },
+        });
       const policy = {
         ...data,
-        id: "a".repeat(32),
+        id: String(policies.size + 1).padStart(32, "0"),
         revision: 1,
         compression: {
           ...data.compression,
-          has_password: password_action === "replace",
+          has_password:
+            password_action === "replace" ||
+            (password_action === "keep" && !!source?.compression.has_password),
         },
         updated_at: new Date().toISOString(),
       };
@@ -130,9 +138,97 @@ async function policyFixture(page: Page) {
         complete: true,
         original_bytes: 4096,
         included_bytes: input.excludes.length ? 1024 : 4096,
+        rules: input.excludes.map((pattern: string) => ({
+          pattern,
+          count: pattern === "no-match/**" ? 0 : 3,
+          samples: pattern === "no-match/**" ? [] : ["cache/first.log"],
+          truncated: false,
+        })),
       },
     });
   });
+  await page.route("**/api/v1/backups/policies/validate-paths", (route) => {
+    const { files, destinations } = route.request().postDataJSON();
+    const warnings = files.flatMap((s: { path: string }, i: number) =>
+      files
+        .slice(0, i)
+        .filter(
+          (old: { path: string }) =>
+            s.path.startsWith(old.path + "/") ||
+            old.path.startsWith(s.path + "/"),
+        )
+        .map(() => ({
+          field: "files",
+          index: i,
+          message: "来源存在父子范围重叠，可能重复备份",
+        })),
+    );
+    const errors = destinations.flatMap(
+      (d: { type: string; path: string }, i: number) =>
+        d.type === "local" &&
+        files.some(
+          (s: { path: string }) =>
+            d.path === s.path || d.path.startsWith(s.path + "/"),
+        )
+          ? [
+              {
+                field: "destinations",
+                index: i,
+                message: "本地存储位置不能位于备份来源内部或与其相同",
+              },
+            ]
+          : [],
+    );
+    return route.fulfill({ json: { warnings, errors } });
+  });
+  await page.route("**/api/v1/vhosts", (route) =>
+    route.fulfill({
+      json: {
+        status: "ready",
+        sites: [
+          {
+            name: "app.conf",
+            domains: ["app.example.com"],
+            enabled: true,
+            roots: [
+              {
+                configured: "/srv/project/public",
+                path: "/srv/project",
+                public_parent: true,
+              },
+            ],
+          },
+          {
+            name: "shared.conf",
+            domains: ["shared.example.com"],
+            enabled: false,
+            roots: [
+              {
+                configured: "/srv/project",
+                path: "/srv/project",
+                public_parent: false,
+              },
+            ],
+          },
+          {
+            name: "dynamic.conf",
+            domains: ["dynamic.example.com"],
+            enabled: true,
+            roots: [
+              {
+                configured: "$dynamic",
+                path: "",
+                public_parent: false,
+                error: "动态 root 无法解析",
+              },
+            ],
+          },
+        ],
+        usage: {},
+        updated_at: null,
+      },
+    }),
+  );
   await page.goto("/backups");
   await page
     .getByLabel("密码", { exact: true })
@@ -148,6 +244,15 @@ async function policyFixture(page: Page) {
       databases = [...databases, name];
     },
   };
+}
+
+async function addLocalDestination(page: Page, path = "/var/backups/web") {
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("tab", { name: "存储位置", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: "添加存储位置", exact: true })
+    .click();
+  await dialog.getByLabel("本地目录", { exact: true }).last().fill(path);
 }
 
 test("backup policy tabs, source rules, secrets and CRUD", async ({
@@ -204,6 +309,7 @@ test("backup policy tabs, source rules, secrets and CRUD", async ({
   await choosePolicyOption(page, "压缩等级", "7");
   await choosePolicyOption(page, "压缩密码", "设置新密码");
   await dialog.getByLabel("新压缩密码").fill("archive-only-secret");
+  await dialog.getByLabel("确认压缩密码").fill("archive-only-secret");
   await adjustRetention(page, "数据库备份保留份数", 14);
   await adjustRetention(page, "文件备份保留份数", 4);
   await dialog
@@ -288,6 +394,7 @@ test("backup policy tabs, source rules, secrets and CRUD", async ({
     animations: "disabled",
     fullPage: false,
   });
+  await addLocalDestination(page);
   await dialog.getByRole("tab", { name: "文件与目录" }).click();
   await dialog.getByLabel("添加文件或目录路径").fill("/srv/网站 files");
   await dialog.getByRole("button", { name: "添加路径" }).click();
@@ -404,6 +511,7 @@ test("policy validation, file-only configuration and discard confirmation", asyn
     dialog.getByRole("alertdialog", { name: "放弃未保存修改" }),
   ).toBeVisible();
   await dialog.getByRole("button", { name: "继续编辑" }).click();
+  await addLocalDestination(page);
   await dialog.getByRole("button", { name: "保存政策" }).click();
   await expect(dialog).not.toBeVisible();
   expect(f.saves[0].databases.enabled).toBe(false);
@@ -470,4 +578,231 @@ test("policy advanced schedule and white fixed workspace", async ({
     animations: "disabled",
     fullPage: false,
   });
+});
+
+test("multiple destinations, site sources, rule previews and password confirmation", async ({
+  page,
+}, testInfo) => {
+  const f = await policyFixture(page);
+  await page.route("**/api/v1/backups/components", (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            name: "gdrive",
+            status: "ready",
+            version: "3.9.1",
+            supported: true,
+            accounts: {
+              status: "ready",
+              items: [
+                { name: "backup@example.com", type: "drive", current: true },
+              ],
+            },
+          },
+          {
+            name: "rclone",
+            status: "ready",
+            version: "1.75.2",
+            supported: true,
+            accounts: {
+              status: "ready",
+              items: [{ name: "archive", type: "s3" }],
+            },
+          },
+        ],
+      },
+    }),
+  );
+  await page.getByRole("button", { name: "添加备份政策", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("名称", { exact: true }).fill("网站多位置备份");
+  await choosePolicyOption(page, "压缩密码", "设置新密码");
+  await dialog
+    .getByLabel("新压缩密码", { exact: true })
+    .fill("archive-private");
+  await dialog.getByLabel("确认压缩密码", { exact: true }).fill("wrong");
+  await dialog.getByRole("button", { name: "显示密码", exact: true }).click();
+  await expect(
+    dialog.getByLabel("新压缩密码", { exact: true }),
+  ).toHaveAttribute("type", "text");
+  await expect(
+    dialog.getByLabel("确认压缩密码", { exact: true }),
+  ).toHaveAttribute("type", "text");
+  await dialog.getByRole("button", { name: "隐藏密码", exact: true }).click();
+  await dialog.getByRole("button", { name: "保存政策", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText(
+    "两次输入的压缩密码不一致",
+  );
+  expect(f.saves).toHaveLength(0);
+  await dialog
+    .getByLabel("确认压缩密码", { exact: true })
+    .fill("archive-private");
+  await addLocalDestination(page, "/var/backups/project");
+  for (const kind of ["gdrive", "rclone"]) {
+    await dialog
+      .getByRole("button", { name: "添加存储位置", exact: true })
+      .click();
+    const group = dialog.getByRole("group", {
+      name: `存储位置 ${kind === "gdrive" ? 2 : 3}`,
+      exact: true,
+    });
+    await group
+      .getByRole("combobox", { name: "存储类型", exact: true })
+      .click();
+    await page.getByRole("option", { name: kind, exact: true }).click();
+    await group
+      .getByRole("combobox", {
+        name: kind === "gdrive" ? "gdrive 账户" : "rclone 远程",
+        exact: true,
+      })
+      .click();
+    await page
+      .getByRole("option", {
+        name: kind === "gdrive" ? "backup@example.com" : "archive",
+        exact: true,
+      })
+      .click();
+    if (kind === "gdrive")
+      await group.getByLabel("文件夹 ID", { exact: true }).fill("root");
+    else
+      await group
+        .getByLabel("远程内路径", { exact: true })
+        .fill("backups/project");
+  }
+  await page.screenshot({
+    path: testInfo.outputPath("backup-policy-storage.png"),
+    animations: "disabled",
+  });
+  await dialog.getByRole("tab", { name: "文件与目录", exact: true }).click();
+  await dialog.getByRole("button", { name: "从网站添加", exact: true }).click();
+  await dialog
+    .getByRole("checkbox", {
+      name: "选择网站目录 app.conf /srv/project",
+      exact: true,
+    })
+    .check();
+  await dialog
+    .getByRole("checkbox", {
+      name: "选择网站目录 shared.conf /srv/project",
+      exact: true,
+    })
+    .check();
+  await expect(
+    dialog.getByRole("checkbox", {
+      name: "选择网站目录 dynamic.conf $dynamic",
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await dialog
+    .getByRole("button", { name: "添加所选目录", exact: true })
+    .click();
+  await expect(dialog.locator(".policy-file-source")).toHaveCount(1);
+  await expect(dialog.locator(".policy-file-identity")).toContainText(
+    "/srv/project",
+  );
+  await dialog
+    .getByLabel("排除子目录或文件（相对路径，每行一条）", { exact: true })
+    .fill("cache/\nno-match/**");
+  await expect(dialog.getByLabel("排除规则预览")).toContainText(
+    "命中 3 个文件",
+  );
+  await expect(dialog.getByLabel("排除规则预览")).toContainText(
+    "cache/first.log",
+  );
+  await expect(dialog.getByLabel("排除规则预览")).toContainText("未命中");
+  await dialog.getByLabel("添加文件或目录路径").fill("/srv/project/public");
+  await dialog.getByRole("button", { name: "添加路径", exact: true }).click();
+  await expect(
+    dialog.getByText("来源存在父子范围重叠，可能重复备份", { exact: true }),
+  ).toBeVisible();
+  await dialog.getByRole("tab", { name: "存储位置", exact: true }).click();
+  await dialog
+    .getByLabel("本地目录", { exact: true })
+    .fill("/srv/project/backups");
+  await expect(
+    dialog.getByText(/存储位置 1：本地存储位置不能位于备份来源内部/),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "保存政策", exact: true }).click();
+  expect(f.saves).toHaveLength(0);
+  await dialog
+    .getByLabel("本地目录", { exact: true })
+    .fill("/var/backups/project");
+  await dialog.getByRole("button", { name: "保存政策", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(f.saves[0].destinations).toEqual([
+    { type: "local", path: "/var/backups/project" },
+    { type: "gdrive", account: "backup@example.com", folder_id: "root" },
+    { type: "rclone", remote: "archive", path: "backups/project" },
+  ]);
+  expect(f.saves[0].files).toHaveLength(2);
+  expect(f.saves[0]).not.toHaveProperty("confirmation");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBeTruthy();
+});
+
+test("copy is an unsaved disabled draft with explicit secret handling and legacy destinations remain editable", async ({
+  page,
+}) => {
+  const f = await policyFixture(page);
+  await page.getByRole("button", { name: "添加备份政策", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("名称", { exact: true }).fill("原政策");
+  await dialog.getByRole("switch", { name: "启用政策", exact: true }).uncheck();
+  await choosePolicyOption(page, "压缩密码", "设置新密码");
+  await dialog.getByLabel("新压缩密码", { exact: true }).fill("source-private");
+  await dialog
+    .getByLabel("确认压缩密码", { exact: true })
+    .fill("source-private");
+  await dialog.getByRole("button", { name: "保存政策", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  const source = [...f.policies.values()][0];
+  // An older record may have no destinations field at all.
+  delete (source as Partial<Policy>).destinations;
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await expect(dialog.getByLabel("名称", { exact: true })).toHaveValue(
+    "原政策",
+  );
+  await dialog.getByRole("tab", { name: "存储位置", exact: true }).click();
+  await expect(dialog.getByText(/可保存为停用草稿/)).toBeVisible();
+  await dialog.getByRole("button", { name: "保存政策", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await page.getByRole("button", { name: "复制", exact: true }).click();
+  await expect(
+    dialog.getByRole("heading", { name: "复制备份政策", exact: true }),
+  ).toBeVisible();
+  await expect(dialog.getByLabel("名称", { exact: true })).toHaveValue(
+    "原政策（副本）",
+  );
+  await expect(
+    dialog.getByRole("switch", { name: "启用政策", exact: true }),
+  ).not.toBeChecked();
+  await expect(dialog.getByLabel("新压缩密码", { exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(f.policies.size).toBe(1);
+  await page.getByRole("button", { name: "复制", exact: true }).click();
+  await expect(
+    dialog.getByRole("heading", { name: "复制备份政策", exact: true }),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "保存政策", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText(
+    "请选择复制后的压缩密码处理方式",
+  );
+  await choosePolicyOption(page, "压缩密码", "沿用原政策密码");
+  await dialog.getByRole("button", { name: "保存政策", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(f.policies.size).toBe(2);
+  const request = f.saves.at(-1)!;
+  expect(request.enabled).toBe(false);
+  expect(request.id).toBe("");
+  expect(request.password).toBe("");
+  expect(request.password_action).toBe("keep");
+  expect(request.copy_from?.id).toBe(source.id);
+  expect(JSON.stringify([...f.policies.values()])).not.toContain(
+    "source-private",
+  );
 });

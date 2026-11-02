@@ -111,7 +111,7 @@ export function PolicySelect({
           aria-label={label}
           className="policy-select-trigger"
         >
-          <SelectValue />
+          <SelectValue placeholder="请选择" />
         </SelectTrigger>
         <SelectContent
           className="policy-select-menu"

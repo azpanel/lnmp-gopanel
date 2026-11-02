@@ -10,6 +10,10 @@ import {
   NotebookPen,
   Settings2,
   ShieldCheck,
+  HardDrive,
+  Eye,
+  EyeOff,
+  BadgeCheck,
   Tag,
 } from "lucide-react";
 import { Tabs } from "radix-ui";
@@ -26,6 +30,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { BackupPolicyStorage } from "@/components/backup-policy-storage";
+import { BackupPolicyPathCheck } from "@/components/backup-policy-path-check";
+import type { PathsResult } from "@/lib/backup-policies";
 import { BackupPolicyCron } from "@/components/backup-policy-cron";
 import { BackupPolicyDatabases } from "@/components/backup-policy-databases";
 import { BackupPolicyFiles } from "@/components/backup-policy-files";
@@ -43,19 +50,25 @@ import {
   type PolicySave,
 } from "@/lib/backup-policies";
 
-type Tab = "basic" | "databases" | "files";
+type Tab = "basic" | "databases" | "files" | "storage";
 export function BackupPolicyEditor({
   policyId,
   readOnly,
+  copy = false,
   onClose,
 }: {
   policyId?: string;
   readOnly: boolean;
+  copy?: boolean;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<PolicySave>(newPolicy);
   const [tab, setTab] = useState<Tab>("basic");
   const [error, setError] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordChosen, setPasswordChosen] = useState(false);
+  const [paths, setPaths] = useState<PathsResult>();
   const [discard, setDiscard] = useState(false);
   const original = useRef(JSON.stringify(draft));
   const initialized = useRef(false);
@@ -80,6 +93,20 @@ export function BackupPolicyEditor({
     if (query.data && query.isFetchedAfterMount && !initialized.current) {
       const value = {
         ...query.data,
+        destinations: (query.data.destinations ?? []).map((d) =>
+          d.type === "rclone" ? { ...d, path: d.path ?? "" } : d,
+        ),
+        ...(copy
+          ? {
+              id: "",
+              revision: 0,
+              name: `${[...query.data.name].slice(0, 76).join("")}（副本）`,
+              enabled: false,
+              created_at: "0001-01-01T00:00:00Z",
+              updated_at: "0001-01-01T00:00:00Z",
+              copy_from: { id: query.data.id, revision: query.data.revision },
+            }
+          : {}),
         password_action: "keep" as const,
         password: "",
       };
@@ -87,7 +114,7 @@ export function BackupPolicyEditor({
       original.current = JSON.stringify(value);
       initialized.current = true;
     }
-  }, [query.data, query.isFetchedAfterMount]);
+  }, [query.data, query.isFetchedAfterMount, copy]);
   useEffect(() => {
     if (readOnly) return;
     const before = (e: BeforeUnloadEvent) => {
@@ -101,19 +128,37 @@ export function BackupPolicyEditor({
   const mutation = useSessionMutation({
     mutationFn: () =>
       api<Policy>(
-        policyId ? `/backups/policies/${policyId}` : "/backups/policies",
-        { method: policyId ? "PUT" : "POST", body: JSON.stringify(draft) },
+        policyId && !copy
+          ? `/backups/policies/${policyId}`
+          : "/backups/policies",
+        {
+          method: policyId && !copy ? "PUT" : "POST",
+          body: JSON.stringify(draft),
+        },
       ),
     onSuccess: (saved) => {
       client.setQueryData(["backup-policy", saved.id], saved);
       void client.invalidateQueries({ queryKey: ["backup-policies"] });
       void client.invalidateQueries({ queryKey: ["backup-policy", policyId] });
-      toast.success(policyId ? "备份政策已更新" : "备份政策已添加");
+      toast.success(
+        copy
+          ? "备份政策已复制"
+          : policyId
+            ? "备份政策已更新"
+            : "备份政策已添加",
+      );
       onClose();
     },
     onError: (e) => {
       setError(e.message);
       if (
+        e.message.includes("存储") ||
+        e.message.includes("账户") ||
+        e.message.includes("远程") ||
+        e.message.includes("目的地")
+      )
+        setTab("storage");
+      else if (
         e.message.includes("路径") ||
         e.message.includes("来源") ||
         e.message.includes("排除")
@@ -124,8 +169,14 @@ export function BackupPolicyEditor({
       else setTab("basic");
     },
   });
-  const update = <K extends keyof PolicySave>(field: K, value: PolicySave[K]) =>
+  const update = <K extends keyof PolicySave>(
+    field: K,
+    value: PolicySave[K],
+  ) => {
+    setError("");
+    if (field === "files" || field === "destinations") setPaths(undefined);
     setDraft((old) => ({ ...old, [field]: value }));
+  };
   function close() {
     if (mutation.isPending) return;
     if (!readOnly && JSON.stringify(draft) !== original.current) {
@@ -135,6 +186,27 @@ export function BackupPolicyEditor({
     onClose();
   }
   function save() {
+    if (copy && draft.compression.has_password && !passwordChosen) {
+      setError("请选择复制后的压缩密码处理方式");
+      setTab("basic");
+      return;
+    }
+    if (
+      draft.password_action === "replace" &&
+      draft.password !== confirmation
+    ) {
+      setError("两次输入的压缩密码不一致");
+      setTab("basic");
+      requestAnimationFrame(() =>
+        document.getElementById("policy-password-confirm")?.focus(),
+      );
+      return;
+    }
+    if (paths?.errors.length) {
+      setError(paths.errors[0].message);
+      setTab(paths.errors[0].field === "destinations" ? "storage" : "files");
+      return;
+    }
     const failure = policyValidation(draft);
     if (failure) {
       setError(failure.message);
@@ -172,9 +244,11 @@ export function BackupPolicyEditor({
           <DialogTitle>
             {readOnly
               ? "查看备份政策"
-              : policyId
-                ? "编辑备份政策"
-                : "添加备份政策"}
+              : copy
+                ? "复制备份政策"
+                : policyId
+                  ? "编辑备份政策"
+                  : "添加备份政策"}
           </DialogTitle>
           <DialogDescription>
             设置备份时间、压缩方式及数据库和文件范围。
@@ -209,11 +283,20 @@ export function BackupPolicyEditor({
                     <Database size={16} aria-hidden="true" />
                     数据库
                   </Tabs.Trigger>
+                  <Tabs.Trigger value="storage">
+                    <HardDrive size={16} aria-hidden="true" />
+                    存储位置
+                  </Tabs.Trigger>
                   <Tabs.Trigger value="files">
                     <FolderOpen size={16} aria-hidden="true" />
                     文件与目录
                   </Tabs.Trigger>
                 </Tabs.List>
+                <BackupPolicyPathCheck
+                  files={draft.files}
+                  destinations={draft.destinations}
+                  onResult={setPaths}
+                />
                 {error && (
                   <p className="form-error" role="alert" tabIndex={-1}>
                     {error}
@@ -325,44 +408,90 @@ export function BackupPolicyEditor({
                         <PolicySelect
                           label="压缩密码"
                           icon={ShieldCheck}
-                          value={draft.password_action}
+                          value={
+                            copy &&
+                            draft.compression.has_password &&
+                            !passwordChosen
+                              ? ""
+                              : draft.password_action
+                          }
                           disabled={disabled}
                           options={[
                             [
                               "keep",
                               draft.compression.has_password
-                                ? "保持已有密码（已设置）"
+                                ? copy
+                                  ? "沿用原政策密码"
+                                  : "保持已有密码（已设置）"
                                 : "不加密",
                             ],
                             ["replace", "设置新密码"],
                             ["clear", "清除密码/不加密"],
                           ]}
-                          onChange={(v) =>
+                          onChange={(v) => {
+                            setError("");
+                            setPasswordChosen(true);
+                            setConfirmation("");
+                            setShowPassword(false);
                             setDraft((old) => ({
                               ...old,
                               password_action:
                                 v as PolicySave["password_action"],
                               password: "",
-                            }))
-                          }
+                            }));
+                          }}
                         />
                         {draft.password_action === "replace" && (
-                          <label htmlFor="policy-password">
-                            <PolicyLabel icon={KeyRound}>
-                              新压缩密码
-                            </PolicyLabel>
-                            <Input
-                              id="policy-password"
-                              type="password"
-                              autoComplete="new-password"
-                              maxLength={4096}
+                          <div className="policy-password-fields">
+                            <label htmlFor="policy-password">
+                              <PolicyLabel icon={KeyRound}>
+                                新压缩密码
+                              </PolicyLabel>
+                              <Input
+                                id="policy-password"
+                                type={showPassword ? "text" : "password"}
+                                autoComplete="new-password"
+                                maxLength={4096}
+                                disabled={disabled}
+                                value={draft.password}
+                                onChange={(e) =>
+                                  update("password", e.target.value)
+                                }
+                              />
+                            </label>
+                            <label htmlFor="policy-password-confirm">
+                              <PolicyLabel icon={BadgeCheck}>
+                                确认压缩密码
+                              </PolicyLabel>
+                              <Input
+                                id="policy-password-confirm"
+                                type={showPassword ? "text" : "password"}
+                                autoComplete="new-password"
+                                maxLength={4096}
+                                value={confirmation}
+                                disabled={disabled}
+                                onChange={(e) => {
+                                  setConfirmation(e.target.value);
+                                  setError("");
+                                }}
+                              />
+                            </label>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              aria-pressed={showPassword}
                               disabled={disabled}
-                              value={draft.password}
-                              onChange={(e) =>
-                                update("password", e.target.value)
-                              }
-                            />
-                          </label>
+                              onClick={() => setShowPassword(!showPassword)}
+                            >
+                              {showPassword ? (
+                                <EyeOff size={15} />
+                              ) : (
+                                <Eye size={15} />
+                              )}{" "}
+                              {showPassword ? "隐藏密码" : "显示密码"}
+                            </Button>
+                          </div>
                         )}
                       </div>
                     </section>
@@ -410,6 +539,19 @@ export function BackupPolicyEditor({
                     value={draft.databases}
                     readOnly={disabled}
                     onChange={(v) => update("databases", v)}
+                  />
+                </Tabs.Content>
+                <Tabs.Content
+                  forceMount
+                  value="storage"
+                  className="policy-tab-panel"
+                >
+                  <BackupPolicyStorage
+                    value={draft.destinations}
+                    enabled={draft.enabled}
+                    readOnly={disabled}
+                    active={tab === "storage"}
+                    onChange={(v) => update("destinations", v)}
                   />
                 </Tabs.Content>
                 <Tabs.Content

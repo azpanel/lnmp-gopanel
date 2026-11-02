@@ -28,7 +28,7 @@ func (b *policyBuffer) Write(p []byte) (int, error) {
 }
 func (h Helper) BackupPolicy(ctx context.Context, action string, input any) (json.RawMessage, error) {
 	switch action {
-	case "list", "get", "save", "delete", "databases", "tables", "files":
+	case "list", "get", "save", "delete", "databases", "tables", "files", "paths":
 	default:
 		return nil, backups.ErrInvalid
 	}

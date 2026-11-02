@@ -5,6 +5,7 @@ package control
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -144,7 +145,11 @@ func excludedBackupPath(relative string, patterns []string) bool {
 	return false
 }
 func inspectBackupFile(ctx context.Context, source backups.FileSource) (backups.FileSize, error) {
-	result := backups.FileSize{Path: source.Path}
+	result := backups.FileSize{Path: source.Path, Rules: []backups.RulePreview{}}
+	for _, pattern := range source.Excludes {
+		result.Rules = append(result.Rules, backups.RulePreview{Pattern: pattern, Samples: []string{}})
+	}
+	sampleBytes := 0
 	info, err := backupSourceInfo(source)
 	if err != nil {
 		return result, err
@@ -197,7 +202,26 @@ func inspectBackupFile(ctx context.Context, source backups.FileSource) (backups.
 			return nil
 		}
 		result.OriginalBytes += info.Size()
-		if !excludedBackupPath(filepath.ToSlash(path), source.Excludes) {
+		excluded := false
+		for i := range result.Rules {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			rule := &result.Rules[i]
+			if !excludedBackupPath(filepath.ToSlash(path), []string{rule.Pattern}) {
+				continue
+			}
+			excluded = true
+			rule.Count++
+			encoded, _ := json.Marshal(filepath.ToSlash(path))
+			if len(rule.Samples) < 5 && sampleBytes+len(encoded) <= 128*1024 {
+				rule.Samples = append(rule.Samples, filepath.ToSlash(path))
+				sampleBytes += len(encoded)
+			} else {
+				rule.Truncated = true
+			}
+		}
+		if !excluded {
 			result.IncludedBytes += info.Size()
 		}
 		return nil

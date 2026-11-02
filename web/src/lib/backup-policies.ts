@@ -16,6 +16,19 @@ export type DatabaseSelection = {
   rules: TableRule[];
 };
 export type FileSource = { path: string; excludes: string[] };
+export type Destination =
+  | { type: "local"; path: string }
+  | { type: "gdrive"; account: string; folder_id: string }
+  | { type: "rclone"; remote: string; path?: string };
+export type PathDiagnostic = {
+  field: "files" | "destinations";
+  index: number;
+  message: string;
+};
+export type PathsResult = {
+  errors: PathDiagnostic[];
+  warnings: PathDiagnostic[];
+};
 export type Policy = {
   id: string;
   revision: number;
@@ -27,6 +40,7 @@ export type Policy = {
   retention: { databases: number; files: number };
   databases: DatabaseSelection;
   files: FileSource[];
+  destinations: Destination[];
   created_at: string;
   updated_at: string;
 };
@@ -40,6 +54,7 @@ export type PolicySummary = Pick<
   | "compression"
   | "retention"
   | "updated_at"
+  | "destinations"
 > & {
   database_enabled: boolean;
   database_mode: "all" | "selected";
@@ -49,6 +64,7 @@ export type PolicySummary = Pick<
 export type PolicySave = Policy & {
   password_action: "keep" | "replace" | "clear";
   password: string;
+  copy_from?: { id: string; revision: number };
 };
 export type FileSize = {
   path: string;
@@ -57,6 +73,12 @@ export type FileSize = {
   original_bytes: number;
   included_bytes: number;
   complete: boolean;
+  rules?: {
+    pattern: string;
+    count: number;
+    samples: string[];
+    truncated: boolean;
+  }[];
   error?: string;
 };
 export type DatabaseItem = { name: string; size: number };
@@ -91,6 +113,7 @@ export function newPolicy(): PolicySave {
       rules: [],
     },
     files: [],
+    destinations: [],
     created_at: "0001-01-01T00:00:00Z",
     updated_at: "0001-01-01T00:00:00Z",
     password_action: "keep",
@@ -116,10 +139,12 @@ export function toggleDatabase(
       : db[field].filter((n) => n !== name),
   };
 }
-export function policyValidation(
-  p: PolicySave,
-):
-  | { tab: "basic" | "databases" | "files"; message: string; field?: string }
+export function policyValidation(p: PolicySave):
+  | {
+      tab: "basic" | "databases" | "files" | "storage";
+      message: string;
+      field?: string;
+    }
   | undefined {
   if (!p.name.trim() || [...p.name].length > 80)
     return {
@@ -167,6 +192,17 @@ export function policyValidation(
     return { tab: "databases", message: "仅备份所选表时至少选择一张表" };
   if (!p.databases.enabled && !p.files.length)
     return { tab: "files", message: "请至少配置数据库或文件来源" };
+  const destinations = p.destinations ?? [];
+  if (p.enabled && !destinations.length)
+    return { tab: "storage", message: "启用政策至少需要一个存储位置" };
+  for (const d of destinations) {
+    if (d.type === "local" && (!d.path.startsWith("/") || !d.path.trim()))
+      return { tab: "storage", message: "本地存储位置须填写绝对目录" };
+    if (d.type === "gdrive" && (!d.account || !d.folder_id))
+      return { tab: "storage", message: "请选择 gdrive 账户并填写文件夹 ID" };
+    if (d.type === "rclone" && !d.remote)
+      return { tab: "storage", message: "请选择 rclone 远程" };
+  }
   return undefined;
 }
 export function readableBytes(bytes: number | null | undefined): string {
@@ -179,4 +215,10 @@ export function readableBytes(bytes: number | null | undefined): string {
     index++;
   }
   return `${value.toFixed(index ? 1 : 0)} ${units[index]}`;
+}
+
+export function destinationLabel(d: Destination): string {
+  if (d.type === "local") return `本地：${d.path}`;
+  if (d.type === "gdrive") return `gdrive：${d.account} / ${d.folder_id}`;
+  return `rclone：${d.remote}:${d.path || "/"}`;
 }
