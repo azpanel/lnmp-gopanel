@@ -1,0 +1,4 @@
+# Managed by LNMP GoPanel. Policy expressions are evaluated by the root helper.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * root /usr/local/libexec/lnmp-gopanel-control backup-policy-dispatch >/dev/null 2>&1

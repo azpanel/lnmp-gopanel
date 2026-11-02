@@ -1,3 +1,5 @@
+import type { BackupRun } from "@/lib/backup-runs";
+
 export type Compression = {
   format: "zip" | "7z";
   level: number;
@@ -57,6 +59,7 @@ export type PolicySummary = Pick<
   | "updated_at"
   | "destinations"
 > & {
+  last_run?: BackupRun;
   database_enabled: boolean;
   database_mode: "all" | "selected";
   database_count: number;
@@ -173,6 +176,22 @@ export function policyValidation(p: PolicySave):
     return {
       tab: "basic",
       message: "请输入压缩密码，或选择不加密",
+      field: "policy-password",
+    };
+  if (/[\0\r\n]/.test(p.password))
+    return {
+      tab: "basic",
+      message: "压缩密码不能包含 NUL 或换行符",
+      field: "policy-password",
+    };
+  if (
+    p.password_action === "replace" &&
+    p.compression.format === "zip" &&
+    (p.password.length > 99 || /[^\x20-\x7e]/.test(p.password))
+  )
+    return {
+      tab: "basic",
+      message: "ZIP 加密密码须为最多 99 位 ASCII 字符，中文密码请改用 7z",
       field: "policy-password",
     };
   if (

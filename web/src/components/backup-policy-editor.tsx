@@ -633,6 +633,11 @@ export function BackupPolicyEditor({
                                 update("password", e.target.value)
                               }
                             />
+                            <span className="small-note">
+                              {draft.compression.format === "zip"
+                                ? "ZIP 密码最多 99 位 ASCII 字符，中文密码请改用 7z。"
+                                : "支持中文密码，不支持换行符。"}
+                            </span>
                             <PolicyFieldError
                               id="policy-password"
                               message={fieldError("policy-password")}
@@ -800,7 +805,7 @@ export function BackupPolicyEditor({
           )}
           <DialogFooter className="policy-editor-footer">
             <span className="policy-footer-note">
-              仅保存配置，暂不执行备份或自动清理。
+              保存后，启用政策将在下个计划时间执行；成功交付后按份数清理旧备份。
             </span>
             <div className="policy-footer-actions">
               <Button

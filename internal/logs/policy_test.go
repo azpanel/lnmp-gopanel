@@ -22,6 +22,7 @@ func TestCustomPathPolicy(t *testing.T) {
 		"/etc/shadow", "/etc/lnmp-gopanel/config.yaml", "/root/secret.log", "/proc/self/environ",
 		"/sys/kernel/security/keys", "/dev/sda", "/run/secrets/token", "/var/backups/passwords.log",
 		"/var/lib/mysql/table.ibd", "/var/lib/lnmp-gopanel/state", "/home/mysql/data.log",
+		"/var/lib/lnmp-gopanel-backups/work/job/files/source-001/private.log",
 		"/usr/local/nginx/conf/ssl/site/key", "/usr/local/php/etc/php.ini",
 		"/home/user/.ssh/id_rsa", "/srv/app/.aws/credentials", "/srv/app/.git/config",
 		"/srv/app/.env", "/srv/app/.env.production", "/srv/app/credentials.json",

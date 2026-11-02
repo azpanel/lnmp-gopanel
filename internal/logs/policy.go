@@ -12,7 +12,7 @@ import (
 // helper apply the same restrictions, including when called without the UI.
 var sensitiveDirectories = []string{
 	"/etc", "/root", "/proc", "/sys", "/dev", "/run", "/boot",
-	"/var/backups", "/var/lib/lnmp-gopanel", "/var/lib/mysql", "/var/lib/mariadb",
+	"/var/backups", "/var/lib/lnmp-gopanel", "/var/lib/lnmp-gopanel-backups", "/var/lib/mysql", "/var/lib/mariadb",
 	"/var/lib/postgresql", "/var/lib/redis", "/home/mysql",
 	"/usr/local/nginx/conf", "/usr/local/php/etc", "/usr/local/mysql/etc",
 	"/usr/local/mysql/var", "/usr/local/mysql/data", "/usr/local/mariadb/data",

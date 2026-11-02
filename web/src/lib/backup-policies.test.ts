@@ -50,6 +50,26 @@ describe("backup policy configuration", () => {
     expect(readableBytes(0)).toBe("0 B");
     expect(readableBytes(2048)).toBe("2.0 KB");
   });
+  it("validates archive password compatibility before saving", () => {
+    const p = newPolicy();
+    p.name = "每日";
+    p.destinations = [{ type: "local", path: "/backups" }];
+    p.password_action = "replace";
+    for (const password of [
+      "中文密码",
+      "x".repeat(100),
+      "line\nnext",
+      "null\0byte",
+    ]) {
+      p.password = password;
+      expect(policyValidation(p)?.field).toBe("policy-password");
+    }
+    p.password = "ASCII-Password-$(literal)";
+    expect(policyValidation(p)).toBeUndefined();
+    p.compression.format = "7z";
+    p.password = "中文密码";
+    expect(policyValidation(p)).toBeUndefined();
+  });
   it("requires destinations only for enabled policies and validates filled rows", () => {
     const p = newPolicy();
     p.name = "停用草稿";

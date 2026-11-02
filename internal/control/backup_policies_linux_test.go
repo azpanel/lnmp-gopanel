@@ -25,6 +25,7 @@ func TestBackupPolicyPersistenceEncryptionAndRevision(t *testing.T) {
 	p := backupTestInstaller(t)
 	s := backupPolicyStore{state: p.state}
 	r := sampleBackupPolicy()
+	r.Compression.Format = "7z"
 	r.PasswordAction = "replace"
 	r.Password = "密码-$(never-run)-secret"
 	saved, err := s.save(r)

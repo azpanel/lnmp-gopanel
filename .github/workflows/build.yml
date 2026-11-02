@@ -83,8 +83,8 @@ jobs:
       - name: Require privileged and real Nginx tests
         run: |
           sudo apt-get update
-          sudo apt-get install -y nginx openssl
-          sudo env "PATH=$PATH" python3 scripts/test-required.py
+          sudo apt-get install -y nginx openssl 7zip rclone mariadb-client mariadb-server-core
+          sudo env "PATH=$PATH" GOPANEL_TEST_MARIADB_BASE=/usr python3 scripts/test-required.py
       - name: Build amd64 and arm64 archives
         env:
           BUILD_VERSION: ${{ steps.release.outputs.version }}

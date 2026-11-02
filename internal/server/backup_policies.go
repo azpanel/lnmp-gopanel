@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/backups"
@@ -13,6 +14,46 @@ import (
 )
 
 func (s *Server) registerBackupPolicies(r *gin.RouterGroup) {
+	r.GET("/backups/runtime", func(c *gin.Context) { s.policyCall(c, "runtime", struct{}{}, 20*time.Second) })
+	r.GET("/backups/runs/:run_id", func(c *gin.Context) {
+		if !backups.ValidPolicyID(c.Param("run_id")) {
+			fail(c, 400, "备份任务标识无效")
+			return
+		}
+		s.policyCall(c, "run-get", backups.RunQuery{ID: c.Param("run_id")}, 20*time.Second)
+	})
+	r.GET("/backups/policies/:id/runs", func(c *gin.Context) {
+		page := 1
+		if value := c.Query("page"); value != "" {
+			var err error
+			page, err = strconv.Atoi(value)
+			if err != nil || page < 1 || page > 5000 {
+				fail(c, 400, "页码无效")
+				return
+			}
+		}
+		if !backups.ValidPolicyID(c.Param("id")) {
+			fail(c, 400, "政策标识无效")
+			return
+		}
+		s.policyCall(c, "runs", backups.RunQuery{ID: c.Param("id"), Page: page}, 20*time.Second)
+	})
+	r.POST("/backups/policies/:id/run", s.csrf, func(c *gin.Context) {
+		var input backups.PolicyIdentity
+		if !policyBody(c, &input) {
+			return
+		}
+		if input.ID != "" && input.ID != c.Param("id") {
+			fail(c, 400, "政策标识不一致")
+			return
+		}
+		input.ID = c.Param("id")
+		if !backups.ValidPolicyID(input.ID) || input.Revision == 0 {
+			fail(c, 400, "备份政策标识或版本无效")
+			return
+		}
+		s.policyCall(c, "run", input, 25*time.Second)
+	})
 	r.GET("/backups/policies", func(c *gin.Context) { s.policyCall(c, "list", struct{}{}, 20*time.Second) })
 	r.GET("/backups/policies/:id", func(c *gin.Context) {
 		s.policyCall(c, "get", backups.PolicyIdentity{ID: c.Param("id")}, 20*time.Second)
@@ -93,6 +134,8 @@ func policyBody(c *gin.Context, input any) bool {
 func policyFailure(c *gin.Context, err error) {
 	status := 502
 	switch {
+	case errors.Is(err, backups.ErrRunBusy):
+		status = 409
 	case errors.Is(err, backups.ErrInvalid):
 		status = 400
 	case errors.Is(err, backups.ErrNotFound):
@@ -123,6 +166,9 @@ func (s *Server) policyCall(c *gin.Context, action string, input any, timeout ti
 		return
 	}
 	status := http.StatusOK
+	if action == "run" {
+		status = http.StatusAccepted
+	}
 	if action == "save" && c.Request.Method == http.MethodPost {
 		status = http.StatusCreated
 	}

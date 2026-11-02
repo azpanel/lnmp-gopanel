@@ -32,6 +32,25 @@ REQUIRED = {
         "TestInstallationLogTailAndResume",
         "TestInstallationStartTimePersistsAcrossUpdatesAndDuplicateRequests",
         "TestBasicAuthNginxIntegration",
+        "TestBackupExecutionQueueConcurrencyTickDeduplicationAndSnapshots",
+        "TestBackupExecutionDisableDeleteAndManualDisabledPolicy",
+        "TestBackupExecutionInterruptionAndHistoryRetention",
+        "TestBackupExecutionWorkerLifetimeLockAndCancellation",
+        "TestBackupExecutionSimultaneousStartsAndInstallExclusion",
+        "TestBackupExecutionScheduleTimezoneAndNoCatchup",
+        "TestBackupExecutionLongRunResultSurvivesSkippedHistory",
+        "TestBackupExecutionUncertainSystemdStartRetainsReservation",
+        "TestBackupExecutionEncryptedSnapshotNeverInventsReplacementKey",
+        "TestBackupExecutionRecoversCrashBetweenRunAndIndexCommit",
+        "TestBackupArchiveStagingExclusionsMetadataAndSafeReads",
+        "TestBackupArchiveAllFormatsLevelsAndPasswordRoundTrip",
+        "TestBackupFileExecutionPublishesCompleteArchiveAndHandlesPartialDelivery",
+        "TestBackupDatabaseDumpRestoreSelectionsAndCredentials",
+        "TestBackupLocalDeliveryRetentionAndUnrelatedFiles",
+        "TestBackupLocalRetentionPreservesRacedReplacement",
+        "TestBackupGdriveIsolatesAccountSelection",
+        "TestBackupRcloneLocalTransportAndExactRetention",
+        "TestBackupGdriveTransportBindsAccountAndSanitizesFailures",
     ],
     "internal/vhosts": [
         "TestGeneratedNginxConfiguration",
@@ -64,6 +83,8 @@ def main():
     nginx = shutil.which("nginx")
     if not nginx or not shutil.which("openssl"):
         raise SystemExit("Install nginx and openssl; required integrations must not skip")
+    if not (os.environ.get("GOPANEL_TEST_7ZIP") or shutil.which("7zz") or shutil.which("7z")) or not shutil.which("rclone") or not os.environ.get("GOPANEL_TEST_MARIADB_BASE"):
+        raise SystemExit("Install 7-Zip, rclone, MariaDB client/server-core and set GOPANEL_TEST_MARIADB_BASE; backup integrations must not skip")
     project = Path(__file__).resolve().parents[1]
     output = project / "test-results/privileged.jsonl"
     output.parent.mkdir(parents=True, exist_ok=True)

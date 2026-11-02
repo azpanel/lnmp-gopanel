@@ -72,9 +72,15 @@ func (s backupPolicyStore) persist(policies []storedBackupPolicy) error {
 	return atomicInstallFile(filepath.Join(s.state, "policies.json"), data, 0600)
 }
 func (s backupPolicyStore) aead() (cipher.AEAD, error) {
+	return s.policyCipher(true)
+}
+func (s backupPolicyStore) policyCipher(create bool) (cipher.AEAD, error) {
 	path := filepath.Join(s.state, "policies.key")
 	key, err := readPrivateBackupFile(path, 32)
 	if os.IsNotExist(err) {
+		if !create {
+			return nil, errors.New("政策密钥缺失，请恢复原密钥")
+		}
 		// Never invent a new key while encrypted records exist.
 		policies, loadErr := s.load()
 		if loadErr != nil {
@@ -82,6 +88,26 @@ func (s backupPolicyStore) aead() (cipher.AEAD, error) {
 		}
 		for _, p := range policies {
 			if p.Ciphertext != "" {
+				return nil, errors.New("政策密钥缺失，请恢复原密钥")
+			}
+		}
+		// An edited policy may have cleared its password while an older encrypted
+		// revision is still queued/running. That snapshot also requires this key.
+		e := defaultBackupExecutor()
+		e.store = s
+		index, indexErr := e.index()
+		if indexErr != nil {
+			return nil, indexErr
+		}
+		for _, ref := range index.Runs {
+			if !backups.ActiveRun(ref.Status) {
+				continue
+			}
+			job, loadErr := e.loadRun(ref.ID)
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			if job.Snapshot != nil && job.Snapshot.Ciphertext != "" {
 				return nil, errors.New("政策密钥缺失，请恢复原密钥")
 			}
 		}
@@ -122,9 +148,31 @@ func (s backupPolicyStore) list() ([]backups.PolicySummary, error) {
 	if err != nil {
 		return nil, err
 	}
+	e := defaultBackupExecutor()
+	e.store = s
+	index, err := e.index()
+	if err != nil {
+		return nil, err
+	}
+	latest := map[string]backups.Run{}
+	for _, ref := range recentBackupRuns(index.Runs) {
+		if _, exists := latest[ref.PolicyID]; exists {
+			continue
+		}
+		j, loadErr := e.loadRun(ref.ID)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		j.Categories = []backups.CategoryResult{}
+		latest[ref.PolicyID] = j.Run
+	}
 	summaries := make([]backups.PolicySummary, 0, len(policies))
 	for _, p := range policies {
-		summaries = append(summaries, p.Summary())
+		summary := p.Summary()
+		if last, ok := latest[p.ID]; ok {
+			summary.LastRun = &last
+		}
+		summaries = append(summaries, summary)
 	}
 	sort.Slice(summaries, func(i, j int) bool { return summaries[i].UpdatedAt.After(summaries[j].UpdatedAt) })
 	return summaries, nil
@@ -295,6 +343,11 @@ func (s backupPolicyStore) save(r backups.SavePolicyRequest) (backups.Policy, er
 	} else {
 		policies[index] = p
 	}
+	if !p.Enabled && index >= 0 {
+		if err = s.cancelPolicyRuns(p.ID, false); err != nil {
+			return backups.Policy{}, err
+		}
+	}
 	if err = s.persist(policies); err != nil {
 		return backups.Policy{}, err
 	}
@@ -318,6 +371,9 @@ func (s backupPolicyStore) delete(r backups.PolicyIdentity) error {
 			if r.Revision != p.Revision {
 				return backups.ErrConflict
 			}
+			if err = s.cancelPolicyRuns(p.ID, true); err != nil {
+				return err
+			}
 			return s.persist(append(policies[:i], policies[i+1:]...))
 		}
 	}
@@ -337,6 +393,8 @@ func HandleBackupPolicy(ctx context.Context, action string, in io.Reader, out io
 	var result any
 	var err error
 	switch action {
+	case "run", "runs", "run-get", "runtime":
+		result, err = backupRunCall(ctx, action, in)
 	case "list":
 		result, err = s.list()
 	case "get", "delete":
@@ -389,6 +447,8 @@ func HandleBackupPolicy(ctx context.Context, action string, in io.Reader, out io
 	if err != nil {
 		kind := "failed"
 		switch {
+		case errors.Is(err, backups.ErrRunBusy):
+			kind = "busy"
 		case errors.Is(err, backups.ErrInvalid):
 			kind = "invalid"
 		case errors.Is(err, backups.ErrNotFound):
@@ -402,7 +462,11 @@ func HandleBackupPolicy(ctx context.Context, action string, in io.Reader, out io
 	if encodeErr != nil {
 		return encodeErr
 	}
-	if len(data) > 1024*1024 {
+	responseLimit := 1024 * 1024
+	if action == "run-get" {
+		responseLimit = 2 * 1024 * 1024
+	}
+	if len(data) > responseLimit {
 		data = []byte(`{"error":"查询结果超过大小限制，请缩小查询范围","kind":"failed"}`)
 	}
 	_, encodeErr = out.Write(data)

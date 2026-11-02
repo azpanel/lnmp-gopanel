@@ -29,12 +29,13 @@ PANEL = "/usr/local/bin/lnmp-gopanel"
 HELPER = "/usr/local/libexec/lnmp-gopanel-control"
 CONFIG = Path("/etc/lnmp-gopanel/config.yaml")
 STATE = Path("/var/lib/lnmp-gopanel")
+BACKUP_STATE = Path("/var/lib/lnmp-gopanel-backups")
 BACKUPS = Path("/var/backups/lnmp-gopanel")
 UNIT = Path("/etc/systemd/system/lnmp-gopanel.service")
 SUDOERS = Path("/etc/sudoers.d/lnmp-gopanel")
 TARGETS = [Path(PANEL), Path(HELPER), UNIT, SUDOERS, CONFIG,
            CONFIG.with_name("services.yaml"), CONFIG.parent / "tls/panel.crt",
-           CONFIG.parent / "tls/panel.key"]
+           CONFIG.parent / "tls/panel.key", Path("/etc/cron.d/lnmp-gopanel-backups")]
 
 
 def run(*args, success=True, **kwargs):
@@ -51,7 +52,7 @@ def guard():
         raise SystemExit("Real install tests require a disposable hosted CI runner or marked guest VM")
     if Path("/proc/1/comm").read_text().strip() != "systemd":
         raise SystemExit("systemd must be PID 1")
-    occupied = [path for path in TARGETS + [STATE, CONFIG.parent, BACKUPS, Path(str(UNIT) + ".d")]
+    occupied = [path for path in TARGETS + [STATE, BACKUP_STATE, CONFIG.parent, BACKUPS, Path(str(UNIT) + ".d")]
                 if path.exists() or path.is_symlink()]
     if occupied:
         raise SystemExit(f"Refusing to overwrite an existing installation: {occupied}")
@@ -305,7 +306,7 @@ def main():
             run("systemctl", "stop", "lnmp-gopanel")
             run("bash", installer, "--uninstall", "--yes", cwd=work)
             run("bash", installer, "--uninstall", "--yes", cwd=work)
-            assert not any(path.exists() for path in TARGETS + [STATE, CONFIG.parent])
+            assert not any(path.exists() for path in TARGETS + [STATE, BACKUP_STATE, CONFIG.parent])
             installed = False
         print("Real package, permissions, systemd, rollback and sandbox checks passed")
     finally:

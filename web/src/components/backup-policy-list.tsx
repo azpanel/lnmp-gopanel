@@ -16,6 +16,13 @@ import { api } from "@/lib/api";
 import { useSessionMutation } from "@/lib/use-session-mutation";
 import { destinationLabel } from "@/lib/backup-policies";
 import type { Policy, PolicySummary } from "@/lib/backup-policies";
+import {
+  activeBackupRun,
+  backupRunTime,
+  runStatusLabels,
+  type BackupRun,
+} from "@/lib/backup-runs";
+import { BackupRunHistory } from "@/components/backup-runs";
 
 export function BackupPolicyList({
   onOpen,
@@ -25,10 +32,13 @@ export function BackupPolicyList({
   const client = useQueryClient();
   const [remove, setRemove] = useState<PolicySummary>();
   const [search, setSearch] = useState("");
+  const [history, setHistory] = useState<PolicySummary>();
   const query = useQuery({
     queryKey: ["backup-policies"],
     queryFn: ({ signal }) =>
       api<PolicySummary[]>("/backups/policies", { signal }),
+    refetchInterval: (q) =>
+      q.state.data?.some((p) => activeBackupRun(p.last_run)) ? 3000 : false,
   });
   const invalidate = () => {
     void client.invalidateQueries({ queryKey: ["backup-policies"] });
@@ -66,6 +76,23 @@ export function BackupPolicyList({
     },
     onError: (e) => toast.error(e.message),
   });
+  const execution = useSessionMutation({
+    mutationFn: (policy: PolicySummary) =>
+      api<BackupRun>(`/backups/policies/${policy.id}/run`, {
+        method: "POST",
+        body: JSON.stringify({ revision: policy.revision }),
+      }),
+    onSuccess: (run, policy) => {
+      client.setQueryData<PolicySummary[]>(["backup-policies"], (old) =>
+        old?.map((p) => (p.id === policy.id ? { ...p, last_run: run } : p)),
+      );
+      invalidate();
+      void client.invalidateQueries({ queryKey: ["backup-runs", policy.id] });
+      setHistory(policy);
+      toast.success("备份任务已提交");
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const items = (query.data ?? []).filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase()),
   );
@@ -73,6 +100,14 @@ export function BackupPolicyList({
     <Card className="backup-policy-list">
       <CardHeader>
         <CardTitle>备份政策</CardTitle>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          刷新政策
+        </Button>
       </CardHeader>
       <CardContent>
         {query.isPending ? (
@@ -134,8 +169,17 @@ export function BackupPolicyList({
                       </p>
                       <p className="small-note">
                         保留数据库备份 {p.retention.databases} 份，文件备份{" "}
-                        {p.retention.files} 份（暂不自动清理）
+                        {p.retention.files}{" "}
+                        份，每次按类别打包，交付成功后清理旧版本
                       </p>
+                      <p className="small-note" role="status">
+                        {p.last_run
+                          ? `最近执行：${runStatusLabels[p.last_run.status]} · ${backupRunTime(p.last_run.created_at)}`
+                          : "尚未执行备份"}
+                      </p>
+                      {p.last_run?.error && (
+                        <p className="form-error">{p.last_run.error}</p>
+                      )}
                     </div>
                     <div className="policy-summary-actions">
                       <label className="policy-switch">
@@ -150,6 +194,22 @@ export function BackupPolicyList({
                         {p.enabled ? "已启用" : "未启用"}
                       </label>
                       <div className="policy-inline">
+                        <Button
+                          size="sm"
+                          disabled={
+                            execution.isPending || activeBackupRun(p.last_run)
+                          }
+                          onClick={() => execution.mutate(p)}
+                        >
+                          立即备份
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setHistory(p)}
+                        >
+                          执行历史
+                        </Button>
                         <Button
                           size="sm"
                           variant="outline"
@@ -174,6 +234,7 @@ export function BackupPolicyList({
                         <Button
                           size="sm"
                           variant="outline"
+                          disabled={p.last_run?.status === "running"}
                           onClick={() => {
                             deletion.reset();
                             setRemove(p);
@@ -224,6 +285,13 @@ export function BackupPolicyList({
           </DialogContent>
         </Dialog>
       </CardContent>
+      {history && (
+        <BackupRunHistory
+          key={history.id}
+          policy={history}
+          onClose={() => setHistory(undefined)}
+        />
+      )}
     </Card>
   );
 }

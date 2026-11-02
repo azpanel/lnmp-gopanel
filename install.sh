@@ -42,6 +42,7 @@ targets=(
   /etc/lnmp-gopanel/services.yaml
   /etc/lnmp-gopanel/tls/panel.crt
   /etc/lnmp-gopanel/tls/panel.key
+  /etc/cron.d/lnmp-gopanel-backups
 )
 
 usage() {
@@ -215,7 +216,7 @@ file_digest() {
   printf '%s\n' "${result%% *}"
 }
 load_transaction() {
-  local info index presence digest uid gid mode extra line
+  local info index presence digest uid gid mode extra line record_target_count
   local -a pointer=() record=() status_lines=()
   transaction_error="$pending_file"
   private_record "$backup_root" directory && private_record "$pending_file" || return 1
@@ -233,12 +234,20 @@ load_transaction() {
   (( info <= 32 )) || return 1
   mapfile -t record < "$backup_dir/transaction"
   mapfile -t status_lines < "$backup_dir/status"
-  [[ ${#status_lines[@]} == 1 && ${#record[@]} == $((${#targets[@]} + 3)) && "${record[0]}" == lnmp-gopanel-transaction-v1 ]] || return 1
+  # Legacy transactions managed eight files. Recover exactly the targets they
+  # recorded; do not infer absence or remove a Cron file they never managed.
+  record_target_count=$((${#record[@]} - 3))
+  [[ ${#status_lines[@]} == 1 ]] || return 1
+  case "${record[0]:-}:$record_target_count" in
+    lnmp-gopanel-transaction-v1:8|lnmp-gopanel-transaction-v2:9) ;;
+    *) return 1 ;;
+  esac
   case "${status_lines[0]}" in pending|committed|rolled-back) transaction_status="${status_lines[0]}" ;; *) return 1 ;; esac
   [[ "${record[1]}" == true || "${record[1]}" == false ]] || return 1
   [[ "${record[2]}" == true || "${record[2]}" == false ]] || return 1
   was_active="${record[1]}"; was_enabled="${record[2]}"
-  for index in "${!targets[@]}"; do
+  saved_presence=(); saved_digest=(); saved_uid=(); saved_gid=(); saved_mode=()
+  for ((index=0; index<record_target_count; index++)); do
     transaction_error="$backup_dir/transaction (target ${targets[$index]})"
     line="${record[$((index + 3))]}"
     IFS=$'\t' read -r info presence digest uid gid mode extra <<< "$line"
@@ -431,7 +440,7 @@ recover_transaction() {
     return 1
   fi
   local index files=成功 service=成功 load_state
-  for index in "${!targets[@]}"; do
+  for index in "${!saved_presence[@]}"; do
     if ! recovery_step "恢复文件 ${targets[$index]}" restore_target "$index"; then files=失败; fi
   done
   if ! recovery_step '校验恢复后的 sudoers' visudo -cf /etc/sudoers; then files=失败; fi
@@ -474,7 +483,7 @@ prepare_transaction() {
   backup_dir="$backup_root/$transaction_id"
   install -d -o root -g root -m 0700 "$backup_root" || return 1
   mkdir -m 0700 -- "$backup_dir" || return 1
-  printf -v record 'lnmp-gopanel-transaction-v1\n%s\n%s' "$was_active" "$was_enabled"
+  printf -v record 'lnmp-gopanel-transaction-v2\n%s\n%s' "$was_active" "$was_enabled"
   for index in "${!targets[@]}"; do
     destination="${targets[$index]}"
     check_safe_parents "$destination" || return 1
@@ -512,7 +521,7 @@ if ! "$check_only"; then
 fi
 
 uninstall_panel() {
-  local destination parent load_state confirmation
+  local destination parent load_state confirmation backup_units backup_unit
   local -a removals=(
     /usr/local/bin/lnmp-gopanel
     /usr/local/libexec/lnmp-gopanel-control
@@ -522,6 +531,8 @@ uninstall_panel() {
     /etc/lnmp-gopanel
     /var/lib/lnmp-gopanel
     /var/backups/lnmp-gopanel
+    /etc/cron.d/lnmp-gopanel-backups
+    /var/lib/lnmp-gopanel-backups
   )
   for program in rm getent id userdel groupdel; do
     command -v "$program" >/dev/null || die "Missing command: $program"
@@ -543,7 +554,7 @@ uninstall_panel() {
   fi
   printf '完全卸载将删除面板程序、服务、权限规则、以下配置和数据，以及 lnmp-panel 专用账号和组：\n'
   printf '  %s\n' "${removals[@]}"
-  printf '保留 LNMP、网站、数据库、网站证书及其自动续期任务、Chromium 等系统依赖。自定义到其他目录的数据请自行清理。\n'
+  printf '保留 LNMP、网站、数据库、网站证书及其自动续期任务、Chromium 等系统依赖，以及备份目的地内的备份文件。自定义到其他目录的数据请自行清理。\n'
   if ! "$auto_confirm"; then
     [[ -t 0 ]] || die "Uninstall needs a terminal confirmation; use --uninstall --yes"
     read -r -p '确认完全卸载？输入 yes 继续：' confirmation || die "Uninstall cancelled"
@@ -555,6 +566,14 @@ uninstall_panel() {
     systemctl stop lnmp-gopanel || die "Cannot stop panel; no panel files were removed"
     systemctl disable lnmp-gopanel || die "Cannot disable panel; no panel files were removed"
   fi
+  # The installation lock also excludes new backup dispatches. Stop only the
+  # exact transient execution units before removing credentials and state.
+  backup_units="$(systemctl list-units --type=service --all --plain --no-legend 'lnmp-gopanel-backup-run-*.service' 'lnmp-gopanel-backups-*.service')" || die "Cannot inspect backup execution units; no files were removed"
+  while read -r backup_unit _; do
+    [[ -n "$backup_unit" ]] || continue
+    [[ "$backup_unit" =~ ^lnmp-gopanel-(backup-run|backups)-[a-f0-9]{32}\.service$ ]] || die "Unexpected backup unit; no files were removed"
+    systemctl stop "$backup_unit" || die "Cannot stop backup task; no files were removed"
+  done <<< "$backup_units"
   for destination in "${removals[@]}"; do
     rm -rf -- "$destination" || die "Cannot remove $destination; uninstall is incomplete"
   done
@@ -704,7 +723,7 @@ check_helper() {
   # Only check authorization for cron, logs and virtual hosts: these sources
   # are optional. Never read site/account data, create sites, issue certificates
   # or change managed services as an installation self-check.
-  for name in backup-policies-list backup-policies-get backup-policies-save backup-policies-delete backup-policies-databases backup-policies-tables backup-policies-paths backup-policies-files backup-components-inspect backup-components-install nginx nginx-repair-preview nginx-repair docker components storage cron logs-list logs-read logging-status logging-enable-php logging-enable-database lnmp-install-inspect lnmp-install-prepare lnmp-install-start lnmp-install-read \
+  for name in backup-policies-list backup-policies-get backup-policies-save backup-policies-delete backup-policies-databases backup-policies-tables backup-policies-paths backup-policies-files backup-policies-run backup-policies-runs backup-policies-run-get backup-policies-runtime backup-components-inspect backup-components-install nginx nginx-repair-preview nginx-repair docker components storage cron logs-list logs-read logging-status logging-enable-php logging-enable-database lnmp-install-inspect lnmp-install-prepare lnmp-install-start lnmp-install-read \
     vhosts-list vhosts-config vhosts-format vhosts-usage vhosts-toggle vhosts-options vhosts-create vhosts-ssl-renew-preview vhosts-ssl-renew \
     vhosts-basic-auth-get vhosts-basic-auth-set vhosts-basic-auth-disable; do
     case "$name" in
@@ -903,7 +922,7 @@ done < "$work_dir/members"
 tar -tvzf "$work_dir/$asset" | awk 'substr($0,1,1)!="-" && substr($0,1,1)!="d" { bad=1 } END { exit bad }' || die "Archive contains links or special files"
 tar --no-same-owner --no-same-permissions -xzf "$work_dir/$asset" -C "$work_dir"
 payload="$work_dir/lnmp-gopanel"
-for required in bin/lnmp-gopanel bin/lnmp-gopanel-control deploy/lnmp-gopanel.service deploy/lnmp-gopanel.sudoers VERSION; do
+for required in bin/lnmp-gopanel bin/lnmp-gopanel-control deploy/lnmp-gopanel.service deploy/lnmp-gopanel.sudoers deploy/lnmp-gopanel-backups.cron VERSION; do
   [[ -f "$payload/$required" ]] || die "Package is missing $required"
 done
 # Older releases support init but silently treat an unknown https subcommand as
@@ -964,7 +983,7 @@ if systemctl is-active --quiet lnmp-gopanel >/dev/null 2>&1; then was_active=tru
 if systemctl is-enabled --quiet lnmp-gopanel >/dev/null 2>&1; then was_enabled=true; fi
 prepare_transaction || die "Cannot persist installation transaction; no panel files were replaced"
 mutation_started=true
-install -d -o root -g root -m 0755 /usr/local/bin /usr/local/libexec /etc/systemd/system /etc/sudoers.d
+install -d -o root -g root -m 0755 /usr/local/bin /usr/local/libexec /etc/systemd/system /etc/sudoers.d /etc/cron.d
 install -d -o root -g lnmp-panel -m 0750 /etc/lnmp-gopanel
 [[ ! -L /var/lib/lnmp-gopanel ]] || die "Refusing a symlink screenshot state directory"
 install -d -o lnmp-panel -g lnmp-panel -m 0700 /var/lib/lnmp-gopanel
@@ -972,6 +991,7 @@ atomic_install "$payload/bin/lnmp-gopanel" /usr/local/bin/lnmp-gopanel 0755
 atomic_install "$payload/bin/lnmp-gopanel-control" /usr/local/libexec/lnmp-gopanel-control 0755
 atomic_install "$payload/deploy/lnmp-gopanel.service" /etc/systemd/system/lnmp-gopanel.service 0644
 atomic_install "$payload/deploy/lnmp-gopanel.sudoers" /etc/sudoers.d/lnmp-gopanel 0440
+atomic_install "$payload/deploy/lnmp-gopanel-backups.cron" /etc/cron.d/lnmp-gopanel-backups 0644
 if "$tls_changed"; then
   install -d -o root -g lnmp-panel -m 0750 /etc/lnmp-gopanel/tls
   atomic_install "$work_dir/config/tls/panel.crt" /etc/lnmp-gopanel/tls/panel.crt 0640 lnmp-panel

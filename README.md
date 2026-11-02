@@ -98,7 +98,7 @@ Ubuntu 24.04 及更新版本若启用了 AppArmor 用户命名空间限制，脚
 
 旧版本通过 init 启动的业务进程可能仍在面板控制组内，直接重启面板会带停它们。请使用新版 `install.sh`：安装或升级会在替换文件前检查实际控制组及其子组，发现遗留的 Nginx、PHP-FPM、MySQL／MariaDB、Redis 进程时中止并列出 PID；无法可靠检查时也中止。此检查包含 `--no-start`，因为失败回滚同样可能停止面板。实际重启前、恢复停止前，以及脚本的卸载、密码重置和监控配置入口也会检查。独立 systemd 单元或 scope 中的服务、面板自己的截图浏览器不会被误报。被阻止时不要直接重启面板；先在维护窗口通过独立 systemd 单元或 scope 重新托管相关服务，确认进程已离开面板控制组后再重试；仅 reload 不会迁移已有进程。检查不会自动迁移或重启业务服务，升级期间也应避免并发执行旧版服务启停操作。
 
-升级备份同时保存版本化事务记录：八个受管文件原先是否存在、内容摘要、权限和所有者，以及面板原先的运行和启用状态。备份和待恢复标记持久化后才开始替换，全部安装检查通过后才提交；事务标记位于 `/var/backups/lnmp-gopanel/pending`。如果升级因强杀、断电等原因中断，下次运行安装或更新命令会在联网和检查安装包之前先恢复旧文件及原服务状态，成功后继续本次安装。恢复过程再次中断也可以重复执行。服务器启动本身不会自动恢复；`--no-start` 只控制本次正常安装，恢复仍按中断事务记录中的原服务状态执行。
+升级备份同时保存版本化事务记录：九个受管文件（含备份调度 Cron 入口）原先是否存在、内容摘要、权限和所有者，以及面板原先的运行和启用状态。备份和待恢复标记持久化后才开始替换，全部安装检查通过后才提交；事务标记位于 `/var/backups/lnmp-gopanel/pending`。如果升级因强杀、断电等原因中断，下次运行安装或更新命令会在联网和检查安装包之前先恢复旧文件及原服务状态，成功后继续本次安装。恢复过程再次中断也可以重复执行。服务器启动本身不会自动恢复；`--no-start` 只控制本次正常安装，恢复仍按中断事务记录中的原服务状态执行。
 
 仅恢复、不联网或继续升级时运行：
 
@@ -117,7 +117,7 @@ sudo bash install.sh --recover
 <details>
 <summary>完全卸载的清理范围</summary>
 
-完全卸载无需联网，会停止并禁用面板，删除面板程序、辅助程序、systemd 单元及专属覆盖配置、sudoers 规则、`/etc/lnmp-gopanel`（含面板证书副本）、`/var/lib/lnmp-gopanel`、`/var/backups/lnmp-gopanel` 和 `lnmp-panel` 专用账号及组。LNMP、网站、数据库、Docker、借用的原始证书和 Chromium 等系统依赖会保留；自定义到其他目录的面板数据请自行清理。卸载会永久删除面板配置及备份，请先保存需要保留的内容。
+完全卸载无需联网，会停止并禁用面板，删除面板程序、辅助程序、systemd 单元及专属覆盖配置、sudoers 规则、`/etc/lnmp-gopanel`（含面板证书副本）、`/var/lib/lnmp-gopanel`、`/var/lib/lnmp-gopanel-backups`（含政策、密钥及执行记录）、`/var/backups/lnmp-gopanel`、备份调度入口和 `lnmp-panel` 专用账号及组。LNMP、网站、数据库、Docker、借用的原始证书和 Chromium 等系统依赖会保留；自定义到其他目录的面板数据请自行清理；备份目的地中的文件保留。卸载会永久删除面板配置、政策密钥及安装备份，请先保存需要保留的内容。
 
 </details>
 
@@ -293,10 +293,10 @@ Composer 检测沿用 `components snapshot` 授权，升级时使用同一源码
 
 ## 网站备份
 
-“网站备份”页面（`/backups`）提供备份政策配置和 gdrive、rclone 组件安装。右上角“添加备份政策”打开四个 Tab，支持新增、查看、编辑、删除及启停政策。当前只保存配置，不创建 crontab、不执行备份、不生成压缩包，也不删除旧备份；不要求已安装传输或压缩组件。
+“网站备份”页面（`/backups`）提供备份政策配置和 gdrive、rclone 组件安装。右上角“添加备份政策”打开四个 Tab，支持新增、查看、编辑、删除及启停政策。保存后，启用政策在下个 Cron 时间自动执行；已有启用政策升级后同样生效，不补跑过去的任务。列表提供“立即备份”、最近结果和执行历史；停用政策也可手动执行。每次分别生成一个数据库包和一个文件包，交付到各存储位置，再按类别及目的地独立保留最近 N 份。暂不提供恢复或下载功能。
 
-- **基本设置**：名称、备注、启用状态；通过常用频率、五字段表单或直接输入组装 Cron，按服务器时区预览接下来五次计划时间。默认每天 02:00，启用；ZIP 等级 0–9，7z 等级 0、1、3、5、7、9，默认 ZIP/5/不加密；数据库和文件分别默认保留 7 份，通过滑块调整 1–100 份（已有更大值会扩展滑块上限），当前不执行清理。
-- **存储位置**：一条政策可添加多个本地、gdrive 或 rclone 目的地。本地目录允许尚未创建，保存不创建目录；gdrive 绑定具体账户并填写文件夹 ID（`root` 为根目录），rclone 绑定远程名称并填写远程内路径（空值为根目录）。本轮不连接云端或验证上传权限。启用政策必须配置至少一个完整目的地，且云端账户能从本机配置识别；停用政策允许无目的地并保留当前缺失的账户。旧政策读取时补空目的地列表，不自动改写文件或启用状态，需补齐目的地后才能保存为启用状态。
+- **基本设置**：名称、备注、启用状态；通过常用频率、五字段表单或直接输入组装 Cron，按服务器时区预览接下来五次计划时间。默认每天 02:00，启用；ZIP 等级 0–9，7z 等级 0、1、3、5、7、9，默认 ZIP/5/不加密；数据库和文件分别默认保留 7 份，通过滑块调整 1–100 份（已有更大值会扩展滑块上限），仅在对应类别的新备份成功交付后清理旧版本。
+- **存储位置**：一条政策可添加多个本地、gdrive 或 rclone 目的地。本地目录允许尚未创建，保存不创建目录；gdrive 绑定具体账户并填写文件夹 ID（`root` 为根目录），rclone 绑定远程名称并填写远程内路径（空值为根目录）。保存不连接云端；实际执行时检查账户并上传，失败原因记录在执行详情。启用政策必须配置至少一个完整目的地，且云端账户能从本机配置识别；停用政策允许无目的地并保留当前缺失的账户。旧政策读取时补空目的地列表，不自动改写文件或启用状态，需补齐目的地后才能保存为启用状态。
 
 - **数据库**：默认全部数据库并自动包含新增库，默认排除 `mysql`、`information_schema`、`performance_schema`、`phpmyadmin`、`sys`，可手动修改；也可切换为指定数据库。每个库可选择全部表、仅备份所选表、跳过所选表，表列表支持搜索与分页。库表大小为数据及索引的元数据估算，视图大小不可用时显示“—”。仅连接本机 MySQL/MariaDB root 账号，复用可信客户端配置与 Socket；认证失败时在弹窗临时输入密码重试，密码不保存、不进入 URL 或日志。
 - **文件与目录**：填写规范绝对路径；目录排除规则每行一条，支持相对路径、`*`、`?`、`**`，例如 `cache/`、`logs/*.log`、`**/node_modules/**`。排除目录时同时排除后代，规则不能越出来源目录。独立统计原始逻辑大小与排除后预计大小，不读取文件内容、不展开内部符号链接，不支持 `/proc`、`/sys`、`/dev`；最多同时统计两个来源，单次最多 60 秒，超时及扫描变化显示部分结果。
@@ -311,13 +311,25 @@ Composer 检测沿用 `components snapshot` 授权，升级时使用同一源码
 
 政策的 `destinations` 数组按类型保存本地 `{type:"local",path}`、gdrive `{type:"gdrive",account,folder_id}` 或 rclone `{type:"rclone",remote,path}`；rclone 空路径可省略。复制仍使用新增接口，通过可选 `copy_from:{id,revision}` 指定源政策；该字段不存入政策，更新接口不接受复制来源。路径预检返回 `errors` 和 `warnings`，每项包含 `field`、零起始 `index` 和 `message`，字段级错误通过可选 `control` 标识具体输入控件。
 
-政策保存在 `/var/lib/lnmp-gopanel-backups/policies.json`，压缩密码由独立的 `policies.key` 使用 AES-GCM 加密，两者均为 root 私有 `0600` 文件；备份及恢复配置时必须同时保留密钥。列表及详情只返回密码是否已设置，编辑可保持、更换或清除密码。政策写入带文件锁、原子替换及修订号校验，过期编辑返回冲突；大小估算和数据库临时密码不存入政策。
+政策保存在 `/var/lib/lnmp-gopanel-backups/policies.json`，压缩密码由独立的 `policies.key` 使用 AES-GCM 加密，两者均为 root 私有 `0600` 文件；备份及恢复配置时必须同时保留密钥。列表及详情只返回密码是否已设置，编辑可保持、更换或清除密码。政策写入带文件锁、原子替换及修订号校验，过期编辑返回冲突；大小估算和数据库临时密码不存入政策。自动备份仅使用服务器 root 客户端配置与 Socket 认证；表单临时查询密码不参与自动备份。压缩密码不能含 NUL 或换行符，旧政策如含不支持的密码会明确失败，需更换密码。
 
 “安装组件”弹窗可勾选 gdrive、rclone 后统一安装并显示实际版本，已安装组件不能重复选择。安装通过固定 root 辅助程序启动 systemd 后台任务，关闭弹窗、刷新页面或重启面板不终止任务；每个组件最多 10 分钟，一项失败后继续另一项。gdrive 每次查询 GitHub 最新正式 Release，安装至 `/usr/local/bin/gdrive`，仅支持 amd64；rclone 使用官方 `https://rclone.org/install.sh`，需系统具备 curl 和解压工具。两者通过 `version` 子命令检测版本，rclone 的 `TMPDIR` 指向任务目录，失败也会清理下载与解压文件。
 
 “备份组件”同时显示本机账户信息，可通过“刷新组件信息”重新读取。固定 root 辅助程序只返回白名单元数据：gdrive 3 从 `/root/.config/gdrive3` 读取账户名称及当前账户标记，rclone 从 `/root/.config/rclone/rclone.conf` 读取远程名称和存储类型。加密的 rclone 配置显示“配置文件已加密”；缺失、损坏或权限不安全的配置分别提示，不影响组件版本和安装状态。读取不创建目录、不修改配置、不访问云端验证授权，也不返回密码、令牌、密钥、原始配置或解析器诊断。仅支持 root 管理的普通配置文件，单文件上限 1 MiB、账户上限 1000 个；无需新增 sudoers 授权。
 
-升级部署时同步更新面板、辅助程序和 sudoers。除已有 `backup-components inspect/install` 外，新增精确授权 `backup-policies list/get/save/delete/databases/tables/files/paths`；安装脚本只检查授权，不查询数据库、不扫描来源、不启动备份。政策请求上限 256 KiB，辅助响应上限 1 MiB；每个政策最多 100 个存储位置；政策最多 1000 个，总配置上限 8 MiB，每个政策最多 100 个文件来源，每个目录最多 200 条排除规则。
+升级部署时同步更新面板、辅助程序和 sudoers。除已有 `backup-components inspect/install` 外，精确授权 `backup-policies list/get/save/delete/databases/tables/files/paths/run/runs/run-get/runtime`；安装脚本只检查授权，不查询数据库、不扫描来源、不启动备份。安装、升级及回滚同时管理 `/etc/cron.d/lnmp-gopanel-backups`，每分钟由 root 辅助程序检查政策；安装事务完成后才允许分发任务。Cron 不依赖面板进程，不修改 root crontab。请确保 cron/crond 服务运行。政策请求上限 256 KiB，辅助响应上限 1 MiB（执行详情上限 2 MiB）；每个政策最多 100 个存储位置；政策最多 1000 个，总配置上限 8 MiB，每个政策最多 100 个文件来源，每个目录最多 200 条排除规则。
+
+### 执行、产物与保留规则
+
+- 页面“备份运行环境”检查调度、7-Zip、数据库导出工具及上传组件。压缩统一使用可信的 `7zz` 或 `7z`；数据库导出使用 `mariadb-dump`/`mysqldump`。缺少工具时由管理员手动安装，备份不会自动安装或降级压缩格式。只执行程序及父目录均归 root 所有、不可被组或其他用户写入的工具；LNMP 中由数据库账号所有的客户端不会以 root 执行，应另行安装可信系统客户端。
+- 任务在 root 私有目录 `/var/lib/lnmp-gopanel-backups` 排队，最多同时执行两个政策，同一政策最多一个排队或运行任务。任务由独立 systemd 单元运行，关闭页面、退出登录或重启面板不会终止；每次最长 24 小时。系统任务中断会记录失败并清理暂存区；服务器停止期间错过的计划不补跑。同一政策仍在执行时再次到期会记录跳过。
+- 入队固定政策版本及加密配置快照。编辑影响后续触发，停用取消排队任务，已经运行的任务继续；删除运行中的政策返回冲突。删除政策保留已交付的备份及历史；卸载会停止任务并删除政策、密钥、执行状态和产物索引，保留外部目的地的备份文件。备份和恢复面板备份状态时须保留整个私有目录及密钥。
+- 数据库类别包含每个选中数据库的 SQL 和清单；执行时重新读取库表，全部数据库模式自动包含新增库，应用全部/仅所选/跳过所选表规则。指定库表消失或导出失败时不发布数据库包。使用事务快照、流式导出，包含所选视图及触发器，全部表模式同时包含存储过程及事件，选表/排除表模式不导出存储过程及事件；非事务表和并发 DDL 无法获得事务一致性，也不保证跨库同一时点快照。恢复到其他服务器时需留意原对象的 DEFINER 账号及依赖。
+- 文件类别按来源编号建立独立目录并附原始路径映射，避免同名覆盖；保留普通文件、空目录、权限及修改时间。沿用排除规则，跳过内部符号链接、特殊文件、虚拟文件系统及本功能暂存目录。文件读取失败或读取期间发生变化会使文件类别失败，不发布残缺包；文件备份不提供文件系统快照一致性。
+- ZIP 密码使用 AES-256，最多 99 位可打印 ASCII 字符，解压工具需支持 AES ZIP；中文等非 ASCII 密码请选择 7z，7z 加密同时加密文件头。密码通过标准输入提供，不出现在命令参数、接口响应或日志。发布前校验压缩包完整性并计算 SHA-256，包内 `manifest.json` 记录政策版本及来源映射，不包含凭据。
+- 本地目录在实际交付时创建，先写临时文件再发布；gdrive 按指定账户上传到文件夹并记录对象 ID，不改变 root 的当前账户选择；rclone 使用指定远程和路径。各类别及目的地独立执行，某一项失败仍继续其他项，历史区分成功、部分成功及失败，清理失败单独展示。
+- 每个目的地成功交付后，按数据库包/文件包分别清理超出份数的旧产物。只操作本政策的持久化产物索引明确记录的文件路径或远端对象，不扫描名称猜测归属、不使用同步删除；本地旧文件校验不一致时保留并报错。改换目的地不清理原位置，删除政策也不删除备份。发布后进程被强杀、远程操作结果不明或索引保存失败时可能遗留未登记文件，需要管理员核对，系统不会猜测删除。
+- 每个政策保留最近 100 条执行历史，分页展示，执行期间每 3 秒刷新；历史裁剪不影响产物索引及文件保留份数。查看阶段、时间、政策版本、每类产物大小及 SHA-256、目的地结果和旧版本清理错误。
 
 ## 在线安装 LNMP
 
@@ -731,7 +743,7 @@ make build
 make test                    # Go 竞态测试与前端单元测试
 make check                   # Go vet 与前端生产构建
 make test-security           # Go 校验、可达漏洞扫描与 npm audit
-sudo env "PATH=$PATH" make test-privileged  # 需 nginx、openssl；指定用例不得跳过
+sudo env "PATH=$PATH" GOPANEL_TEST_MARIADB_BASE=/usr make test-privileged  # 需 nginx、openssl、7zip、rclone、MariaDB client/server-core；指定用例不得跳过
 make test-browser            # 构建本轮程序，执行三套桌面／移动端回归
 bash scripts/package.sh amd64 # arm64 主机改用 arm64
 python3 scripts/test-package.py dist/lnmp-gopanel_linux_amd64.tar.gz
@@ -758,6 +770,8 @@ python3 scripts/test-package.py dist/lnmp-gopanel_linux_amd64.tar.gz
 
 <details>
 <summary>GitHub Actions、发布产物与当前源码打包升级</summary>
+
+备份压缩与数据库恢复测试需要 root 管理的 7-Zip 和 MariaDB 客户端/服务端核心工具。`GOPANEL_TEST_MARIADB_BASE` 指向安装前缀（系统包通常为 `/usr`，包含 `bin/mariadb-install-db`、`bin/mariadb-dump`、`sbin/mariadbd`）；`GOPANEL_TEST_7ZIP` 可指定独立测试工具路径。测试使用临时数据目录、独立 Socket 并关闭网络，不连接业务数据库；gdrive 使用模拟命令，rclone 使用隔离的本地远程测试上传与精确删除。
 
 [Build and release](https://github.com/azpanel/lnmp-gopanel/actions/workflows/build.yml) 在每个 Pull Request 运行格式检查、Go 竞态与前端单元测试、依赖漏洞扫描、隔离安装脚本测试、相关包的完整 root 测试（关键特权／真实 Nginx 测试必须执行），以及桌面与移动端浏览器回归。默认、账户安全和登录审计三套 Playwright 配置分别执行。浏览器测试使用本轮构建的嵌入式生产程序；缺失或跳过指定关键测试会失败。
 
@@ -825,6 +839,7 @@ bash scripts/package.sh arm64 vX.Y.Z
 | 版本查询       | `GET /services/releases`、`POST /services/releases/refresh`、`PUT /services/releases/:name/range`                                                                                                                          |
 | LNMP 安装      | `GET /lnmp-installation`、`POST /lnmp-installation/prepare`、`POST /lnmp-installation/jobs/:id/start`、`GET /lnmp-installation/jobs/:id`、`GET /lnmp-installation/jobs/:id/events`、`GET /lnmp-installation/jobs/:id/logs` |
 | 备份政策       | `GET/POST /backups/policies`、`GET/PUT/DELETE /backups/policies/:id`（更新和删除携带 revision） |
+| 备份执行       | `POST /backups/policies/:id/run`（携带 revision，返回 202）、`GET /backups/policies/:id/runs?page=1`、`GET /backups/runs/:run_id`、`GET /backups/runtime` |
 | 备份路径预检   | `POST /backups/policies/validate-paths`（请求包含 files、destinations，仅检查元数据） |
 | 备份来源与频率 | `POST /backups/databases/inspect`、`POST /backups/databases/tables`、`POST /backups/files/inspect`、`POST /backups/schedule/preview` |
 | 网站备份组件   | `GET /backups/components`、`POST /backups/components/install`（请求体为 `{"components":["gdrive","rclone"]}`） |

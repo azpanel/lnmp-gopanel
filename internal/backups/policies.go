@@ -71,6 +71,7 @@ type PolicyIdentity struct {
 	Revision uint64 `json:"revision"`
 }
 type PolicySummary struct {
+	LastRun         *Run          `json:"last_run,omitempty"`
 	ID              string        `json:"id"`
 	Revision        uint64        `json:"revision"`
 	Name            string        `json:"name"`
@@ -87,7 +88,7 @@ type PolicySummary struct {
 }
 
 func (p Policy) Summary() PolicySummary {
-	return PolicySummary{p.ID, p.Revision, p.Name, p.Enabled, p.Schedule, p.Compression, p.Retention, p.Databases.Enabled, p.Databases.Mode, len(p.Databases.Selected), len(p.Files), p.UpdatedAt, p.Destinations}
+	return PolicySummary{ID: p.ID, Revision: p.Revision, Name: p.Name, Enabled: p.Enabled, Schedule: p.Schedule, Compression: p.Compression, Retention: p.Retention, DatabaseEnabled: p.Databases.Enabled, DatabaseMode: p.Databases.Mode, DatabaseCount: len(p.Databases.Selected), FileCount: len(p.Files), UpdatedAt: p.UpdatedAt, Destinations: p.Destinations}
 }
 func ValidPolicyID(id string) bool {
 	if len(id) != 32 {
@@ -188,6 +189,14 @@ func ValidatePolicy(r SavePolicyRequest) error {
 	if len(r.Password) > 4096 || !utf8.ValidString(r.Password) || (r.PasswordAction == "replace" && r.Password == "") || (r.PasswordAction != "replace" && r.Password != "") {
 		return invalidPolicy("压缩密码设置无效")
 	}
+	if strings.ContainsAny(r.Password, "\x00\r\n") {
+		return invalidPolicy("压缩密码不能包含 NUL 或换行符")
+	}
+	if r.PasswordAction == "replace" {
+		if err := ValidateCompressionPassword(p.Compression.Format, r.Password); err != nil {
+			return err
+		}
+	}
 	db := p.Databases
 	if db.Mode != "all" && db.Mode != "selected" {
 		return invalidPolicy("数据库选择模式无效")
@@ -239,6 +248,23 @@ func ValidatePolicy(r SavePolicyRequest) error {
 	}
 	if data, err := json.Marshal(r); err != nil || len(data) > MaxPolicyBytes {
 		return invalidPolicy("政策内容超过大小限制")
+	}
+	return nil
+}
+
+func ValidateCompressionPassword(format, password string) error {
+	if strings.ContainsAny(password, "\x00\r\n") {
+		return invalidPolicy("压缩密码不能包含 NUL 或换行符")
+	}
+	if format == "zip" && password != "" {
+		if len(password) > 99 {
+			return invalidPolicy("ZIP 加密密码最多 99 位 ASCII 字符，请缩短密码或改用 7z")
+		}
+		for _, r := range password {
+			if r < 0x20 || r > 0x7e {
+				return invalidPolicy("ZIP 加密密码须使用 ASCII 字符，中文密码请改用 7z")
+			}
+		}
 	}
 	return nil
 }

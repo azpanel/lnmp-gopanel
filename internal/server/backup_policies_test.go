@@ -55,6 +55,7 @@ func TestBackupPolicyRoutesAuthenticationValidationAndLimits(t *testing.T) {
 	cookie := &http.Cookie{Name: auth.CookieName, Value: id}
 	policyID := strings.Repeat("a", 32)
 	routes := []struct{ method, path, body string }{{"POST", "/backups/policies/validate-paths", `{"files":[],"destinations":[]}`}, {"GET", "/backups/policies", ""}, {"GET", "/backups/policies/" + policyID, ""}, {"POST", "/backups/policies", policyRequestBody()}, {"PUT", "/backups/policies/" + policyID, policyRequestBody()}, {"DELETE", "/backups/policies/" + policyID, `{"revision":1}`}, {"POST", "/backups/schedule/preview", `{"schedule":"0 2 * * *"}`}, {"POST", "/backups/databases/inspect", `{"password":"temporary"}`}, {"POST", "/backups/databases/tables", `{"database":"app","password":"temporary","page":1}`}, {"POST", "/backups/files/inspect", `{"path":"/srv","excludes":[]}`}}
+	routes = append(routes, struct{ method, path, body string }{"POST", "/backups/policies/" + policyID + "/run", `{"revision":1}`}, struct{ method, path, body string }{"GET", "/backups/policies/" + policyID + "/runs?page=1", ""}, struct{ method, path, body string }{"GET", "/backups/runs/" + policyID, ""}, struct{ method, path, body string }{"GET", "/backups/runtime", ""})
 	for _, r := range routes {
 		if w := request(h, r.method, "/api/v1"+r.path, r.body, nil, "", ""); w.Code != 401 {
 			t.Fatal(r.path, w.Code)
@@ -73,6 +74,9 @@ func TestBackupPolicyRoutesAuthenticationValidationAndLimits(t *testing.T) {
 		want := 200
 		if r.method == "POST" && r.path == "/backups/policies" {
 			want = 201
+		}
+		if strings.HasSuffix(r.path, "/run") {
+			want = 202
 		}
 		if w.Code != want {
 			t.Fatal(r.path, w.Code, w.Body.String())
@@ -98,7 +102,7 @@ func TestBackupPolicyRoutesAuthenticationValidationAndLimits(t *testing.T) {
 	for _, tc := range []struct {
 		err    error
 		status int
-	}{{backups.ErrInvalid, 400}, {backups.ErrNotFound, 404}, {backups.ErrConflict, 409}, {errors.New("unavailable"), 502}} {
+	}{{backups.ErrInvalid, 400}, {backups.ErrNotFound, 404}, {backups.ErrConflict, 409}, {backups.ErrRunBusy, 409}, {errors.New("unavailable"), 502}} {
 		b.err = tc.err
 		if w := request(h, "GET", "/api/v1/backups/policies", "", cookie, "", ""); w.Code != tc.status {
 			t.Fatal(w.Code)

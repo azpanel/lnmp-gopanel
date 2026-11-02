@@ -14,11 +14,16 @@ import (
 type policyBuffer struct {
 	bytes.Buffer
 	overflow bool
+	limit    int
 }
 
 func (b *policyBuffer) Write(p []byte) (int, error) {
 	n := len(p)
-	remaining := 1024*1024 - b.Len()
+	limit := b.limit
+	if limit == 0 {
+		limit = 1024 * 1024
+	}
+	remaining := limit - b.Len()
 	if len(p) > remaining {
 		b.overflow = true
 		p = p[:remaining]
@@ -28,7 +33,7 @@ func (b *policyBuffer) Write(p []byte) (int, error) {
 }
 func (h Helper) BackupPolicy(ctx context.Context, action string, input any) (json.RawMessage, error) {
 	switch action {
-	case "list", "get", "save", "delete", "databases", "tables", "files", "paths":
+	case "list", "get", "save", "delete", "databases", "tables", "files", "paths", "run", "runs", "run-get", "runtime":
 	default:
 		return nil, backups.ErrInvalid
 	}
@@ -40,6 +45,9 @@ func (h Helper) BackupPolicy(ctx context.Context, action string, input any) (jso
 	configureProcess(cmd)
 	cmd.Stdin = bytes.NewReader(data)
 	out := &policyBuffer{}
+	if action == "run-get" {
+		out.limit = 2 * 1024 * 1024
+	}
 	cmd.Stdout = out
 	cmd.Stderr = &limitedBuffer{}
 	if err = cmd.Run(); err != nil {
@@ -63,6 +71,8 @@ func (h Helper) BackupPolicy(ctx context.Context, action string, input any) (jso
 		if failure.Error != "" && failure.Kind != "" {
 			var sentinel error
 			switch failure.Kind {
+			case "busy":
+				sentinel = backups.ErrRunBusy
 			case "invalid":
 				sentinel = backups.ErrInvalid
 			case "not_found":
@@ -71,6 +81,9 @@ func (h Helper) BackupPolicy(ctx context.Context, action string, input any) (jso
 				sentinel = backups.ErrConflict
 			}
 			if sentinel != nil {
+				if failure.Error == sentinel.Error() {
+					return nil, sentinel
+				}
 				return nil, fmt.Errorf("%w：%s", sentinel, failure.Error)
 			}
 			return nil, errors.New(failure.Error)

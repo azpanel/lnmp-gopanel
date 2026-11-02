@@ -1,5 +1,6 @@
 import { BackupPolicyEditor } from "@/components/backup-policy-editor";
 import { BackupPolicyList } from "@/components/backup-policy-list";
+import { BackupRuntimeStatus } from "@/components/backup-runs";
 import {
   BackupComponentAccounts,
   type BackupAccounts,
@@ -247,6 +248,7 @@ export function Backups() {
           </Dialog>
         </div>
       </div>
+      <BackupRuntimeStatus />
       <BackupPolicyList
         onOpen={(id, readOnly, copy) => setEditor({ id, readOnly, copy })}
       />

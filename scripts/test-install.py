@@ -27,11 +27,12 @@ TARGETS = (
     "/etc/lnmp-gopanel/services.yaml",
     "/etc/lnmp-gopanel/tls/panel.crt",
     "/etc/lnmp-gopanel/tls/panel.key",
+    "/etc/cron.d/lnmp-gopanel-backups",
 )
 VHOST_COMMANDS = tuple(f"vhosts {action}" for action in ("list", "config", "format", "usage", "toggle", "options", "create", "ssl-renew-preview", "ssl-renew", "basic-auth-get", "basic-auth-set", "basic-auth-disable"))
 LNMP_INSTALL_COMMANDS = tuple(f"lnmp-install {action}" for action in ("inspect", "prepare", "start", "read"))
 NGINX_REPAIR_COMMANDS = ("nginx repair-preview", "nginx repair")
-BACKUP_POLICY_COMMANDS = tuple(f"backup-policies {action}" for action in ("list", "get", "save", "delete", "databases", "tables", "files", "paths"))
+BACKUP_POLICY_COMMANDS = tuple(f"backup-policies {action}" for action in ("list", "get", "save", "delete", "databases", "tables", "files", "paths", "run", "runs", "run-get", "runtime"))
 BACKUP_COMPONENT_COMMANDS = ("backup-components inspect", "backup-components install")
 LOGGING_COMMANDS = ("logging status", "logging enable-php", "logging enable-database")
 
@@ -75,6 +76,7 @@ case "$1" in
   restart) [[ ! -f /run/fail-restart ]] || exit 1; touch /run/panel.active ;;
   stop) [[ ! -f /run/fail-stop ]] || exit 1; rm -f /run/panel.active ;;
   daemon-reload) exit 0 ;;
+  list-units) exit 0 ;;
   # A stopped unit may be unloaded by the reload performed during disable.
   reset-failed) [[ -f /run/panel.active ]] ;;
   show)
@@ -317,6 +319,7 @@ printf '%s\\n' "$*" >> /run/apparmor.log
             "bin/lnmp-gopanel-control": HELPER,
             "deploy/lnmp-gopanel.service": (PROJECT / "deploy/lnmp-gopanel.service").read_text(),
             "deploy/lnmp-gopanel.sudoers": (PROJECT / "deploy/lnmp-gopanel.sudoers").read_text(),
+            "deploy/lnmp-gopanel-backups.cron": (PROJECT / "deploy/lnmp-gopanel-backups.cron").read_text(),
             "VERSION": "v0.1.0\n",
         }
         if omit:
@@ -386,7 +389,7 @@ printf '%s\\n' "$*" >> /run/apparmor.log
         for options, suffix in (((), "latest/download"), (("--version", "v1.2.3"), "download/v1.2.3")):
             with self.subTest(options=options):
                 self.run_script("--update", *options)
-                for target in TARGETS[4:]:
+                for target in TARGETS[4:8]:
                     self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
                 self.assertEqual(state.read_text(), "saved state")
                 downloads = (self.root / "run/downloads.log").read_text().splitlines()
@@ -810,7 +813,7 @@ exit 0
     def test_upgrade_preserves_credentials_and_no_start(self):
         previous = self.old_installation(https=True)
         self.run_installer("--no-start", automatic_tls=False)
-        for target in TARGETS[4:]:
+        for target in TARGETS[4:8]:
             self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
         log = (self.root / "run/systemctl.log").read_text()
         self.assertNotIn("restart lnmp-gopanel", log)
@@ -823,7 +826,7 @@ exit 0
     def test_https_upgrade_adds_log_permissions_without_reading_logs(self):
         previous = self.old_installation(https=True)
         self.run_installer(automatic_tls=False)
-        for target in TARGETS[4:]:
+        for target in TARGETS[4:8]:
             self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
         sudoers = (self.root / "etc/sudoers.d/lnmp-gopanel").read_text()
         sudo_log = (self.root / "run/sudo.log").read_text()
@@ -843,7 +846,7 @@ exit 0
             "/usr/local/acme.sh/acme.sh", "/usr/local/acme.sh/account.conf", "/usr/local/acme.sh/gopanel-certs/site_ecc/site.key",
             "/usr/local/nginx/conf/ssl/gopanel/site/fullchain.pem")]
         self.run_installer(automatic_tls=False)
-        for target in TARGETS[4:]:
+        for target in TARGETS[4:8]:
             self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
         sudoers = (self.root / "etc/sudoers.d/lnmp-gopanel").read_text()
         sudo_log = (self.root / "run/sudo.log").read_text()
@@ -1081,6 +1084,33 @@ exit 0
         self.assertEqual((transaction / "status").read_text(), "rolled-back\n")
         self.assertFalse((self.root / "run/panel.active").exists())
         self.assertFalse((self.root / "run/panel.enabled").exists())
+
+    def test_legacy_eight_file_transaction_preserves_unrecorded_cron(self):
+        previous = self.old_installation(https=True)
+        self.arm_interruption(TARGETS[0])
+        self.run_installer(success=False)
+        transaction = self.pending_transaction()
+        record = transaction / "transaction"
+        legacy = record.read_text().splitlines()[:11]
+        legacy[0] = "lnmp-gopanel-transaction-v1"
+        record.write_text("\n".join(legacy) + "\n")
+        (transaction / "8").unlink()
+        cron = write(self.root, "/etc/cron.d/lnmp-gopanel-backups", "# unrecorded administrator file\n")
+        self.run_script("--recover")
+        self.assert_previous_files({path: data for path, data in previous.items() if path != TARGETS[8]})
+        self.assertEqual(cron.read_text(), "# unrecorded administrator file\n")
+
+    def test_truncated_nine_file_transaction_is_not_treated_as_legacy(self):
+        self.old_installation(https=True)
+        self.arm_interruption(TARGETS[0])
+        self.run_installer(success=False)
+        transaction = self.pending_transaction()
+        record = transaction / "transaction"
+        record.write_text("\n".join(record.read_text().splitlines()[:11]) + "\n")
+        before = {p: (self.root / p.lstrip("/")).read_bytes() for p in TARGETS}
+        self.run_script("--recover", success=False)
+        self.assert_previous_files(before)
+        self.assertTrue((transaction.parent / "pending").exists())
 
     def test_recovery_rejects_missing_corrupt_or_unsafe_records_without_mutation(self):
         self.old_installation(https=True)

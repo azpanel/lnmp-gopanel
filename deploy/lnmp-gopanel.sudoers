@@ -17,6 +17,10 @@ Cmnd_Alias LNMP_PANEL = /usr/local/libexec/lnmp-gopanel-control nginx status, \
  /usr/local/libexec/lnmp-gopanel-control backup-policies tables, \
  /usr/local/libexec/lnmp-gopanel-control backup-policies paths, \
  /usr/local/libexec/lnmp-gopanel-control backup-policies files, \
+ /usr/local/libexec/lnmp-gopanel-control backup-policies run, \
+ /usr/local/libexec/lnmp-gopanel-control backup-policies runs, \
+ /usr/local/libexec/lnmp-gopanel-control backup-policies run-get, \
+ /usr/local/libexec/lnmp-gopanel-control backup-policies runtime, \
  /usr/local/libexec/lnmp-gopanel-control backup-components inspect, \
  /usr/local/libexec/lnmp-gopanel-control backup-components install, \
  /usr/local/libexec/lnmp-gopanel-control docker snapshot, \
