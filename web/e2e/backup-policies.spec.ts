@@ -255,6 +255,119 @@ async function addLocalDestination(page: Page, path = "/var/backups/web") {
   await dialog.getByLabel("本地目录", { exact: true }).last().fill(path);
 }
 
+test("database loading is centered and refresh preserves selections and table rules", async ({
+  page,
+}, testInfo) => {
+  await policyFixture(page);
+  let release!: () => void;
+  let pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/v1/backups/databases/inspect", async (route) => {
+    await pending;
+    return route.fulfill({
+      json: [
+        { name: "app", size: 2048 },
+        { name: "other", size: 1024 },
+      ],
+    });
+  });
+  await page.route("**/api/v1/backups/databases/tables", (route) =>
+    route.fulfill({
+      json: {
+        items: [{ name: "orders", type: "BASE TABLE", size: 1024 }],
+        page: 1,
+        page_size: 100,
+        total: 1,
+      },
+    }),
+  );
+  await page.getByRole("button", { name: "添加备份政策", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("tab", { name: "数据库", exact: true }).click();
+  const list = dialog.locator(".policy-database-list");
+  const loading = list.getByRole("status");
+  await expect(loading).toHaveText("正在读取数据库…");
+  await expect(loading.locator("span")).toHaveCSS("font-size", "14px");
+  await expect(loading.locator("svg")).toHaveCSS("animation-name", "spin");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(loading.locator("svg")).toHaveCSS("animation-name", "none");
+  await dialog.evaluate((el) =>
+    Promise.all(
+      el
+        .getAnimations()
+        .filter(
+          (animation) => animation.effect?.getTiming().iterations !== Infinity,
+        )
+        .map((animation) => animation.finished),
+    ),
+  );
+  const centered = await list.evaluate((el) => {
+    const area = el.getBoundingClientRect();
+    const icon = el.querySelector("svg")!.getBoundingClientRect();
+    const text = el
+      .querySelector('[role="status"] span')!
+      .getBoundingClientRect();
+    return {
+      horizontal: Math.abs(
+        (icon.left + icon.right) / 2 - (area.left + area.right) / 2,
+      ),
+      vertical: Math.abs(
+        (icon.top + text.bottom) / 2 - (area.top + area.bottom) / 2,
+      ),
+    };
+  });
+  expect(centered.horizontal).toBeLessThan(2);
+  expect(centered.vertical).toBeLessThan(2);
+  await expect(loading).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("backup-database-loading.png"),
+    animations: "disabled",
+  });
+  release();
+  await expect(loading).toHaveCount(0);
+  await choosePolicyOption(page, "数据库范围", "指定数据库");
+  await dialog
+    .getByRole("checkbox", { name: "备份数据库 other", exact: true })
+    .uncheck();
+  await choosePolicyOption(page, "app 的表规则", "仅备份所选表");
+  await dialog
+    .getByRole("checkbox", { name: "app.orders", exact: true })
+    .check();
+  pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await dialog.getByRole("button", { name: "刷新数据库" }).click();
+  await expect(loading).toBeVisible();
+  await expect(list.getByRole("checkbox")).toHaveCount(0);
+  release();
+  await expect(loading).toHaveCount(0);
+  await expect(
+    dialog.getByRole("checkbox", { name: "备份数据库 app", exact: true }),
+  ).toBeChecked();
+  await expect(
+    dialog.getByRole("checkbox", { name: "备份数据库 other", exact: true }),
+  ).not.toBeChecked();
+  await expect(
+    dialog.getByRole("combobox", { name: "app 的表规则", exact: true }),
+  ).toContainText("仅备份所选表");
+  await expect(
+    dialog.getByRole("checkbox", { name: "app.orders", exact: true }),
+  ).toBeChecked();
+  await dialog
+    .getByRole("textbox", { name: "搜索数据库", exact: true })
+    .fill("no-match");
+  await expect(
+    list.getByText("没有匹配的数据库。", { exact: true }),
+  ).toBeVisible();
+  await expect(loading).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+});
+
 test("backup policy tabs, source rules, secrets and CRUD", async ({
   page,
 }, testInfo) => {

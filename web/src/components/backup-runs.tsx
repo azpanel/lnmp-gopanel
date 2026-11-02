@@ -1,12 +1,24 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import {
+  ArchiveRestore,
+  Clock3,
+  CloudDownload,
+  Database,
+  FolderSync,
+  Loader2,
+  RefreshCw,
+  ServerCog,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import {
@@ -25,57 +37,149 @@ import {
 } from "@/lib/backup-runs";
 
 export function BackupRuntimeStatus() {
+  const [open, setOpen] = useState(false);
   const query = useQuery({
     queryKey: ["backup-runtime"],
     queryFn: ({ signal }) => api<BackupRuntime>("/backups/runtime", { signal }),
+    enabled: open,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
-  const names: Record<string, string> = {
-    "7zip": "7-Zip",
-    dump: "数据库导出工具",
-    gdrive: "gdrive",
-    rclone: "rclone",
+  const tools = {
+    "7zip": {
+      name: "7-Zip",
+      description: "压缩备份文件 · 7zz / 7z",
+      icon: ArchiveRestore,
+    },
+    dump: {
+      name: "数据库导出工具",
+      description: "数据库备份需要 · mysqldump / mariadb-dump",
+      icon: Database,
+    },
+    gdrive: {
+      name: "gdrive",
+      description: "备份至 Google Drive 时需要",
+      icon: CloudDownload,
+    },
+    rclone: {
+      name: "rclone",
+      description: "备份至 rclone 远程存储时需要",
+      icon: FolderSync,
+    },
   };
   return (
-    <section className="backup-runtime notice" aria-label="备份运行环境">
-      <div className="policy-inline">
-        <strong>备份运行环境</strong>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={query.isFetching}
-          onClick={() => void query.refetch()}
-        >
-          重新检测
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">
+          <ServerCog size={14} aria-hidden="true" />
+          备份运行环境
         </Button>
-      </div>
-      {query.isPending ? (
-        <p role="status">正在检查调度与工具…</p>
-      ) : query.error ? (
-        <p role="alert">运行环境检查失败：{query.error.message}</p>
-      ) : (
-        <>
-          <p>
-            {query.data.scheduler
-              ? "定时调度已就绪"
-              : query.data.scheduler_error}
-          </p>
-          <p>
-            {query.data.dependencies
-              .map(
-                (d) =>
-                  `${names[d.name] ?? d.name}：${d.ready ? "可用" : "未安装或权限不安全"}`,
-              )
-              .join("；")}
-          </p>
-        </>
-      )}
-      <p className="small-note">
-        压缩需要 7zz 或 7z；数据库备份还需要 mysqldump 或
-        mariadb-dump。缺少的工具请由管理员安装。定时认证使用服务器 root
-        客户端配置或 Socket，表单临时查询密码不会用于自动备份。
-      </p>
-    </section>
+      </DialogTrigger>
+      <DialogContent className="backup-runtime-dialog">
+        <DialogHeader>
+          <DialogTitle>备份运行环境</DialogTitle>
+          <DialogDescription>
+            检查定时调度和依赖工具，了解备份所需的运行条件。
+          </DialogDescription>
+        </DialogHeader>
+        <div className="backup-runtime-scroll">
+          {query.isPending ? (
+            <div className="backup-runtime-loading" role="status">
+              <Loader2 size={24} className="animate-spin" aria-hidden="true" />
+              <span>正在检查调度与工具…</span>
+            </div>
+          ) : query.error ? (
+            <p className="notice" role="alert">
+              运行环境检查失败：{query.error.message}
+            </p>
+          ) : (
+            <>
+              <section className="backup-runtime-section" aria-label="定时调度">
+                <h3>定时调度</h3>
+                <div className="backup-runtime-item">
+                  <Clock3 size={20} aria-hidden="true" />
+                  <div className="backup-runtime-item-content">
+                    <strong>Cron 调度服务</strong>
+                    <p>按备份政策设定的时间自动执行</p>
+                    {!query.data.scheduler && (
+                      <p className="backup-runtime-error">
+                        {query.data.scheduler_error ||
+                          "请检查受管 Cron 文件和 cron/crond 服务"}
+                      </p>
+                    )}
+                  </div>
+                  <span
+                    className="backup-runtime-badge"
+                    data-ready={query.data.scheduler}
+                  >
+                    {query.data.scheduler ? "已就绪" : "未就绪"}
+                  </span>
+                </div>
+              </section>
+              <section className="backup-runtime-section" aria-label="依赖工具">
+                <h3>依赖工具</h3>
+                <div className="backup-runtime-tools">
+                  {query.data.dependencies.map((dependency) => {
+                    const tool = tools[dependency.name as keyof typeof tools];
+                    const Icon = tool?.icon ?? ServerCog;
+                    return (
+                      <div
+                        className="backup-runtime-item"
+                        key={dependency.name}
+                      >
+                        <Icon size={20} aria-hidden="true" />
+                        <div className="backup-runtime-item-content">
+                          <strong>{tool?.name ?? dependency.name}</strong>
+                          {tool && <p>{tool.description}</p>}
+                          {!dependency.ready && (
+                            <p className="backup-runtime-error">
+                              {dependency.error ||
+                                "未安装或程序权限不安全，请由管理员检查"}
+                            </p>
+                          )}
+                        </div>
+                        <span
+                          className="backup-runtime-badge"
+                          data-ready={dependency.ready}
+                        >
+                          {dependency.ready ? "可用" : "需检查"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            </>
+          )}
+          <section className="backup-runtime-help" aria-label="使用说明">
+            <h3>使用说明</h3>
+            <ul>
+              <li>缺少或权限不安全的工具，请由管理员安装或修复。</li>
+              <li>gdrive 和 rclone 仅在使用对应云存储时需要。</li>
+              <li>定时认证使用服务器 root 客户端配置或 Socket。</li>
+              <li>表单临时查询密码仅用于查询，不会用于自动备份。</li>
+            </ul>
+          </section>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            disabled={query.isFetching}
+            onClick={() => void query.refetch()}
+          >
+            <RefreshCw
+              size={14}
+              className={query.isFetching ? "animate-spin" : ""}
+              aria-hidden="true"
+            />
+            重新检测
+          </Button>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            关闭
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

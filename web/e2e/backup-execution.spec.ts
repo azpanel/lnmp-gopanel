@@ -136,9 +136,18 @@ test("manual backup restores running state after refresh and shows partial deliv
 }) => {
   const fixture = await executionFixture(page);
   await openBackupExecution(page);
-  await expect(page.getByLabel("备份运行环境")).toContainText(
-    "7-Zip：未安装或权限不安全",
+  await page.getByRole("button", { name: "备份运行环境", exact: true }).click();
+  const runtime = page.getByRole("dialog", {
+    name: "备份运行环境",
+    exact: true,
+  });
+  await expect(runtime.getByRole("region", { name: "依赖工具" })).toContainText(
+    "7-Zip",
   );
+  await expect(runtime.getByRole("region", { name: "依赖工具" })).toContainText(
+    "未安装或程序权限不安全",
+  );
+  await runtime.getByRole("button", { name: "关闭", exact: true }).click();
   await page.getByRole("button", { name: "立即备份", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText(
     "执行历史 · 每日网站备份",
@@ -169,6 +178,119 @@ test("manual backup restores running state after refresh and shows partial deliv
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
+});
+
+test("backup runtime loads on demand, refreshes and restores trigger focus", async ({
+  page,
+}, testInfo) => {
+  await executionFixture(page);
+  let reads = 0;
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/v1/backups/runtime", async (route) => {
+    reads++;
+    if (reads === 1) await pending;
+    return route.fulfill({
+      json: {
+        scheduler: reads > 1,
+        scheduler_error: "受管 Cron 文件缺失",
+        dependencies: [
+          { name: "7zip", ready: true },
+          { name: "dump", ready: false, error: "数据库导出程序权限不安全" },
+          { name: "gdrive", ready: false },
+          { name: "rclone", ready: true },
+        ],
+      },
+    });
+  });
+  await openBackupExecution(page);
+  const trigger = page.getByRole("button", {
+    name: "备份运行环境",
+    exact: true,
+  });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(reads).toBe(0);
+  await trigger.click();
+  const dialog = page.getByRole("dialog", {
+    name: "备份运行环境",
+    exact: true,
+  });
+  await expect(dialog.getByRole("status")).toHaveText("正在检查调度与工具…");
+  await expect(dialog.getByRole("button", { name: "重新检测" })).toBeDisabled();
+  await expect.poll(() => reads).toBe(1);
+  release();
+  await expect(dialog.getByRole("region", { name: "定时调度" })).toContainText(
+    "受管 Cron 文件缺失",
+  );
+  await expect(dialog.getByRole("region", { name: "依赖工具" })).toContainText(
+    "数据库导出程序权限不安全",
+  );
+  await expect(dialog.getByRole("region", { name: "使用说明" })).toContainText(
+    "gdrive 和 rclone 仅在使用对应云存储时需要",
+  );
+  await expect(dialog).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
+    true,
+  );
+  await page.screenshot({
+    path: testInfo.outputPath("backup-runtime-dialog.png"),
+    animations: "disabled",
+  });
+  await dialog.getByRole("button", { name: "重新检测" }).click();
+  await expect(dialog.getByRole("region", { name: "定时调度" })).toContainText(
+    "已就绪",
+  );
+  expect(reads).toBe(2);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect.poll(() => reads).toBe(3);
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect.poll(() => reads).toBe(4);
+  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+});
+
+test("backup runtime failures can be retried", async ({ page }) => {
+  await executionFixture(page);
+  let failed = true;
+  await page.route("**/api/v1/backups/runtime", (route) =>
+    route.fulfill(
+      failed
+        ? { status: 502, json: { error: "运行环境暂时不可用" } }
+        : {
+            json: {
+              scheduler: true,
+              dependencies: [{ name: "7zip", ready: true }],
+            },
+          },
+    ),
+  );
+  await openBackupExecution(page);
+  await page.getByRole("button", { name: "备份运行环境", exact: true }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "备份运行环境",
+    exact: true,
+  });
+  await expect(dialog.getByRole("alert")).toContainText("运行环境暂时不可用");
+  failed = false;
+  await dialog.getByRole("button", { name: "重新检测" }).click();
+  await expect(dialog.getByRole("region", { name: "定时调度" })).toContainText(
+    "已就绪",
+  );
+  await expect(dialog.getByRole("alert")).toHaveCount(0);
 });
 
 test("manual backup surfaces duplicate execution conflict without submitting twice", async ({

@@ -5191,6 +5191,7 @@ body,
   margin-bottom: 20px;
 }
 .backup-policy-dialog,
+.backup-runtime-dialog,
 .policy-select-menu {
   color-scheme: light;
   --background: #fff;
@@ -5706,6 +5707,26 @@ select,
   padding: 8px 6px;
   border-left: 2px solid transparent;
 }
+.policy-database-list[data-loading="true"] {
+  align-content: stretch;
+  grid-template-rows: 1fr;
+  min-height: 160px;
+}
+.policy-database-loading,
+.backup-runtime-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  text-align: center;
+}
+.policy-database-loading > svg,
+.backup-runtime-loading > svg {
+  color: var(--primary);
+}
 .policy-database-row[data-active="true"] {
   border-left-color: var(--primary);
 }
@@ -5894,12 +5915,99 @@ select,
   justify-content: space-between;
   gap: 14px;
 }
-.backup-runtime {
-  margin-bottom: 16px;
-  background: #fff;
+.backup-runtime-dialog {
+  width: calc(100vw - 2rem);
+  max-width: 640px;
+  max-height: calc(100dvh - 2rem);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  font-size: 14px;
 }
-.backup-runtime p {
-  margin: 8px 0 0;
+.backup-runtime-dialog [data-slot="dialog-header"] {
+  padding-right: 20px;
+  text-align: left;
+}
+.backup-runtime-dialog [data-slot="dialog-description"] {
+  font-size: 14px;
+}
+.backup-runtime-dialog [data-slot="dialog-header"],
+.backup-runtime-dialog [data-slot="dialog-footer"] {
+  flex-shrink: 0;
+}
+.backup-runtime-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 20px;
+}
+.backup-runtime-loading {
+  min-height: 160px;
+}
+.backup-runtime-section h3,
+.backup-runtime-help h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.backup-runtime-tools {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.backup-runtime-item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 14px;
+}
+.backup-runtime-section > .backup-runtime-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.backup-runtime-tools > .backup-runtime-item + .backup-runtime-item {
+  border-top: 1px solid var(--border);
+}
+.backup-runtime-item > svg {
+  margin-top: 2px;
+  color: var(--primary);
+}
+.backup-runtime-item-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.backup-runtime-item-content p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+.backup-runtime-item-content .backup-runtime-error {
+  color: var(--danger);
+}
+.backup-runtime-badge {
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--danger) 9%, white);
+  color: var(--danger);
+}
+.backup-runtime-badge[data-ready="true"] {
+  background: color-mix(in srgb, var(--primary) 9%, white);
+  color: var(--primary);
+}
+.backup-runtime-help {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.backup-runtime-help ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.8;
 }
 .backup-history-dialog {
   width: min(760px, calc(100vw - 24px));

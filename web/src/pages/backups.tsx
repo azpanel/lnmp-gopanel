@@ -109,6 +109,7 @@ export function Backups() {
           <p>配置数据库与文件备份政策，管理备份所需组件。</p>
         </div>
         <div className="policy-heading-actions">
+          <BackupRuntimeStatus />
           <Button size="sm" onClick={() => setEditor({ readOnly: false })}>
             添加备份政策
           </Button>
@@ -248,7 +249,6 @@ export function Backups() {
           </Dialog>
         </div>
       </div>
-      <BackupRuntimeStatus />
       <BackupPolicyList
         onOpen={(id, readOnly, copy) => setEditor({ id, readOnly, copy })}
       />

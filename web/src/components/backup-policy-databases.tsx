@@ -4,6 +4,7 @@ import {
   HardDriveDownload,
   Layers3,
   ListFilter,
+  Loader2,
   ScanSearch,
   Search,
 } from "lucide-react";
@@ -205,50 +206,64 @@ export function BackupPolicyDatabases({
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              <div className="policy-database-list">
-                {names.map((database) => {
-                  const item = actual.find((db) => db.name === database);
-                  return (
-                    <div
-                      className="policy-database policy-database-row"
-                      data-active={database === name}
-                      key={database}
-                    >
-                      <Checkbox
-                        aria-label={`备份数据库 ${database}`}
-                        checked={databaseSelected(value, database)}
-                        disabled={readOnly}
-                        onCheckedChange={(checked) =>
-                          onChange(
-                            toggleDatabase(value, database, checked === true),
-                          )
-                        }
-                      />
-                      <button
-                        type="button"
-                        className="policy-db-name"
-                        title={database}
-                        onClick={() => view(database)}
+              <div
+                className="policy-database-list"
+                data-loading={query.isFetching}
+                aria-busy={query.isFetching}
+              >
+                {!query.isFetching &&
+                  names.map((database) => {
+                    const item = actual.find((db) => db.name === database);
+                    return (
+                      <div
+                        className="policy-database policy-database-row"
+                        data-active={database === name}
+                        key={database}
                       >
-                        {database}
-                      </button>
-                      <span className="policy-db-size">
-                        {item ? readableBytes(item.size) : "未读取到"}
-                      </span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        aria-label={`查看 ${database} 的表`}
-                        aria-pressed={database === name}
-                        onClick={() => view(database)}
-                      >
-                        查看表
-                      </Button>
-                    </div>
-                  );
-                })}
-                {query.isFetching && <p role="status">正在读取数据库…</p>}
+                        <Checkbox
+                          aria-label={`备份数据库 ${database}`}
+                          checked={databaseSelected(value, database)}
+                          disabled={readOnly}
+                          onCheckedChange={(checked) =>
+                            onChange(
+                              toggleDatabase(value, database, checked === true),
+                            )
+                          }
+                        />
+                        <button
+                          type="button"
+                          className="policy-db-name"
+                          title={database}
+                          onClick={() => view(database)}
+                        >
+                          {database}
+                        </button>
+                        <span className="policy-db-size">
+                          {item ? readableBytes(item.size) : "未读取到"}
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`查看 ${database} 的表`}
+                          aria-pressed={database === name}
+                          onClick={() => view(database)}
+                        >
+                          查看表
+                        </Button>
+                      </div>
+                    );
+                  })}
+                {query.isFetching && (
+                  <div className="policy-database-loading" role="status">
+                    <Loader2
+                      size={28}
+                      className="animate-spin"
+                      aria-hidden="true"
+                    />
+                    <span>正在读取数据库…</span>
+                  </div>
+                )}
                 {!names.length && !query.isFetching && (
                   <p className="small-note">没有匹配的数据库。</p>
                 )}
