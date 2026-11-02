@@ -172,6 +172,14 @@ export function Backups() {
                             )
                           }
                         />
+                        <img
+                          className="backup-component-icon"
+                          src={`/brands/${item.name === "gdrive" ? "googledrive" : "rclone"}.svg`}
+                          width={32}
+                          height={32}
+                          alt=""
+                          aria-hidden="true"
+                        />
                         <span>
                           <strong>{item.name}</strong>
                           <span className="backup-component-description">

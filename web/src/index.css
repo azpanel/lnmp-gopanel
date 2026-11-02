@@ -5021,6 +5021,12 @@ body,
   font-size: 12px;
   color: var(--muted-foreground);
 }
+.backup-component-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
 .backup-component-status {
   text-align: right;
   font-size: 13px;
@@ -5324,12 +5330,16 @@ body,
 }
 .policy-identity-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px;
-  gap: 20px;
-  align-items: end;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto;
+  gap: 16px;
+  align-items: start;
+}
+.policy-identity-row > label {
+  min-width: 0;
 }
 .policy-identity-row > .policy-switch {
   height: 36px;
+  margin-top: 25.5px;
   justify-content: flex-end;
   white-space: nowrap;
 }
@@ -5351,6 +5361,13 @@ body,
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+.policy-compression-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.policy-compression-row + .policy-password-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
 }
 select,
 [data-slot="select-trigger"],
@@ -5459,6 +5476,7 @@ select,
   max-height: 84px;
   line-height: 20px;
   overflow-y: auto;
+  padding-block: 7px;
 }
 .policy-select:focus-visible,
 .policy-textarea:focus-visible {
@@ -5834,8 +5852,15 @@ select,
 }
 .policy-file-exclusions {
   display: block;
+}
+.policy-file-source > .policy-rule-editor {
   padding: 12px;
   border-top: 1px solid var(--border);
+}
+.policy-rule-editor > .small-note,
+.policy-rule-preview > .small-note {
+  margin: 0;
+  line-height: 1.6;
 }
 .policy-file-exclusions textarea {
   margin-top: 8px;
@@ -5911,13 +5936,18 @@ select,
     font-size: 11px;
   }
   .policy-identity-row {
-    grid-template-columns: minmax(0, 1fr) 132px;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
+  }
+  .policy-identity-row > label[for="policy-notes"] {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
   .policy-identity-row .policy-field-label {
     gap: 5px;
   }
-  .policy-grid {
+  .policy-grid,
+  .policy-compression-row + .policy-password-fields {
     grid-template-columns: 1fr;
   }
   .policy-frequency-row,

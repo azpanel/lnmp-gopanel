@@ -488,6 +488,20 @@ export function BackupPolicyEditor({
                             message={fieldError("policy-name")}
                           />
                         </label>
+                        <label htmlFor="policy-notes">
+                          <PolicyLabel icon={NotebookPen}>备注</PolicyLabel>
+                          <textarea
+                            id="policy-notes"
+                            ref={notes}
+                            aria-label="备注"
+                            className="policy-textarea policy-notes"
+                            maxLength={1000}
+                            rows={1}
+                            value={draft.notes}
+                            disabled={disabled}
+                            onChange={(e) => update("notes", e.target.value)}
+                          />
+                        </label>
                         <label className="policy-switch">
                           <Switch
                             aria-label="启用政策"
@@ -498,20 +512,6 @@ export function BackupPolicyEditor({
                           <span>启用政策</span>
                         </label>
                       </div>
-                      <label htmlFor="policy-notes">
-                        <PolicyLabel icon={NotebookPen}>备注</PolicyLabel>
-                        <textarea
-                          id="policy-notes"
-                          ref={notes}
-                          aria-label="备注"
-                          className="policy-textarea policy-notes"
-                          maxLength={1000}
-                          rows={1}
-                          value={draft.notes}
-                          disabled={disabled}
-                          onChange={(e) => update("notes", e.target.value)}
-                        />
-                      </label>
                     </section>
                     <section
                       className="policy-form-group"
@@ -533,7 +533,7 @@ export function BackupPolicyEditor({
                       aria-label="压缩设置"
                     >
                       <h3>压缩设置</h3>
-                      <div className="policy-grid">
+                      <div className="policy-grid policy-compression-row">
                         <PolicySelect
                           label="压缩格式"
                           icon={Archive}
@@ -570,9 +570,6 @@ export function BackupPolicyEditor({
                             })
                           }
                         />
-                      </div>
-                      <div className="policy-grid">
-                        {" "}
                         <PolicySelect
                           label="压缩密码"
                           id="policy-password-action"
@@ -611,83 +608,83 @@ export function BackupPolicyEditor({
                             }));
                           }}
                         />
-                        {draft.password_action === "replace" && (
-                          <div className="policy-password-fields">
-                            <label htmlFor="policy-password">
-                              <PolicyLabel icon={KeyRound}>
-                                新压缩密码
-                              </PolicyLabel>
-                              <Input
-                                id="policy-password"
-                                aria-label="新压缩密码"
-                                aria-invalid={!!fieldError("policy-password")}
-                                aria-describedby={
-                                  fieldError("policy-password")
-                                    ? "policy-password-error"
-                                    : undefined
-                                }
-                                type={showPassword ? "text" : "password"}
-                                autoComplete="new-password"
-                                maxLength={4096}
-                                disabled={disabled}
-                                value={draft.password}
-                                onChange={(e) =>
-                                  update("password", e.target.value)
-                                }
-                              />
-                              <PolicyFieldError
-                                id="policy-password"
-                                message={fieldError("policy-password")}
-                              />
-                            </label>
-                            <label htmlFor="policy-password-confirm">
-                              <PolicyLabel icon={BadgeCheck}>
-                                确认压缩密码
-                              </PolicyLabel>
-                              <Input
-                                id="policy-password-confirm"
-                                aria-label="确认压缩密码"
-                                aria-invalid={
-                                  !!fieldError("policy-password-confirm")
-                                }
-                                aria-describedby={
-                                  fieldError("policy-password-confirm")
-                                    ? "policy-password-confirm-error"
-                                    : undefined
-                                }
-                                type={showPassword ? "text" : "password"}
-                                autoComplete="new-password"
-                                maxLength={4096}
-                                value={confirmation}
-                                disabled={disabled}
-                                onChange={(e) => {
-                                  setConfirmation(e.target.value);
-                                  setError("");
-                                }}
-                              />
-                              <PolicyFieldError
-                                id="policy-password-confirm"
-                                message={fieldError("policy-password-confirm")}
-                              />
-                            </label>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              aria-pressed={showPassword}
-                              disabled={disabled}
-                              onClick={() => setShowPassword(!showPassword)}
-                            >
-                              {showPassword ? (
-                                <EyeOff size={15} />
-                              ) : (
-                                <Eye size={15} />
-                              )}{" "}
-                              {showPassword ? "隐藏密码" : "显示密码"}
-                            </Button>
-                          </div>
-                        )}
                       </div>
+                      {draft.password_action === "replace" && (
+                        <div className="policy-password-fields">
+                          <label htmlFor="policy-password">
+                            <PolicyLabel icon={KeyRound}>
+                              新压缩密码
+                            </PolicyLabel>
+                            <Input
+                              id="policy-password"
+                              aria-label="新压缩密码"
+                              aria-invalid={!!fieldError("policy-password")}
+                              aria-describedby={
+                                fieldError("policy-password")
+                                  ? "policy-password-error"
+                                  : undefined
+                              }
+                              type={showPassword ? "text" : "password"}
+                              autoComplete="new-password"
+                              maxLength={4096}
+                              disabled={disabled}
+                              value={draft.password}
+                              onChange={(e) =>
+                                update("password", e.target.value)
+                              }
+                            />
+                            <PolicyFieldError
+                              id="policy-password"
+                              message={fieldError("policy-password")}
+                            />
+                          </label>
+                          <label htmlFor="policy-password-confirm">
+                            <PolicyLabel icon={BadgeCheck}>
+                              确认压缩密码
+                            </PolicyLabel>
+                            <Input
+                              id="policy-password-confirm"
+                              aria-label="确认压缩密码"
+                              aria-invalid={
+                                !!fieldError("policy-password-confirm")
+                              }
+                              aria-describedby={
+                                fieldError("policy-password-confirm")
+                                  ? "policy-password-confirm-error"
+                                  : undefined
+                              }
+                              type={showPassword ? "text" : "password"}
+                              autoComplete="new-password"
+                              maxLength={4096}
+                              value={confirmation}
+                              disabled={disabled}
+                              onChange={(e) => {
+                                setConfirmation(e.target.value);
+                                setError("");
+                              }}
+                            />
+                            <PolicyFieldError
+                              id="policy-password-confirm"
+                              message={fieldError("policy-password-confirm")}
+                            />
+                          </label>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            aria-pressed={showPassword}
+                            disabled={disabled}
+                            onClick={() => setShowPassword(!showPassword)}
+                          >
+                            {showPassword ? (
+                              <EyeOff size={15} />
+                            ) : (
+                              <Eye size={15} />
+                            )}{" "}
+                            {showPassword ? "隐藏密码" : "显示密码"}
+                          </Button>
+                        </div>
+                      )}
                     </section>
                     <section
                       className="policy-form-group"
