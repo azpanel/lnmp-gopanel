@@ -241,14 +241,72 @@ test("backup runtime loads on demand, refreshes and restores trigger focus", asy
     "数据库导出程序权限不安全",
   );
   const help = dialog.locator(".backup-runtime-help");
-  await expect(help).not.toHaveAttribute("open");
+  const helpToggle = help.getByRole("button", {
+    name: "使用说明",
+    exact: true,
+  });
+  await expect(helpToggle).toHaveAttribute("aria-expanded", "false");
   await expect(help.locator("ul")).not.toBeVisible();
-  await help.locator("summary").click();
+  const samples = await help.evaluate(async (element) => {
+    const scroller = element.closest<HTMLElement>(".backup-runtime-scroll")!;
+    const content = element.querySelector<HTMLElement>(
+      ".backup-runtime-help-content",
+    )!;
+    const sample = () => ({
+      height: content.getBoundingClientRect().height,
+      width: scroller.clientWidth,
+      scrollWidth: scroller.scrollWidth,
+      overflow: scroller.scrollHeight > scroller.clientHeight + 1,
+      horizontalOverflow: scroller.scrollWidth > scroller.clientWidth,
+    });
+    const frames = [sample()];
+    element.querySelector<HTMLButtonElement>("button")!.click();
+    const started = performance.now();
+    await new Promise<void>((resolve) => {
+      const next = () => {
+        frames.push(sample());
+        if (performance.now() - started < 400) requestAnimationFrame(next);
+        else resolve();
+      };
+      requestAnimationFrame(next);
+    });
+    return frames;
+  });
+  await testInfo.attach("help-animation-frames", {
+    body: JSON.stringify(samples),
+    contentType: "application/json",
+  });
+  const expandedHeight = samples.at(-1)!.height;
+  expect(expandedHeight).toBeGreaterThan(0);
+  expect(
+    samples.some(
+      (frame) => frame.height > 1 && frame.height < expandedHeight - 1,
+    ),
+  ).toBe(true);
+  expect(
+    Math.max(...samples.map((frame) => frame.width)) -
+      Math.min(...samples.map((frame) => frame.width)),
+  ).toBeLessThanOrEqual(1);
+  expect(samples.some((frame) => frame.horizontalOverflow)).toBe(false);
+  if (!samples[0].overflow && !samples.at(-1)!.overflow)
+    expect(samples.some((frame) => frame.overflow)).toBe(false);
+  await expect(helpToggle).toHaveAttribute("aria-expanded", "true");
   await expect(help.locator("ul")).toBeVisible();
   await expect(help).toContainText("gdrive 和 rclone 仅在使用对应云存储时需要");
-  await help.locator("summary").focus();
+  expect(reads).toBe(1);
+  await helpToggle.focus();
   await page.keyboard.press("Enter");
   await expect(help.locator("ul")).not.toBeVisible();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await helpToggle.press("Space");
+  await expect(help.locator("ul")).toBeVisible();
+  await expect(help.locator(".backup-runtime-help-content")).toHaveCSS(
+    "transition-duration",
+    "0s",
+  );
+  await helpToggle.press("Space");
+  await expect(help.locator("ul")).not.toBeVisible();
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await expect(dialog).toHaveCSS("background-color", "rgb(255, 255, 255)");
   expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
     true,
@@ -262,12 +320,13 @@ test("backup runtime loads on demand, refreshes and restores trigger focus", asy
     "已就绪",
   );
   expect(reads).toBe(2);
+  await helpToggle.click();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toBeFocused();
   await trigger.click();
   await expect.poll(() => reads).toBe(3);
-  await expect(help).not.toHaveAttribute("open");
+  await expect(helpToggle).toHaveAttribute("aria-expanded", "false");
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toBeFocused();

@@ -5938,14 +5938,21 @@ select,
 .backup-runtime-scroll {
   min-height: 0;
   overflow-y: auto;
-  display: grid;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  overflow-anchor: none;
+  display: flex;
+  flex-direction: column;
   gap: 20px;
+}
+.backup-runtime-scroll > * {
+  flex-shrink: 0;
 }
 .backup-runtime-loading {
   min-height: 160px;
 }
 .backup-runtime-section h3,
-.backup-runtime-help summary {
+.backup-runtime-help-toggle {
   margin: 0 0 10px;
   font-size: 14px;
   font-weight: 600;
@@ -6002,23 +6009,47 @@ select,
   border-top: 1px solid var(--border);
   padding-top: 16px;
 }
-.backup-runtime-help summary {
+.backup-runtime-help-toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
+  padding: 0 4px 0 0;
   margin: 0;
   cursor: pointer;
-  list-style: none;
+  text-align: left;
 }
-.backup-runtime-help summary::-webkit-details-marker {
-  display: none;
+.backup-runtime-help-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+  border-radius: 2px;
 }
-.backup-runtime-help summary > svg {
+.backup-runtime-help-toggle > svg {
   color: var(--muted-foreground);
-  transition: transform var(--motion-feedback) var(--motion-ease);
+  transition: transform var(--motion-page) var(--motion-ease);
 }
-.backup-runtime-help[open] summary > svg {
+.backup-runtime-help-toggle[aria-expanded="true"] > svg {
   transform: rotate(180deg);
+}
+.backup-runtime-help-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--motion-page) var(--motion-ease),
+    opacity var(--motion-overlay) var(--motion-ease),
+    visibility 0s var(--motion-page);
+}
+.backup-runtime-help-content[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+.backup-runtime-help-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 .backup-runtime-help ul {
   margin: 10px 0 0;

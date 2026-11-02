@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArchiveRestore,
@@ -39,6 +39,12 @@ import {
 
 export function BackupRuntimeStatus() {
   const [open, setOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const helpId = useId();
+  const changeOpen = (value: boolean) => {
+    setOpen(value);
+    setHelpOpen(false);
+  };
   const query = useQuery({
     queryKey: ["backup-runtime"],
     queryFn: ({ signal }) => api<BackupRuntime>("/backups/runtime", { signal }),
@@ -69,7 +75,7 @@ export function BackupRuntimeStatus() {
     },
   };
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={changeOpen}>
       <DialogTrigger asChild>
         <Button size="sm" variant="outline">
           <ServerCog size={14} aria-hidden="true" />
@@ -152,18 +158,34 @@ export function BackupRuntimeStatus() {
               </section>
             </>
           )}
-          <details className="backup-runtime-help">
-            <summary>
+          <section className="backup-runtime-help">
+            <button
+              type="button"
+              className="backup-runtime-help-toggle"
+              aria-expanded={helpOpen}
+              aria-controls={helpId}
+              onClick={() => setHelpOpen((value) => !value)}
+            >
               使用说明
               <ChevronDown size={16} aria-hidden="true" />
-            </summary>
-            <ul>
-              <li>缺少或权限不安全的工具，请由管理员安装或修复。</li>
-              <li>gdrive 和 rclone 仅在使用对应云存储时需要。</li>
-              <li>定时认证使用服务器 root 客户端配置或 Socket。</li>
-              <li>表单临时查询密码仅用于查询，不会用于自动备份。</li>
-            </ul>
-          </details>
+            </button>
+            <div
+              id={helpId}
+              className="backup-runtime-help-content"
+              data-open={helpOpen}
+              aria-hidden={!helpOpen}
+              inert={!helpOpen}
+            >
+              <div className="backup-runtime-help-inner">
+                <ul>
+                  <li>缺少或权限不安全的工具，请由管理员安装或修复。</li>
+                  <li>gdrive 和 rclone 仅在使用对应云存储时需要。</li>
+                  <li>定时认证使用服务器 root 客户端配置或 Socket。</li>
+                  <li>表单临时查询密码仅用于查询，不会用于自动备份。</li>
+                </ul>
+              </div>
+            </div>
+          </section>
         </div>
         <DialogFooter>
           <Button
@@ -178,7 +200,7 @@ export function BackupRuntimeStatus() {
             />
             重新检测
           </Button>
-          <Button variant="outline" onClick={() => setOpen(false)}>
+          <Button variant="outline" onClick={() => changeOpen(false)}>
             关闭
           </Button>
         </DialogFooter>
