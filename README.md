@@ -21,27 +21,40 @@
 
 ## 安装与维护
 
-支持 Linux amd64 / arm64，需要运行中的 systemd。以 root 或具备 sudo 权限的账号执行；Debian / Ubuntu 可先安装依赖：
+支持 Linux amd64 / arm64，需要运行中的 systemd。以 root 或具备 sudo 权限的账号执行；Debian / Ubuntu 可使用以下命令安装依赖并下载最新 Release 的安装脚本：
 
 ```bash
-sudo apt-get install -y curl ca-certificates tar gzip sudo
-curl -fsSL https://raw.githubusercontent.com/azpanel/lnmp-gopanel/main/install.sh -o install.sh
-sudo bash install.sh
+sudo apt-get update &&
+sudo apt-get install -y curl ca-certificates tar gzip sudo 7zip mariadb-client &&
+curl -fsSL https://github.com/azpanel/lnmp-gopanel/releases/latest/download/install.sh -o lnmp-gopanel-install.sh &&
+sudo bash lnmp-gopanel-install.sh
 ```
+
+上述依赖包含用于备份压缩的 `7zip` 和提供 `mariadb-dump` 数据库导出工具的 `mariadb-client`。下载的脚本统一保存为 `lnmp-gopanel-install.sh`。
 
 直接运行显示中文管理菜单，可选择安装、更新、卸载、重置密码或配置服务监控。脚本从 GitHub Release 下载对应架构的安装包并校验 SHA-256，创建专用普通账号和 systemd 服务。**安装面板后，LNMP 需按需另行安装。**
 
 首次安装设置管理员密码并选择自签名证书或已有证书。面板仅提供 HTTPS，默认在所有 IPv4 网卡上随机选择空闲端口；安装结束后显示访问地址，请在安全组和防火墙中放行对应 TCP 端口。使用自签名证书时，浏览器需要信任证书。
 
+更新已安装的面板时，先下载最新 Release 的安装脚本，再执行更新：
+
 ```bash
-sudo bash install.sh --update             # 更新面板，保留现有配置与认证状态
-sudo bash install.sh --configure-metrics  # 交互配置服务监控
-sudo bash install.sh --reset-password     # 重置密码，同时清除 TOTP 和恢复码
-sudo bash install.sh --recover            # 离线恢复中断的安装／升级
-sudo bash install.sh --uninstall          # 确认后删除面板、配置、数据及备份
+curl -fsSL https://github.com/azpanel/lnmp-gopanel/releases/latest/download/install.sh -o lnmp-gopanel-install.sh &&
+sudo bash lnmp-gopanel-install.sh --update
 ```
 
-更新会重启面板，已有会话需重新登录。卸载保留 LNMP、网站、数据库、Docker、网站证书与续期任务、系统依赖；面板配置及备份会永久删除，请先保存需要保留的内容。
+更新保留现有配置与认证状态，会重启面板，已有会话需重新登录。
+
+其他维护命令：
+
+```bash
+sudo bash lnmp-gopanel-install.sh --configure-metrics  # 交互配置服务监控
+sudo bash lnmp-gopanel-install.sh --reset-password     # 重置密码，同时清除 TOTP 和恢复码
+sudo bash lnmp-gopanel-install.sh --recover            # 离线恢复中断的安装/升级
+sudo bash lnmp-gopanel-install.sh --uninstall          # 确认后删除面板、配置、数据及备份
+```
+
+卸载保留 LNMP、网站、数据库、Docker、网站证书与续期任务、系统依赖；面板配置及备份会永久删除，请先保存需要保留的内容。
 
 <details>
 <summary>安装参数、离线安装与版本兼容</summary>
@@ -59,7 +72,7 @@ sudo bash install.sh --uninstall          # 确认后删除面板、配置、数
 本地安装示例，arm64 使用对应文件名：
 
 ```bash
-sudo bash install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz
+sudo bash lnmp-gopanel-install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz
 ```
 
 主分支管理脚本和已发布安装包可能有版本差异。脚本会在询问证书和密码前检查 HTTPS 初始化能力，不兼容时明确拒绝；`--check` 也会检查。请使用配套 Release，或从当前源码构建、打包后用 `--archive` 安装。旧版脚本缺少新参数时，应重新下载脚本；仅替换脚本不会增加旧二进制的功能。
@@ -74,7 +87,7 @@ sudo bash install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz
 - 自动生成自签名证书：无需填写域名、组织等表单，自动使用 ECDSA P-256 密钥、随机序列号、一年有效期，以及 localhost、本机主机名和网卡 IP 的 SAN。TLS 最低版本为 1.2，浏览器需要信任该证书；服务器公网 IP 经 NAT 映射时可能不在自动发现的 SAN 中。
 - 借用现有证书：扫描 `/usr/local/nginx/conf/ssl` 下的目录，仅列出存在有效证书及匹配的未加密私钥的目录，支持 `.pem`、`.crt`、`.cer`、`.key` 及 ACME 符号链接，优先使用 fullchain。选择后复制到面板专用目录，不修改源证书或私钥权限。使用证书覆盖的域名访问。
 
-证书和私钥安装到 `/etc/lnmp-gopanel/tls/`，目录权限 `0750`、文件权限 `0640`、所有者 `root:lnmp-panel`。借用的证书不会自动跟随原证书续期；续期后重新执行 `sudo bash install.sh --certificate-dir /usr/local/nginx/conf/ssl/域名`，同步证书并重启面板，已有 HTTPS 端口保持不变。自签名证书可通过 `--tls-mode self-signed` 重新生成。
+证书和私钥安装到 `/etc/lnmp-gopanel/tls/`，目录权限 `0750`、文件权限 `0640`、所有者 `root:lnmp-panel`。借用的证书不会自动跟随原证书续期；续期后重新执行 `sudo bash lnmp-gopanel-install.sh --certificate-dir /usr/local/nginx/conf/ssl/域名`，同步证书并重启面板，已有 HTTPS 端口保持不变。自签名证书可通过 `--tls-mode self-signed` 重新生成。
 
 脚本下载最新 Release 中对应架构的预编译安装包，验证 SHA-256，创建普通服务账号并安装面板、特权辅助程序、精确的 sudoers 规则及 systemd 服务。首次安装交互选择 SSL 证书并设置管理员密码（12–72 字节），检测本机 LNMP / Redis 服务，并启动面板。面板仅提供 HTTPS，监听 `0.0.0.0` 上由系统随机分配的空闲端口；安装完成后显示监听地址和端口，需在安全组及防火墙中放行该 TCP 端口。运行时无需 Go、Node.js 或 OpenSSL。
 
@@ -83,7 +96,7 @@ sudo bash install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz
 <details>
 <summary>可选截图依赖与 Ubuntu 浏览器配置</summary>
 
-如需网站截图，可在 Debian 12/13 或 Ubuntu 22.04/24.04/26.04（amd64 / arm64）使用 `sudo bash install.sh --with-screenshots`，额外安装 Chromium、沙箱组件和中文字体，并以面板普通账号运行截图冒烟检查。已有原生 Chromium/Chrome 时优先复用；其他 Linux 发行版请自行安装浏览器，通过 `screenshots.browser` 指定其绝对路径。普通安装不安装浏览器，缺少浏览器只影响截图功能。`--check` 不安装系统依赖；可选安装产生的系统软件包和 APT 源配置不会在面板文件回滚或卸载时删除。
+如需网站截图，可在 Debian 12/13 或 Ubuntu 22.04/24.04/26.04（amd64 / arm64）使用 `sudo bash lnmp-gopanel-install.sh --with-screenshots`，额外安装 Chromium、沙箱组件和中文字体，并以面板普通账号运行截图冒烟检查。已有原生 Chromium/Chrome 时优先复用；其他 Linux 发行版请自行安装浏览器，通过 `screenshots.browser` 指定其绝对路径。普通安装不安装浏览器，缺少浏览器只影响截图功能。`--check` 不安装系统依赖；可选安装产生的系统软件包和 APT 源配置不会在面板文件回滚或卸载时删除。
 
 Ubuntu 的官方 `chromium-browser` 是转到 Snap 的过渡包，Snap 的账号主目录和文件访问限制与面板账号及截图临时目录不兼容。因此 Ubuntu 自动安装使用第三方 [XtraDeb PPA](https://launchpad.net/~xtradeb/+archive/ubuntu/apps) 提供的原生 deb 包，跳过已有的 Snap 启动脚本，不关闭浏览器沙箱。脚本通过独立密钥文件及完整指纹校验限定签名来源，并将该源限定为仅提供 `chromium*` 软件包；后续可通过 APT 更新。相关配置位于 `/etc/apt/sources.list.d/lnmp-gopanel-chromium.sources`、`/etc/apt/preferences.d/lnmp-gopanel-chromium` 和 `/etc/apt/keyrings/lnmp-gopanel-chromium.asc`。不希望添加第三方源时，请先自行安装原生 Chromium/Chrome。
 
@@ -94,16 +107,16 @@ Ubuntu 24.04 及更新版本若启用了 AppArmor 用户命名空间限制，脚
 <details>
 <summary>升级备份、授权自检与中断恢复</summary>
 
-在菜单选择更新或执行 `sudo bash install.sh --update` 即可从 GitHub Release 升级；带安装参数再次执行也可覆盖升级。已有 HTTPS 配置、端口、证书、管理员密码和 `services.yaml` 会保留。旧版 HTTP 安装升级时会询问证书来源、迁移为随机端口的 HTTPS，并保留管理员凭据及服务配置；原 HTTP 端口不再使用，需调整安全组或反向代理。升级只重启面板服务，不重启 Nginx、PHP、数据库、Redis 或 Docker；已有面板会话需重新登录。替换前的文件保存在 `/var/backups/lnmp-gopanel/`，替换或启动失败时自动恢复旧文件，包含原配置及证书。
+在菜单选择更新或执行 `sudo bash lnmp-gopanel-install.sh --update` 即可从 GitHub Release 升级；带安装参数再次执行也可覆盖升级。已有 HTTPS 配置、端口、证书、管理员密码和 `services.yaml` 会保留。旧版 HTTP 安装升级时会询问证书来源、迁移为随机端口的 HTTPS，并保留管理员凭据及服务配置；原 HTTP 端口不再使用，需调整安全组或反向代理。升级只重启面板服务，不重启 Nginx、PHP、数据库、Redis 或 Docker；已有面板会话需重新登录。替换前的文件保存在 `/var/backups/lnmp-gopanel/`，替换或启动失败时自动恢复旧文件，包含原配置及证书。
 
-旧版本通过 init 启动的业务进程可能仍在面板控制组内，直接重启面板会带停它们。请使用新版 `install.sh`：安装或升级会在替换文件前检查实际控制组及其子组，发现遗留的 Nginx、PHP-FPM、MySQL／MariaDB、Redis 进程时中止并列出 PID；无法可靠检查时也中止。此检查包含 `--no-start`，因为失败回滚同样可能停止面板。实际重启前、恢复停止前，以及脚本的卸载、密码重置和监控配置入口也会检查。独立 systemd 单元或 scope 中的服务、面板自己的截图浏览器不会被误报。被阻止时不要直接重启面板；先在维护窗口通过独立 systemd 单元或 scope 重新托管相关服务，确认进程已离开面板控制组后再重试；仅 reload 不会迁移已有进程。检查不会自动迁移或重启业务服务，升级期间也应避免并发执行旧版服务启停操作。
+旧版本通过 init 启动的业务进程可能仍在面板控制组内，直接重启面板会带停它们。请从上方 Release 下载地址获取新版 `lnmp-gopanel-install.sh`：安装或升级会在替换文件前检查实际控制组及其子组，发现遗留的 Nginx、PHP-FPM、MySQL/MariaDB、Redis 进程时中止并列出 PID；无法可靠检查时也中止。此检查包含 `--no-start`，因为失败回滚同样可能停止面板。实际重启前、恢复停止前，以及脚本的卸载、密码重置和监控配置入口也会检查。独立 systemd 单元或 scope 中的服务、面板自己的截图浏览器不会被误报。被阻止时不要直接重启面板；先在维护窗口通过独立 systemd 单元或 scope 重新托管相关服务，确认进程已离开面板控制组后再重试；仅 reload 不会迁移已有进程。检查不会自动迁移或重启业务服务，升级期间也应避免并发执行旧版服务启停操作。
 
 升级备份同时保存版本化事务记录：九个受管文件（含备份调度 Cron 入口）原先是否存在、内容摘要、权限和所有者，以及面板原先的运行和启用状态。备份和待恢复标记持久化后才开始替换，全部安装检查通过后才提交；事务标记位于 `/var/backups/lnmp-gopanel/pending`。如果升级因强杀、断电等原因中断，下次运行安装或更新命令会在联网和检查安装包之前先恢复旧文件及原服务状态，成功后继续本次安装。恢复过程再次中断也可以重复执行。服务器启动本身不会自动恢复；`--no-start` 只控制本次正常安装，恢复仍按中断事务记录中的原服务状态执行。
 
 仅恢复、不联网或继续升级时运行：
 
 ```bash
-sudo bash install.sh --recover
+sudo bash lnmp-gopanel-install.sh --recover
 ```
 
 没有待恢复事务时该命令直接成功退出，不依赖安装包、curl 或 sudo。`--recover` 不接受安装参数，也不能与其他操作或 `--yes` 合用。存在待恢复事务时，卸载、密码重置和监控配置会停止并提示先恢复；`--check` 和 `--help` 不执行恢复。恢复仅限原有八个受管文件与面板服务，不回退账号、系统依赖或 `/var/lib/lnmp-gopanel` 中的可变数据。旧安装器留下的、没有新事务记录的历史备份不会被自动识别为待恢复事务。
@@ -125,7 +138,7 @@ sudo bash install.sh --recover
 
 系统概览展示实时资源状态，支持暂停查看。采集由后端统一执行，多浏览器共享；图表只在当前页面内存中保留最近 5 分钟，刷新、退出登录后清空，不保存历史指标。
 
-“添加状态指标”可选择磁盘读写、负载、Swap、内存构成、进程排行及服务状态卡片。服务指标需要已有的本机状态接口或数据库监控连接，也可通过 `sudo bash install.sh --configure-metrics` 配置；保存后在概览中勾选对应卡片。
+“添加状态指标”可选择磁盘读写、负载、Swap、内存构成、进程排行及服务状态卡片。服务指标需要已有的本机状态接口或数据库监控连接，也可通过 `sudo bash lnmp-gopanel-install.sh --configure-metrics` 配置；保存后在概览中勾选对应卡片。
 
 <details>
 <summary>采样频率、统计口径与可选指标</summary>
@@ -180,10 +193,10 @@ Nginx 地址须返回 `stub_status` 文本，其中活跃连接包含等待连�
 <details>
 <summary>服务监控配置向导、回滚与只读检查</summary>
 
-下载与当前版本配套的 `install.sh` 和面板程序后，以 root 运行：
+从配套 Release 下载 `install.sh` 并保存为 `lnmp-gopanel-install.sh`，同步更新面板程序后，以 root 运行：
 
 ```bash
-sudo bash install.sh --configure-metrics
+sudo bash lnmp-gopanel-install.sh --configure-metrics
 ```
 
 也可在管理菜单选择“5) 配置服务监控指标”。交互式首次安装成功后会询问是否配置，默认跳过；更新、非交互安装和 `--no-start` 不自动进入。该独立入口不下载或升级软件，不接受安装参数或 `--yes`；旧版二进制没有向导时，会在修改前提示先升级，仅更新脚本无法增加二进制能力。
@@ -599,7 +612,7 @@ sudo systemctl start lnmp-gopanel
 
 命令使用与面板相同的独占文件锁，运行中的面板会阻止离线修改。自定义部署以状态目录所属的服务账号执行，指定实际配置文件路径。此命令用于验证器丢失，不重置忘记的登录密码。
 
-忘记面板登录密码时，标准安装运行 `sudo bash install.sh --reset-password`，或直接运行脚本后选择“重置管理员密码”。输入并确认新密码，规则与账户安全设置一致：至少 15 个字符、最多 72 个 UTF-8 字节，且强度评分至少 3。重置会同时清除 TOTP 和全部恢复码，保留管理员用户名与其他配置；脚本自动停止服务并恢复原先的运行状态，旧会话随重启失效。支持 `--reset-password --password-stdin` 从标准输入读取一行新密码，密码不接受命令行参数。不需要联网或下载安装包；已安装二进制尚不支持此命令时需先升级面板。
+忘记面板登录密码时，标准安装运行 `sudo bash lnmp-gopanel-install.sh --reset-password`，或直接运行脚本后选择“重置管理员密码”。输入并确认新密码，规则与账户安全设置一致：至少 15 个字符、最多 72 个 UTF-8 字节，且强度评分至少 3。重置会同时清除 TOTP 和全部恢复码，保留管理员用户名与其他配置；脚本自动停止服务并恢复原先的运行状态，旧会话随重启失效。支持 `--reset-password --password-stdin` 从标准输入读取一行新密码，密码不接受命令行参数。不需要联网或下载安装包；已安装二进制尚不支持此命令时需先升级面板。
 
 自定义部署先停止面板，再以认证状态目录所属账号执行 `lnmp-gopanel auth reset-password --config PATH`（可加 `--password-stdin`），完成后自行启动服务。密码及二步验证状态原子保存到认证状态文件，不回写 `config.yaml` 的初始化哈希；写入失败时保留原认证信息。若提示密码已重置但服务启动失败，请修复服务后使用新密码登录。
 
