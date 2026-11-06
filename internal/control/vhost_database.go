@@ -81,6 +81,10 @@ func mysqlClientOptions(data []byte) map[string]string {
 }
 
 func localDatabaseConfig(password string) *mysql.Config {
+	return localDatabaseConfigWithReader(password, readTrustedFile)
+}
+
+func localDatabaseConfigWithReader(password string, readFile func(string, int64) ([]byte, error)) *mysql.Config {
 	c := mysql.NewConfig()
 	c.User = "root"
 	c.Net = "unix"
@@ -96,7 +100,7 @@ func localDatabaseConfig(password string) *mysql.Config {
 		}
 	}
 	for _, path := range []string{"/etc/my.cnf", "/etc/mysql/my.cnf", "/root/.my.cnf"} {
-		data, err := readTrustedFile(path, 64*1024)
+		data, err := readFile(path, 64*1024)
 		if err != nil {
 			continue
 		}
@@ -109,7 +113,13 @@ func localDatabaseConfig(password string) *mysql.Config {
 			if opts["user"] != "" {
 				c.User = opts["user"]
 			}
-			c.Passwd = opts["password"]
+		}
+		if path == "/etc/my.cnf" || path == "/root/.my.cnf" {
+			// Missing passwords preserve earlier credentials; explicit empty
+			// passwords clear them for passwordless/socket authentication.
+			if value, ok := opts["password"]; ok {
+				c.Passwd = value
+			}
 		}
 	}
 	if password != "" {
