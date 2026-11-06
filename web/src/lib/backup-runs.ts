@@ -73,6 +73,21 @@ export function backupRunTime(value?: string) {
   return value ? new Date(value).toLocaleString() : "—";
 }
 
+export function backupRunDuration(run: BackupRun, now: number): string {
+  if (!run.started_at) return "—";
+  const end = run.finished_at
+    ? Date.parse(run.finished_at)
+    : activeBackupRun(run)
+      ? now
+      : Number.NaN;
+  const elapsed = end - Date.parse(run.started_at);
+  if (!Number.isFinite(elapsed)) return "—";
+  const seconds = Math.max(0, Math.floor(elapsed / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${hours ? `${hours} 小时 ` : ""}${hours || minutes ? `${minutes} 分 ` : ""}${seconds % 60} 秒`;
+}
+
 export type BackupProgress = {
   total_bytes?: number;
   processed_bytes?: number;

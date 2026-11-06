@@ -41,6 +41,7 @@ import {
   backupETA,
   mergeBackupRuns,
   type BackupStep,
+  backupRunDuration,
   backupRunTime,
   runPhaseLabels,
   runStatusLabels,
@@ -367,6 +368,7 @@ function BackupRunDetails({ runId }: { runId: string }) {
         <span>创建：{backupRunTime(run.created_at)}</span>
         <span>开始：{backupRunTime(run.started_at)}</span>
         <span>结束：{backupRunTime(run.finished_at)}</span>
+        <span>耗时：{backupRunDuration(run, now)}</span>
         {run.scheduled_for && (
           <span>计划：{backupRunTime(run.scheduled_for)}</span>
         )}
