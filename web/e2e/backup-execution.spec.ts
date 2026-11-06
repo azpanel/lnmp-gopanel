@@ -599,6 +599,7 @@ test("history Select merges 100 records, preserves selection and stays beside re
       .evaluate((el) => getComputedStyle(el).fontSize),
   ).toBe("14px");
   await page.keyboard.press("End");
+  await expect(page.getByRole("option").last()).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(dialog).toContainText("政策版本 100");
   const selectedText = await select.textContent();
