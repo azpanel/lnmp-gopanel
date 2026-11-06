@@ -549,12 +549,15 @@ func TestManagedURLPortChangesPreserveQueryAndIgnoreOtherServers(t *testing.T) {
 func TestRecoveryDoesNotOverwriteConcurrentAdministratorChanges(t *testing.T) {
 	f := setupFixture(t)
 	p := collectNginx(t, f)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	f.e.userCheck = func(context.Context, string, []string) error {
 		writeFixture(t, f.e, nginxConfig, "http { # administrator edit\n }", 0644)
+		// Cancel after the edit so slow fixture I/O cannot trigger recovery
+		// before the concurrent administrator change has actually happened.
+		cancel()
 		return errors.New("probe")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
 	_, err := f.e.apply(ctx, p)
 	if err == nil || !strings.Contains(err.Error(), "并发修改文件") {
 		t.Fatal("concurrent edit not reported", err)
