@@ -32,6 +32,20 @@ sudo bash lnmp-gopanel-install.sh
 
 上述依赖包含用于备份压缩的 `7zip` 和提供 `mariadb-dump` 数据库导出工具的 `mariadb-client`。下载的脚本统一保存为 `lnmp-gopanel-install.sh`。
 
+**已有 LNMP 数据库的服务器：保留原有 Socket 配置。** 安装 `mariadb-client` 时，其依赖 `mariadb-common` 可能引入 `/etc/mysql/my.cnf`，将原有 `/etc/my.cnf` 中的 Socket 路径覆盖为 `/run/mysqld/mysqld.sock`。这可能导致数据库在下次服务或系统重启时因目录权限不足而启动失败。安装客户端前先确认原有 Socket 路径，安装后、重启数据库前添加本地覆盖配置。
+
+如果原来使用的是 `/tmp/mysql.sock`，执行以下命令；其他路径请替换为原有值。若该文件已存在，请编辑其中的对应配置并保留其他设置。
+
+```bash
+sudo mkdir -p /etc/mysql/mariadb.conf.d
+sudo tee /etc/mysql/mariadb.conf.d/99-lnmp-local.cnf >/dev/null <<'EOF'
+[client-server]
+socket = /tmp/mysql.sock
+EOF
+```
+
+该配置在系统默认配置之后加载，让客户端和服务端继续使用原有 Socket。仅适用于已有 LNMP 数据库的服务器；空白服务器无需提前设置。若数据库已因此启动失败，修正配置后再启动对应数据库服务。
+
 直接运行显示中文管理菜单，可选择安装、更新、卸载、重置密码或配置服务监控。脚本从 GitHub Release 下载对应架构的安装包并校验 SHA-256，创建专用普通账号和 systemd 服务。**安装面板后，LNMP 需按需另行安装。**
 
 首次安装设置管理员密码并选择自签名证书或已有证书。面板仅提供 HTTPS，默认在所有 IPv4 网卡上随机选择空闲端口；安装结束后显示访问地址，请在安全组和防火墙中放行对应 TCP 端口。使用自签名证书时，浏览器需要信任证书。
