@@ -32,7 +32,8 @@ async function executionFixture(page: Page) {
   let run: BackupRun | undefined;
   let submissions = 0,
     reads = 0,
-    rejection = false;
+    rejection = false,
+    detailFailure = false;
   await page.route("**/api/v1/backups/components", (route) =>
     route.fulfill({ json: { items: [] } }),
   );
@@ -85,9 +86,85 @@ async function executionFixture(page: Page) {
   );
   await page.route(`**/api/v1/backups/runs/${runId}`, (route) => {
     reads++;
+    if (detailFailure)
+      return route.fulfill({
+        status: 500,
+        json: { error: "进度服务暂不可用" },
+      });
     return route.fulfill({ json: run });
   });
   return {
+    get current() {
+      return run!;
+    },
+    failDetails(value: boolean) {
+      detailFailure = value;
+    },
+    progress(percent?: number, kind: "compress" | "deliver" = "compress") {
+      if (!run) throw new Error("No execution to update");
+      const progress =
+        percent == null
+          ? undefined
+          : {
+              total_bytes: 1073741824,
+              processed_bytes: (1073741824 * percent) / 100,
+              percent,
+              eta_seconds: 75,
+              updated_at: new Date().toISOString(),
+              estimated: kind === "compress",
+            };
+      run = {
+        ...run,
+        phase: kind === "deliver" ? "delivery" : "files",
+        steps: [
+          { id: "queued", kind: "queued", status: "succeeded" },
+          { id: "preflight", kind: "preflight", status: "succeeded" },
+          {
+            id: "files-prepare",
+            kind: "prepare",
+            category: "files",
+            status: "succeeded",
+          },
+          {
+            id: "files-compress",
+            kind: "compress",
+            category: "files",
+            status: kind === "compress" ? "running" : "succeeded",
+            progress:
+              kind === "compress"
+                ? progress
+                : {
+                    ...progress!,
+                    percent: 100,
+                    processed_bytes: 1073741824,
+                    estimated: true,
+                  },
+          },
+          {
+            id: "files-verify",
+            kind: "verify",
+            category: "files",
+            status: kind === "compress" ? "pending" : "succeeded",
+          },
+          {
+            id: "files-deliver-0",
+            kind: "deliver",
+            category: "files",
+            destination: { type: "local", path: "/backups/site" },
+            status: kind === "deliver" ? "running" : "pending",
+            progress: kind === "deliver" ? progress : undefined,
+          },
+          {
+            id: "files-cleanup-0",
+            kind: "cleanup",
+            category: "files",
+            destination: { type: "local", path: "/backups/site" },
+            status: "pending",
+          },
+          { id: "finished", kind: "finished", status: "pending" },
+        ],
+      };
+    },
     get submissions() {
       return submissions;
     },
@@ -102,6 +179,24 @@ async function executionFixture(page: Page) {
       run = {
         ...run,
         status: "partial",
+        steps: run.steps?.map((step) => ({
+          ...step,
+          status:
+            step.kind === "finished"
+              ? "partial"
+              : step.kind === "cleanup"
+                ? "failed"
+                : "succeeded",
+          error: step.kind === "cleanup" ? "旧备份已被修改，未删除" : undefined,
+          progress: step.progress
+            ? {
+                ...step.progress,
+                percent: 100,
+                processed_bytes: step.progress.total_bytes,
+                eta_seconds: undefined,
+              }
+            : undefined,
+        })),
         phase: "finished",
         finished_at: "2026-11-02T02:01:00+08:00",
         categories: [
@@ -384,4 +479,134 @@ test("manual backup surfaces duplicate execution conflict without submitting twi
   ).toBeVisible();
   expect(fixture.submissions).toBe(1);
   await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("history timeline shows live byte progress, unknown values and refresh errors", async ({
+  page,
+}, testInfo) => {
+  const fixture = await executionFixture(page);
+  await openBackupExecution(page);
+  await page.getByRole("button", { name: "立即备份", exact: true }).click();
+  fixture.progress();
+  const dialog = page.getByRole("dialog");
+  const compression = dialog.getByRole("progressbar", { name: "压缩文件" });
+  await expect(compression).toBeVisible();
+  await expect(compression).not.toHaveAttribute("aria-valuenow");
+  await expect(dialog).toContainText("计算中");
+  fixture.progress(25);
+  await expect(compression).toHaveAttribute("aria-valuenow", "25");
+  await expect(dialog).toContainText("已处理（估算）");
+  await expect(dialog).toContainText("预计剩余（ETA）：1 分 15 秒");
+  fixture.progress(70);
+  await expect(compression).toHaveAttribute("aria-valuenow", "70");
+  fixture.progress(40, "deliver");
+  const delivery = dialog.getByRole("progressbar", { name: /写入本地/ });
+  await expect(delivery).toHaveAttribute("aria-valuenow", "40");
+  await expect(compression).toHaveAttribute("aria-valuenow", "100");
+  await expect(dialog.getByRole("list", { name: "执行步骤" })).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("backup-history-timeline.png"),
+    fullPage: true,
+  });
+  fixture.failDetails(true);
+  await expect(dialog.getByRole("alert")).toContainText("进度更新失败", {
+    timeout: 15000,
+  });
+  await expect(delivery).toHaveAttribute("aria-valuenow", "40");
+  fixture.failDetails(false);
+  fixture.progress(60, "deliver");
+  await dialog.getByRole("button", { name: "重试", exact: true }).click();
+  await expect(delivery).toHaveAttribute("aria-valuenow", "60");
+  fixture.complete();
+  await expect(
+    dialog.getByRole("heading", { name: "执行详情 · 部分成功" }),
+  ).toBeVisible();
+  await expect(delivery).toHaveAttribute("aria-valuenow", "100");
+  await expect(dialog.locator('[aria-current="step"]')).toHaveCount(0);
+  const reads = fixture.reads;
+  await page.waitForTimeout(1500);
+  expect(fixture.reads).toBe(reads);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await page.waitForTimeout(1200);
+  expect(fixture.reads).toBe(reads);
+});
+
+test("history Select merges 100 records, preserves selection and stays beside refresh", async ({
+  page,
+}, testInfo) => {
+  const fixture = await executionFixture(page);
+  await openBackupExecution(page);
+  await page.getByRole("button", { name: "立即备份", exact: true }).click();
+  const records: BackupRun[] = Array.from({ length: 100 }, (_, index) => ({
+    ...fixture.current,
+    id: (index + 1).toString(16).padStart(32, "0"),
+    status: "succeeded",
+    phase: "finished",
+    revision: index + 1,
+    created_at: new Date(
+      Date.UTC(2026, 10, 6, 12, 0, 0) - index * 60000,
+    ).toISOString(),
+  }));
+  const pages = new Set<number>();
+  await page.route("**/api/v1/backups/policies/*/runs?*", (route) => {
+    const number = Number(
+      new URL(route.request().url()).searchParams.get("page"),
+    );
+    pages.add(number);
+    return route.fulfill({
+      json: {
+        items: records.slice((number - 1) * 20, number * 20),
+        total: 100,
+        page: number,
+        page_size: 20,
+      },
+    });
+  });
+  await page.route("**/api/v1/backups/runs/*", (route) =>
+    route.fulfill({
+      json:
+        records.find((run) => route.request().url().endsWith(run.id)) ??
+        fixture.current,
+    }),
+  );
+  const dialog = page.getByRole("dialog");
+  const refresh = dialog.getByRole("button", { name: "刷新历史", exact: true });
+  await refresh.click();
+  await expect.poll(() => pages.size).toBe(5);
+  const select = dialog.getByRole("combobox", { name: "执行任务" });
+  const selectBox = await select.boundingBox(),
+    refreshBox = await refresh.boundingBox();
+  expect(selectBox).toBeTruthy();
+  expect(refreshBox).toBeTruthy();
+  expect(Math.abs(selectBox!.y - refreshBox!.y)).toBeLessThan(2);
+  expect(refreshBox!.x).toBeGreaterThan(selectBox!.x);
+  expect(await select.evaluate((el) => getComputedStyle(el).fontSize)).toBe(
+    "14px",
+  );
+  await select.click();
+  await expect(page.getByRole("option")).toHaveCount(100);
+  expect(
+    await page
+      .getByRole("option")
+      .first()
+      .evaluate((el) => getComputedStyle(el).fontSize),
+  ).toBe("14px");
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await expect(dialog).toContainText("政策版本 100");
+  const selectedText = await select.textContent();
+  await refresh.click();
+  await expect(select).toHaveText(selectedText!);
+  await expect(dialog).toContainText("政策版本 100");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await expect(dialog.getByRole("button", { name: "上一页" })).toHaveCount(0);
+  await page.screenshot({
+    path: testInfo.outputPath("backup-history-select.png"),
+    fullPage: true,
+  });
 });

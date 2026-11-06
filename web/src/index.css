@@ -6090,50 +6090,156 @@ select,
   overflow: auto;
   padding-right: 4px;
 }
-.backup-run-list {
-  display: grid;
-  gap: 6px;
-  margin: 12px 0;
-}
-.backup-run-row {
+.backup-history-toolbar {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  text-align: left;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: #fff;
-  font-size: 14px;
+  align-items: center;
+  gap: 8px;
 }
-.backup-run-row[aria-pressed="true"] {
-  border-color: var(--primary);
+.backup-history-select {
+  flex: 1;
+  min-width: 0;
+  background: #fff;
+}
+.backup-history-toolbar > button:last-child {
+  flex-shrink: 0;
+  height: 36px;
+}
+.backup-history-select,
+.backup-history-select [data-slot="select-value"],
+.backup-history-options [data-slot="select-item"] {
+  font-size: 14px;
 }
 .backup-run-details {
   margin-top: 18px;
   overflow-wrap: anywhere;
 }
-.backup-run-details h3,
-.backup-run-category h4 {
+.backup-run-details h3 {
   font-size: 14px;
   margin: 12px 0;
 }
-.backup-run-category {
-  margin-top: 12px;
-  border-top: 1px solid var(--border);
+.backup-run-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 10px 0 20px;
 }
-.backup-run-category p {
-  margin: 8px 0;
+.backup-timeline {
+  list-style: none;
+  padding: 0 0 0 6px;
+  margin: 18px 0 0;
 }
-.backup-run-delivery {
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  margin: 8px 0;
+.backup-timeline-step {
+  position: relative;
+  padding: 0 0 24px 24px;
+  border-left: 2px solid var(--border);
+  min-width: 0;
+}
+.backup-timeline-step:last-child {
+  border-left-color: transparent;
+  padding-bottom: 4px;
+}
+.backup-timeline-step::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: -6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d1d5db;
+}
+.backup-timeline-step[data-status="succeeded"]:not(:last-child) {
+  border-left-color: #1677d2;
+}
+.backup-timeline-step[data-status="succeeded"]::before,
+.backup-timeline-step[data-status="running"]::before {
+  background: #1677d2;
+}
+.backup-timeline-step[data-status="running"]::before {
+  box-shadow: 0 0 0 4px #1677d220;
+}
+.backup-timeline-step[data-status="failed"]::before {
+  background: #dc2626;
+}
+.backup-timeline-step[data-status="partial"]::before {
+  background: #d97706;
+}
+.backup-step-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.backup-step-heading h4 {
+  margin: 0;
   font-size: 14px;
+  line-height: 1.5;
+  font-weight: 600;
 }
-.backup-run-delivery strong {
-  font-weight: 500;
+.backup-step-status {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.backup-timeline-step[data-status="running"] .backup-step-status {
+  color: #1677d2;
+}
+.backup-timeline-step[data-status="failed"] .backup-step-status {
+  color: #dc2626;
+}
+.backup-timeline-step p {
+  margin: 6px 0;
+}
+.backup-step-artifact {
+  font-size: 13px;
+}
+.backup-step-progress {
+  margin-top: 10px;
+}
+.backup-progress-heading,
+.backup-progress-metrics {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px 12px;
+  font-size: 12px;
+}
+.backup-progress-metrics {
+  flex-wrap: wrap;
+  color: var(--muted-foreground);
+}
+.backup-progress-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e9edf2;
+  margin: 7px 0;
+}
+.backup-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: #1677d2;
+  transition: width 250ms ease;
+}
+.backup-progress-track[data-failed="true"] .backup-progress-fill {
+  background: #dc2626;
+}
+.backup-progress-track[data-active="true"]
+  .backup-progress-fill[data-indeterminate="true"] {
+  animation: backup-progress-slide 1.5s ease-in-out infinite;
+}
+@keyframes backup-progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .backup-progress-fill {
+    transition: none;
+    animation: none !important;
+  }
 }
 .policy-discard {
   padding: 12px;

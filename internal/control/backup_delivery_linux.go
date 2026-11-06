@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -159,8 +160,38 @@ func (e backupExecutor) gdrive(ctx context.Context, runID, account string, args 
 	out := &limitedBuffer{}
 	cmd.Stdout = out
 	cmd.Stderr = &limitedBuffer{}
-	if err = cmd.Run(); err != nil {
+	var progress *backupProgressLines
+	var objectID string
+	if len(args) > 1 && args[0] == "files" && args[1] == "upload" {
+		info, err := os.Stat(args[len(args)-1])
+		if err != nil {
+			return "", err
+		}
+		total := info.Size()
+		reportBackupProgress(ctx, backupByteSample(total, 0))
+		progress = &backupProgressLines{accept: func(line string) {
+			if match := backupChunkLine.FindStringSubmatch(line); match != nil {
+				start, e1 := strconv.ParseInt(match[1], 10, 64)
+				end, e2 := strconv.ParseInt(match[2], 10, 64)
+				size, e3 := strconv.ParseInt(match[3], 10, 64)
+				if e1 == nil && e2 == nil && e3 == nil && size == total && start >= 0 && start <= end && end < total {
+					reportBackupProgress(ctx, backupByteSample(total, start))
+				}
+			} else if backupDriveID.MatchString(line) {
+				objectID = line
+			}
+		}}
+		cmd.Stdout = progress
+	}
+	err = cmd.Run()
+	if progress != nil {
+		progress.Flush()
+	}
+	if err != nil {
 		return "", errors.New("gdrive 操作失败，请检查账户授权、文件夹权限及网络")
+	}
+	if progress != nil {
+		return objectID, nil
 	}
 	return strings.TrimSpace(string(out.data)), nil
 }
@@ -209,12 +240,26 @@ func (e backupExecutor) rclone(ctx context.Context, args ...string) error {
 	}
 	// Explicit config and a clean environment prevent inherited RCLONE_* options
 	// from redirecting credentials, commands, logs, or the selected destination.
-	command := append([]string{args[0], "--config", config, "--retries", "1", "--low-level-retries", "2"}, args[1:]...)
+	prefix := []string{args[0], "--config", config, "--retries", "1", "--low-level-retries", "2"}
+	if args[0] == "copyto" {
+		prefix = append(prefix, "--use-json-log", "--stats", "1s", "--stats-log-level", "NOTICE")
+	}
+	command := append(prefix, args[1:]...)
 	cmd := exec.CommandContext(ctx, tool, command...)
 	configureProcess(cmd)
 	cmd.Env = backupCommandEnvironment()
 	cmd.Stdout = &limitedBuffer{}
 	cmd.Stderr = &limitedBuffer{}
+	if args[0] == "copyto" {
+		info, err := os.Stat(args[len(args)-2])
+		if err != nil {
+			return err
+		}
+		reportBackupProgress(ctx, backupByteSample(info.Size(), 0))
+		progress := backupRcloneProgress(ctx, info.Size())
+		cmd.Stderr = progress
+		defer progress.Flush()
+	}
 	if err := cmd.Run(); err != nil {
 		return errors.New("rclone 操作失败，请检查远程配置、写入权限及网络")
 	}
@@ -246,7 +291,15 @@ func (e backupExecutor) deliver(ctx context.Context, runID string, d backups.Des
 			out.Close()
 			return "", err
 		}
-		_, err = io.Copy(out, backupContextReader{ctx: ctx, r: in})
+		info, statErr := in.Stat()
+		if statErr != nil {
+			in.Close()
+			out.Close()
+			return "", statErr
+		}
+		reportBackupProgress(ctx, backupByteSample(info.Size(), 0))
+		counter := &backupCountingWriter{ctx: ctx, total: info.Size(), write: out.Write}
+		_, err = io.Copy(counter, backupContextReader{ctx: ctx, r: in})
 		in.Close()
 		if err == nil {
 			err = out.Sync()
@@ -277,7 +330,7 @@ func (e backupExecutor) deliver(ctx context.Context, runID string, d backups.Des
 		}
 		return filepath.Join(resolved, name), nil
 	case "gdrive":
-		id, err := e.gdrive(ctx, runID, d.Account, "files", "upload", "--parent", d.FolderID, "--print-only-id", archive)
+		id, err := e.gdrive(ctx, runID, d.Account, "files", "upload", "--parent", d.FolderID, "--print-only-id", "--print-chunk-info", archive)
 		if err == nil && !backupDriveID.MatchString(id) {
 			err = errors.New("gdrive 未返回有效文件 ID，未清理旧备份")
 		}

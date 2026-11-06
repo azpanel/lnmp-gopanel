@@ -1,5 +1,5 @@
-import { useId, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useId, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArchiveRestore,
   Clock3,
@@ -21,6 +21,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Progress } from "@/components/ui/progress";
 import { api } from "@/lib/api";
 import {
   destinationLabel,
@@ -29,6 +37,10 @@ import {
 } from "@/lib/backup-policies";
 import {
   activeBackupRun,
+  backupTimeline,
+  backupETA,
+  mergeBackupRuns,
+  type BackupStep,
   backupRunTime,
   runPhaseLabels,
   runStatusLabels,
@@ -209,18 +221,92 @@ export function BackupRuntimeStatus() {
   );
 }
 
+const stepStatusLabels: Record<string, string> = {
+  ...runStatusLabels,
+  pending: "等待执行",
+  running: "执行中",
+};
+function stepTitle(step: BackupStep) {
+  const category = step.category === "databases" ? "数据库" : "文件";
+  const destination = step.destination
+    ? destinationLabel(step.destination)
+    : "";
+  const titles: Record<string, string> = {
+    queued: "等待执行",
+    preflight: "执行前检查",
+    prepare: step.category === "databases" ? "导出数据库" : "准备备份文件",
+    compress: `压缩${category}`,
+    verify: `校验${category}备份`,
+    deliver: `${step.destination?.type === "local" ? "写入本地" : "上传备份"} · ${destination}`,
+    cleanup: `清理旧版本 · ${destination}`,
+    finished: "执行结果",
+    legacy: `${category}备份`,
+  };
+  return titles[step.kind] ?? runPhaseLabels[step.kind] ?? step.kind;
+}
+
+function StepProgress({ step, now }: { step: BackupStep; now: number }) {
+  const progress = step.progress;
+  if (!progress && !["compress", "deliver"].includes(step.kind)) return null;
+  if (!progress && step.status !== "running") return null;
+  const percent = progress?.percent;
+  const value =
+    percent != null && Number.isFinite(percent)
+      ? Math.min(100, Math.max(0, percent))
+      : undefined;
+  const bytes = (value?: number) =>
+    value == null ? "—" : readableBytes(value);
+  return (
+    <div className="backup-step-progress">
+      <div className="backup-progress-heading">
+        <span>{stepStatusLabels[step.status] ?? step.status}</span>
+        <strong>
+          {value == null ? "进度待更新" : `${Math.round(value)}%`}
+        </strong>
+      </div>
+      <Progress
+        value={value}
+        active={step.status === "running"}
+        failed={step.status === "failed" || step.status === "cancelled"}
+        aria-label={stepTitle(step)}
+      />
+      <div className="backup-progress-metrics">
+        <span>
+          已处理{progress?.estimated ? "（估算）" : ""}{" "}
+          {bytes(progress?.processed_bytes)} / 总量{" "}
+          {bytes(progress?.total_bytes)}
+        </span>
+        <span>
+          预计剩余（ETA）：
+          {progress
+            ? backupETA(progress, step.status === "running", now)
+            : "计算中"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function BackupRunDetails({ runId }: { runId: string }) {
   const query = useQuery({
     queryKey: ["backup-run", runId],
     queryFn: ({ signal }) =>
       api<BackupRun>(`/backups/runs/${runId}`, { signal }),
-    refetchInterval: (q) => (activeBackupRun(q.state.data) ? 3000 : false),
+    refetchInterval: (q) => (activeBackupRun(q.state.data) ? 1000 : false),
+    refetchOnWindowFocus: false,
   });
+  const [now, setNow] = useState(Date.now);
+  const running = activeBackupRun(query.data);
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [running]);
   if (query.isPending) return <p role="status">正在读取执行详情…</p>;
-  if (query.error)
+  if (!query.data)
     return (
       <p role="alert">
-        {query.error.message}
+        {query.error?.message}
         <Button
           variant="outline"
           size="sm"
@@ -239,16 +325,24 @@ function BackupRunDetails({ runId }: { runId: string }) {
         {run.trigger === "manual" ? "手动触发" : "计划触发"} ·{" "}
         {runPhaseLabels[run.phase] ?? run.phase}
       </p>
-      <p className="small-note">
-        创建：{backupRunTime(run.created_at)}
-        <br />
-        开始：{backupRunTime(run.started_at)}
-        <br />
-        结束：{backupRunTime(run.finished_at)}
-      </p>
-      {run.scheduled_for && (
-        <p className="small-note">
-          计划时间：{backupRunTime(run.scheduled_for)}
+      <div className="backup-run-times small-note">
+        <span>创建：{backupRunTime(run.created_at)}</span>
+        <span>开始：{backupRunTime(run.started_at)}</span>
+        <span>结束：{backupRunTime(run.finished_at)}</span>
+        {run.scheduled_for && (
+          <span>计划：{backupRunTime(run.scheduled_for)}</span>
+        )}
+      </div>
+      {query.error && (
+        <p className="form-error" role="alert">
+          进度更新失败：{query.error.message}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void query.refetch()}
+          >
+            重试
+          </Button>
         </p>
       )}
       {run.error && (
@@ -256,42 +350,62 @@ function BackupRunDetails({ runId }: { runId: string }) {
           {run.error}
         </p>
       )}
-      {run.categories.map((category) => (
-        <article className="backup-run-category" key={category.category}>
-          <h4>
-            {category.category === "databases" ? "数据库备份" : "文件备份"} ·{" "}
-            {runStatusLabels[category.status] ?? category.status}
-          </h4>
-          {category.error && <p className="form-error">{category.error}</p>}
-          {category.name && (
-            <>
-              <p>
-                {category.name} · {readableBytes(category.bytes)}
-              </p>
-              <p className="small-note">
-                SHA-256：<code>{category.sha256}</code>
-              </p>
-            </>
-          )}
-          {category.deliveries.map((delivery, index) => (
-            <div className="backup-run-delivery" key={index}>
-              <strong>
-                {destinationLabel(delivery.destination)} ·{" "}
-                {runStatusLabels[delivery.status] ?? delivery.status}
-              </strong>
-              {delivery.object && (
-                <p className="small-note">存储位置：{delivery.object}</p>
-              )}
-              {delivery.error && <p className="form-error">{delivery.error}</p>}
-              {delivery.cleanup_error && (
-                <p className="form-error">
-                  旧版本清理：{delivery.cleanup_error}
+      <ol className="backup-timeline" aria-label="执行步骤">
+        {backupTimeline(run).map((step) => {
+          const category = run.categories.find(
+            (item) => item.category === step.category,
+          );
+          const delivery = category?.deliveries.find(
+            (item) =>
+              step.destination &&
+              JSON.stringify(item.destination) ===
+                JSON.stringify(step.destination),
+          );
+          return (
+            <li
+              key={step.id}
+              className="backup-timeline-step"
+              data-status={step.status}
+              aria-current={step.status === "running" ? "step" : undefined}
+            >
+              <div className="backup-step-heading">
+                <h4>{stepTitle(step)}</h4>
+                <span className="backup-step-status">
+                  {stepStatusLabels[step.status] ?? step.status}
+                </span>
+              </div>
+              {(step.started_at || step.finished_at) && (
+                <p className="small-note">
+                  {step.started_at && `开始 ${backupRunTime(step.started_at)}`}
+                  {step.started_at && step.finished_at && " · "}
+                  {step.finished_at &&
+                    `结束 ${backupRunTime(step.finished_at)}`}
                 </p>
               )}
-            </div>
-          ))}
-        </article>
-      ))}
+              {step.error && (
+                <p className="form-error">
+                  {step.kind === "cleanup" ? "旧版本清理：" : ""}
+                  {step.error}
+                </p>
+              )}
+              <StepProgress step={step} now={now} />
+              {["verify", "legacy"].includes(step.kind) && category?.name && (
+                <div className="backup-step-artifact">
+                  <p>
+                    {category.name} · {readableBytes(category.bytes)}
+                  </p>
+                  <p className="small-note">
+                    SHA-256：<code>{category.sha256}</code>
+                  </p>
+                </div>
+              )}
+              {step.kind === "deliver" && delivery?.object && (
+                <p className="small-note">存储位置：{delivery.object}</p>
+              )}
+            </li>
+          );
+        })}
+      </ol>
     </section>
   );
 }
@@ -303,18 +417,62 @@ export function BackupRunHistory({
   policy: PolicySummary;
   onClose: () => void;
 }) {
-  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<string>();
+  const [refreshing, setRefreshing] = useState(false);
+  const queryClient = useQueryClient();
   const query = useQuery({
-    queryKey: ["backup-runs", policy.id, page],
+    queryKey: ["backup-runs", policy.id, 1],
     queryFn: ({ signal }) =>
-      api<BackupRunList>(`/backups/policies/${policy.id}/runs?page=${page}`, {
+      api<BackupRunList>(`/backups/policies/${policy.id}/runs?page=1`, {
         signal,
       }),
     refetchInterval: (q) =>
       q.state.data?.items.some(activeBackupRun) ? 3000 : false,
+    refetchOnWindowFocus: false,
   });
-  const current = selected ?? query.data?.items[0]?.id;
+  const pageCount = Math.min(
+    5,
+    Math.ceil((query.data?.total ?? 0) / (query.data?.page_size ?? 20)),
+  );
+  const older = useQuery({
+    queryKey: ["backup-runs-older", policy.id, pageCount],
+    queryFn: async ({ signal }) => {
+      const pages = await Promise.all(
+        Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) =>
+          api<BackupRunList>(
+            `/backups/policies/${policy.id}/runs?page=${index + 2}`,
+            { signal },
+          ),
+        ),
+      );
+      return pages.flatMap((page) => page.items);
+    },
+    enabled: !!query.data && pageCount > 1,
+    refetchOnWindowFocus: false,
+  });
+  const runs = mergeBackupRuns(query.data?.items ?? [], older.data ?? []);
+  const current = runs.some((run) => run.id === selected)
+    ? selected
+    : runs[0]?.id;
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        query.refetch(),
+        ...(pageCount > 1 ? [older.refetch()] : []),
+        ...(current
+          ? [
+              queryClient.refetchQueries({
+                queryKey: ["backup-run", current],
+                exact: true,
+              }),
+            ]
+          : []),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
   return (
     <Dialog
       open
@@ -330,67 +488,57 @@ export function BackupRunHistory({
           </DialogDescription>
         </DialogHeader>
         <div className="backup-history-scroll">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={query.isFetching}
-            onClick={() => void query.refetch()}
-          >
-            刷新历史
-          </Button>
-          {query.isPending ? (
-            <p role="status">正在读取执行历史…</p>
-          ) : query.error ? (
-            <p role="alert">{query.error.message}</p>
-          ) : (
-            <>
-              {!query.data.items.length && <p>暂无执行记录。</p>}
-              <div className="backup-run-list">
-                {query.data.items.map((run) => (
-                  <button
-                    type="button"
-                    key={run.id}
-                    className="backup-run-row"
-                    aria-pressed={current === run.id}
-                    onClick={() => setSelected(run.id)}
-                  >
-                    <span>{backupRunTime(run.created_at)}</span>
-                    <span>
-                      {run.trigger === "manual" ? "手动" : "计划"} ·{" "}
-                      {runStatusLabels[run.status]}
-                    </span>
-                  </button>
+          <div className="backup-history-toolbar">
+            <Select
+              value={current ?? ""}
+              onValueChange={setSelected}
+              disabled={!runs.length}
+            >
+              <SelectTrigger
+                className="backup-history-select"
+                aria-label="执行任务"
+              >
+                <SelectValue
+                  placeholder={
+                    query.isPending ? "正在读取执行历史…" : "暂无执行记录"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent className="backup-history-options">
+                {runs.map((run) => (
+                  <SelectItem key={run.id} value={run.id}>
+                    {backupRunTime(run.created_at)} ·{" "}
+                    {run.trigger === "manual" ? "手动" : "计划"} ·{" "}
+                    {runStatusLabels[run.status]}
+                  </SelectItem>
                 ))}
-              </div>
-              {query.data.total > query.data.page_size && (
-                <div className="policy-inline">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={page <= 1}
-                    onClick={() => {
-                      setSelected(undefined);
-                      setPage(page - 1);
-                    }}
-                  >
-                    上一页
-                  </Button>
-                  <span>第 {page} 页</span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={page * query.data.page_size >= query.data.total}
-                    onClick={() => {
-                      setSelected(undefined);
-                      setPage(page + 1);
-                    }}
-                  >
-                    下一页
-                  </Button>
-                </div>
-              )}
-            </>
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={refreshing}
+              onClick={() => void refresh()}
+            >
+              <RefreshCw
+                size={14}
+                className={refreshing ? "animate-spin" : ""}
+                aria-hidden="true"
+              />
+              刷新历史
+            </Button>
+          </div>
+          {(query.error || older.error) && (
+            <p role="alert" className="form-error">
+              历史更新失败：{query.error?.message ?? older.error?.message}
+            </p>
           )}
+          {older.isFetching && (
+            <p role="status" className="small-note">
+              正在读取更多执行记录…
+            </p>
+          )}
+          {query.data && !runs.length && <p>暂无执行记录。</p>}
           {current && <BackupRunDetails key={current} runId={current} />}
         </div>
       </DialogContent>

@@ -21,6 +21,7 @@ export type BackupRun = {
   finished_at?: string;
   scheduled_for?: string;
   error?: string;
+  steps?: BackupStep[];
   categories: {
     category: "databases" | "files";
     status: string;
@@ -70,4 +71,100 @@ export function activeBackupRun(run?: BackupRun) {
 }
 export function backupRunTime(value?: string) {
   return value ? new Date(value).toLocaleString() : "—";
+}
+
+export type BackupProgress = {
+  total_bytes?: number;
+  processed_bytes?: number;
+  percent?: number;
+  eta_seconds?: number;
+  updated_at: string;
+  estimated?: boolean;
+};
+export type BackupStep = {
+  id: string;
+  kind: string;
+  category?: "databases" | "files";
+  destination?: Destination;
+  status: string;
+  started_at?: string;
+  finished_at?: string;
+  error?: string;
+  progress?: BackupProgress;
+};
+
+export function mergeBackupRuns(...pages: BackupRun[][]): BackupRun[] {
+  const runs = new Map<string, BackupRun>();
+  for (const page of pages)
+    for (const run of page) if (!runs.has(run.id)) runs.set(run.id, run);
+  return [...runs.values()]
+    .sort(
+      (a, b) =>
+        b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id),
+    )
+    .slice(0, 100);
+}
+
+export function backupTimeline(run: BackupRun): BackupStep[] {
+  if (run.steps?.length) return run.steps;
+  const steps: BackupStep[] = [];
+  for (const category of run.categories) {
+    steps.push({
+      id: category.category,
+      kind: "legacy",
+      category: category.category,
+      status: category.status,
+      error: category.error,
+    });
+    category.deliveries.forEach((delivery, index) => {
+      steps.push({
+        id: `${category.category}-delivery-${index}`,
+        kind: "deliver",
+        category: category.category,
+        destination: delivery.destination,
+        status: delivery.status,
+        error: delivery.error,
+      });
+      if (delivery.cleanup_error)
+        steps.push({
+          id: `${category.category}-cleanup-${index}`,
+          kind: "cleanup",
+          category: category.category,
+          destination: delivery.destination,
+          status: "failed",
+          error: delivery.cleanup_error,
+        });
+    });
+  }
+  if (!steps.length && activeBackupRun(run))
+    steps.push({ id: "current", kind: run.phase, status: "running" });
+  if (!activeBackupRun(run))
+    steps.push({
+      id: "finished",
+      kind: "finished",
+      status: run.status,
+      finished_at: run.finished_at,
+      error: run.error,
+    });
+  return steps;
+}
+
+export function backupETA(
+  progress: BackupProgress,
+  running: boolean,
+  now = Date.now(),
+): string {
+  if (!running) return "—";
+  if (
+    progress.eta_seconds == null ||
+    !Number.isFinite(progress.eta_seconds) ||
+    progress.eta_seconds < 0 ||
+    now - Date.parse(progress.updated_at) > 15000
+  )
+    return "计算中";
+  const seconds = Math.ceil(progress.eta_seconds);
+  if (seconds < 60) return `${seconds} 秒`;
+  if (seconds < 3600)
+    return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+  return `${Math.floor(seconds / 3600)} 小时 ${Math.floor((seconds % 3600) / 60)} 分`;
 }

@@ -24,6 +24,28 @@ type Run struct {
 	ScheduledFor *time.Time       `json:"scheduled_for,omitempty"`
 	Error        string           `json:"error,omitempty"`
 	Categories   []CategoryResult `json:"categories"`
+	Steps        []RunStep        `json:"steps,omitempty"`
+}
+
+type RunStep struct {
+	ID          string       `json:"id"`
+	Kind        string       `json:"kind"`
+	Category    string       `json:"category,omitempty"`
+	Destination *Destination `json:"destination,omitempty"`
+	Status      string       `json:"status"`
+	StartedAt   *time.Time   `json:"started_at,omitempty"`
+	FinishedAt  *time.Time   `json:"finished_at,omitempty"`
+	Error       string       `json:"error,omitempty"`
+	Progress    *RunProgress `json:"progress,omitempty"`
+}
+
+type RunProgress struct {
+	TotalBytes     *int64    `json:"total_bytes,omitempty"`
+	ProcessedBytes *int64    `json:"processed_bytes,omitempty"`
+	Percent        *float64  `json:"percent,omitempty"`
+	ETASeconds     *int64    `json:"eta_seconds,omitempty"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	Estimated      bool      `json:"estimated,omitempty"`
 }
 
 type CategoryResult struct {

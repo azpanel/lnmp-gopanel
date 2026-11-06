@@ -164,6 +164,7 @@ func (s backupPolicyStore) list() ([]backups.PolicySummary, error) {
 			return nil, loadErr
 		}
 		j.Categories = []backups.CategoryResult{}
+		j.Steps = nil
 		latest[ref.PolicyID] = j.Run
 	}
 	summaries := make([]backups.PolicySummary, 0, len(policies))

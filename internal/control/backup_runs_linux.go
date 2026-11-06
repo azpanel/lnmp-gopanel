@@ -191,6 +191,7 @@ func (e backupExecutor) saveRun(j *storedBackupRun) error {
 	j.UpdatedAt = e.now().UTC()
 	j.Error = backupDiagnostic(j.Error)
 	if !backups.ActiveRun(j.Status) {
+		finishBackupSteps(j, j.UpdatedAt)
 		j.Snapshot = nil
 	}
 	if err := privateBackupDirectory(filepath.Dir(e.runPath(j.ID))); err != nil {
@@ -211,6 +212,15 @@ func (e backupExecutor) update(j *storedBackupRun) error {
 	for n := range i.Runs {
 		if i.Runs[n].ID == j.ID {
 			if !backups.ActiveRun(i.Runs[n].Status) {
+				return errBackupRunFinished
+			}
+			// A previous writer may have committed the terminal run before an
+			// index write failed. Never resurrect it from a stale worker copy.
+			current, loadErr := e.loadRun(j.ID)
+			if loadErr != nil {
+				return loadErr
+			}
+			if !backups.ActiveRun(current.Status) {
 				return errBackupRunFinished
 			}
 			if err = e.saveRun(j); err != nil {
@@ -239,6 +249,7 @@ func (e backupExecutor) enqueue(i *backupRunIndex, p storedBackupPolicy, trigger
 		return storedBackupRun{}, err
 	}
 	j := storedBackupRun{Run: backups.Run{ID: id, PolicyID: p.ID, PolicyName: p.Name, Revision: p.Revision, Trigger: trigger, Status: "queued", Phase: "queued", CreatedAt: e.now().UTC(), ScheduledFor: scheduled, Categories: []backups.CategoryResult{}}, Snapshot: &p}
+	j.Steps = backupSteps(p, j.CreatedAt)
 	if err = e.saveRun(&j); err != nil {
 		return j, err
 	}
@@ -573,6 +584,7 @@ func (e backupExecutor) list(r backups.RunQuery) (backups.RunList, error) {
 			return result, loadErr
 		}
 		j.Categories = []backups.CategoryResult{}
+		j.Steps = nil
 		result.Items = append(result.Items, j.Run)
 	}
 	return result, nil

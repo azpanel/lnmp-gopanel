@@ -204,6 +204,7 @@ func TestBackupFileExecutionPublishesCompleteArchiveAndHandlesPartialDelivery(t 
 	}
 	// Simulate a remote becoming unavailable after configuration was saved.
 	stored.Snapshot.Destinations = append(stored.Snapshot.Destinations, backups.Destination{Type: "gdrive", Account: "gone", FolderID: "root"})
+	stored.Steps = backupSteps(*stored.Snapshot, stored.CreatedAt)
 	if err = e.update(&stored); err != nil {
 		t.Fatal(err)
 	}
@@ -213,6 +214,15 @@ func TestBackupFileExecutionPublishesCompleteArchiveAndHandlesPartialDelivery(t 
 	stored, err = e.loadRun(j.ID)
 	if err != nil || stored.Status != "partial" || len(stored.Categories) != 1 {
 		t.Fatal(stored, err)
+	}
+	for _, id := range []string{"files-compress", "files-deliver-0"} {
+		step := backupStep(&stored, id)
+		if step == nil || step.Status != "succeeded" || step.Progress == nil || *step.Progress.Percent != 100 {
+			t.Fatal("completed progress missing", id, step)
+		}
+	}
+	if backupStep(&stored, "files-deliver-1").Status != "failed" || backupStep(&stored, "files-cleanup-1").Status != "skipped" {
+		t.Fatal("failed delivery timeline incorrect")
 	}
 	category := stored.Categories[0]
 	if category.Status != "partial" || category.Deliveries[0].Status != "succeeded" || category.Deliveries[1].Status != "failed" {

@@ -124,6 +124,21 @@ func (s backupPolicyStore) decryptBackupPassword(p storedBackupPolicy) ([]byte, 
 
 func (e backupExecutor) executeRun(ctx context.Context, j *storedBackupRun) error {
 	p := j.Snapshot
+	if len(j.Steps) == 0 && p != nil {
+		j.Steps = backupSteps(*p, j.CreatedAt)
+	}
+	now := e.now().UTC()
+	if s := backupStep(j, "queued"); s != nil {
+		s.Status = "succeeded"
+		s.FinishedAt = &now
+	}
+	if s := backupStep(j, "preflight"); s != nil {
+		s.Status = "running"
+		s.StartedAt = &now
+	}
+	if err := e.update(j); err != nil {
+		return err
+	}
 	if p == nil || p.ID != j.PolicyID {
 		return errors.New("备份政策快照无效")
 	}
@@ -165,6 +180,11 @@ func (e backupExecutor) executeRun(ctx context.Context, j *storedBackupRun) erro
 	if err = os.Mkdir(work, 0700); err != nil {
 		return errors.New("备份暂存目录已存在或不可创建")
 	}
+	now = e.now().UTC()
+	if s := backupStep(j, "preflight"); s != nil {
+		s.Status = "succeeded"
+		s.FinishedAt = &now
+	}
 	successes, failures := 0, 0
 	for _, category := range []string{"databases", "files"} {
 		if category == "databases" && !p.Databases.Enabled || category == "files" && len(p.Files) == 0 {
@@ -182,29 +202,44 @@ func (e backupExecutor) executeRun(ctx context.Context, j *storedBackupRun) erro
 			return err
 		}
 		manifest := backupManifest{Version: 1, PolicyID: p.ID, RunID: j.ID, Revision: p.Revision, Category: category, CreatedAt: j.CreatedAt, Sources: []backupManifestSource{}}
-		if category == "databases" {
-			err = e.stageBackupDatabases(ctx, p.Databases, stage, &manifest)
-		} else {
-			if filePathError != "" {
+		err = e.runStep(ctx, j, category+"-prepare", func(ctx context.Context) error {
+			if category == "databases" {
+				err = e.stageBackupDatabases(ctx, p.Databases, stage, &manifest)
+			} else if filePathError != "" {
 				err = errors.New(filePathError)
 			} else {
 				err = e.stageBackupFiles(ctx, p.Files, stage, &manifest)
 			}
-		}
-		if err == nil {
-			err = writeBackupJSON(filepath.Join(stage, "manifest.json"), manifest)
-		}
+			if err != nil {
+				return err
+			}
+			return writeBackupJSON(filepath.Join(stage, "manifest.json"), manifest)
+		})
 		name := backupArchiveName(*j, category)
 		archive := filepath.Join(work, name)
 		if err == nil {
-			err = compressBackupArchive(ctx, tool, stage, archive, p.Compression, password)
+			err = e.runStep(ctx, j, category+"-compress", func(ctx context.Context) error {
+				return createBackupArchive(ctx, tool, stage, archive, p.Compression, password)
+			})
 		}
 		if err == nil {
-			result.Bytes, result.SHA256, err = backupFileDigest(ctx, archive)
+			err = e.runStep(ctx, j, category+"-verify", func(ctx context.Context) error {
+				if err := verifyBackupArchive(ctx, tool, stage, archive, password); err != nil {
+					return err
+				}
+				var digestErr error
+				result.Bytes, result.SHA256, digestErr = backupFileDigest(ctx, archive)
+				return digestErr
+			})
 		}
 		if err != nil {
 			result.Status = "failed"
 			result.Error = backupDiagnostic(err.Error())
+			for i := range j.Steps {
+				if j.Steps[i].Category == category && j.Steps[i].Status == "pending" {
+					j.Steps[i].Status = "skipped"
+				}
+			}
 			failures++
 		} else {
 			result.Name = name
@@ -214,29 +249,38 @@ func (e backupExecutor) executeRun(ctx context.Context, j *storedBackupRun) erro
 			if err = e.update(j); err != nil {
 				return err
 			}
-			for _, destination := range p.Destinations {
+			for destinationIndex, destination := range p.Destinations {
 				delivery := backups.Delivery{Destination: destination, Status: "failed"}
-				object, deliveryErr := e.deliver(ctx, j.ID, destination, archive, name)
+				var object string
+				deliveryErr := e.runStep(ctx, j, fmt.Sprintf("%s-deliver-%d", category, destinationIndex), func(ctx context.Context) error {
+					var err error
+					object, err = e.deliver(ctx, j.ID, destination, archive, name)
+					return err
+				})
 				if deliveryErr == nil {
 					delivery.Status = "succeeded"
 					delivery.Object = object
 					successes++
 					receipt := backupArtifact{PolicyID: p.ID, RunID: j.ID, Category: category, Destination: destination, Object: object, Name: name, Bytes: result.Bytes, SHA256: result.SHA256, CreatedAt: e.now().UTC()}
-					if receiptErr := e.recordArtifact(receipt); receiptErr != nil {
-						delivery.CleanupError = "备份已交付，但无法保存产物索引，未清理旧备份"
-						failures++
-					} else {
+					cleanupErr := e.runStep(ctx, j, fmt.Sprintf("%s-cleanup-%d", category, destinationIndex), func(ctx context.Context) error {
+						if err := e.recordArtifact(receipt); err != nil {
+							return errors.New("备份已交付，但无法保存产物索引，未清理旧备份")
+						}
 						keep := p.Retention.Files
 						if category == "databases" {
 							keep = p.Retention.Databases
 						}
-						if cleanupErr := e.retainArtifacts(ctx, j.ID, receipt, keep); cleanupErr != nil {
-							delivery.CleanupError = backupDiagnostic(cleanupErr.Error())
-							failures++
-						}
+						return e.retainArtifacts(ctx, j.ID, receipt, keep)
+					})
+					if cleanupErr != nil {
+						delivery.CleanupError = backupDiagnostic(cleanupErr.Error())
+						failures++
 					}
 				} else {
 					delivery.Error = backupDiagnostic(deliveryErr.Error())
+					if step := backupStep(j, fmt.Sprintf("%s-cleanup-%d", category, destinationIndex)); step != nil {
+						step.Status = "skipped"
+					}
 					failures++
 				}
 				result.Deliveries = append(result.Deliveries, delivery)
@@ -625,10 +669,16 @@ func backupCommandEnvironment() []string {
 	return []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin", "LANG=C.UTF-8", "LC_ALL=C.UTF-8"}
 }
 func compressBackupArchive(ctx context.Context, tool, stage, archive string, c backups.Compression, password []byte) error {
+	if err := createBackupArchive(ctx, tool, stage, archive, c, password); err != nil {
+		return err
+	}
+	return verifyBackupArchive(ctx, tool, stage, archive, password)
+}
+func createBackupArchive(ctx context.Context, tool, stage, archive string, c backups.Compression, password []byte) error {
 	if err := backups.ValidateCompressionPassword(c.Format, string(password)); err != nil {
 		return err
 	}
-	args := []string{"a", "-t" + c.Format, fmt.Sprintf("-mx=%d", c.Level), "-y", "-bd", "-bb0"}
+	args := []string{"a", "-t" + c.Format, fmt.Sprintf("-mx=%d", c.Level), "-y", "-bsp1", "-bb0"}
 	if len(password) > 0 {
 		args = append(args, "-p")
 		if c.Format == "zip" {
@@ -641,6 +691,9 @@ func compressBackupArchive(ctx context.Context, tool, stage, archive string, c b
 	if err := runBackupArchiveCommand(ctx, tool, stage, args, password); err != nil {
 		return errors.New("压缩失败，请检查 7-Zip 兼容性及可用磁盘空间")
 	}
+	return nil
+}
+func verifyBackupArchive(ctx context.Context, tool, stage, archive string, password []byte) error {
 	check := []string{"t", "-bd", "-bb0"}
 	// On read, a bare -p defines an empty password and suppresses the prompt.
 	// Omit it so 7-Zip requests the real password through standard input.
@@ -657,6 +710,16 @@ func runBackupArchiveCommand(ctx context.Context, tool, dir string, args []strin
 	cmd.Env = backupCommandEnvironment()
 	cmd.Stdout = &limitedBuffer{}
 	cmd.Stderr = &limitedBuffer{}
+	if len(args) > 0 && args[0] == "a" {
+		total, err := backupStagedBytes(dir)
+		if err != nil {
+			return err
+		}
+		reportBackupProgress(ctx, backupProgressSample{total: total, processed: 0, percent: -1, estimated: true})
+		progress := backupCompressionProgress(ctx, total)
+		cmd.Stdout = progress
+		defer progress.Flush()
+	}
 	if len(password) > 0 {
 		cmd.Stdin = strings.NewReader(string(password) + "\n" + string(password) + "\n")
 	}
