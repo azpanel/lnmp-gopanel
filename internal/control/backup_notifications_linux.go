@@ -253,7 +253,13 @@ func backupNotificationText(j backups.Run) string {
 				delivered++
 			}
 		}
-		lines = append(lines, fmt.Sprintf("%s：%s，%d 字节，交付 %d/%d", name, labels[category.Status], category.Bytes, delivered, len(category.Deliveries)))
+		size := float64(category.Bytes) / (1024 * 1024)
+		unit := "MB"
+		if category.Bytes > 1024*1024*1024 {
+			size /= 1024
+			unit = "GB"
+		}
+		lines = append(lines, fmt.Sprintf("%s：%s，%.2f %s，交付 %d/%d", name, labels[category.Status], size, unit, delivered, len(category.Deliveries)))
 		if category.Error != "" {
 			lines = append(lines, "原因："+short(backupDiagnostic(category.Error)))
 		}
