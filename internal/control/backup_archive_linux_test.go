@@ -60,8 +60,19 @@ func TestBackupArchiveStagingExclusionsMetadataAndSafeReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := backupManifest{}
-	if err := e.stageBackupFiles(context.Background(), []backups.FileSource{{Path: site, Excludes: []string{"cache/", "**/node_modules/**"}}}, stage, &m); err != nil {
+	var samples []backupProgressSample
+	if err := e.stageBackupFiles(progressContext(&samples), []backups.FileSource{{Path: site, Excludes: []string{"cache/", "**/node_modules/**"}}}, stage, &m); err != nil {
 		t.Fatal(err)
+	}
+	previous := int64(0)
+	for i, sample := range samples {
+		if sample.processed < previous || (i < len(samples)-1 && (sample.total != -1 || sample.percent != -1)) {
+			t.Fatalf("staging progress regressed or fabricated a total: %+v", samples)
+		}
+		previous = sample.processed
+	}
+	if len(samples) < 4 || samples[len(samples)-1].total != int64(len("included"+"keep"+"special")) || previous != samples[len(samples)-1].total {
+		t.Fatalf("staging did not count included files: %+v", samples)
 	}
 	for _, name := range []string{"source-001/index.php", "source-001/nested/keep.txt", "source-001/empty", "source-001/dash - file\nname"} {
 		if _, err := os.Stat(filepath.Join(stage, name)); err != nil {
@@ -215,7 +226,7 @@ func TestBackupFileExecutionPublishesCompleteArchiveAndHandlesPartialDelivery(t 
 	if err != nil || stored.Status != "partial" || len(stored.Categories) != 1 {
 		t.Fatal(stored, err)
 	}
-	for _, id := range []string{"files-compress", "files-deliver-0"} {
+	for _, id := range []string{"files-prepare", "files-compress", "files-verify", "files-deliver-0"} {
 		step := backupStep(&stored, id)
 		if step == nil || step.Status != "succeeded" || step.Progress == nil || *step.Progress.Percent != 100 {
 			t.Fatal("completed progress missing", id, step)

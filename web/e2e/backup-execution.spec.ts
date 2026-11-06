@@ -100,18 +100,21 @@ async function executionFixture(page: Page) {
     failDetails(value: boolean) {
       detailFailure = value;
     },
-    progress(percent?: number, kind: "compress" | "deliver" = "compress") {
+    progress(
+      percent?: number,
+      kind: "prepare" | "compress" | "verify" | "deliver" = "compress",
+    ) {
       if (!run) throw new Error("No execution to update");
       const progress =
         percent == null
           ? undefined
           : {
-              total_bytes: 1073741824,
+              total_bytes: kind === "prepare" ? undefined : 1073741824,
               processed_bytes: (1073741824 * percent) / 100,
-              percent,
-              eta_seconds: 75,
+              percent: kind === "prepare" ? undefined : percent,
+              eta_seconds: kind === "prepare" ? undefined : 75,
               updated_at: new Date().toISOString(),
-              estimated: kind === "compress",
+              estimated: kind === "compress" || kind === "verify",
             };
       run = {
         ...run,
@@ -123,28 +126,41 @@ async function executionFixture(page: Page) {
             id: "files-prepare",
             kind: "prepare",
             category: "files",
-            status: "succeeded",
+            status: kind === "prepare" ? "running" : "succeeded",
+            progress: kind === "prepare" ? progress : undefined,
           },
           {
             id: "files-compress",
             kind: "compress",
             category: "files",
-            status: kind === "compress" ? "running" : "succeeded",
+            status:
+              kind === "prepare"
+                ? "pending"
+                : kind === "compress"
+                  ? "running"
+                  : "succeeded",
             progress:
-              kind === "compress"
-                ? progress
-                : {
-                    ...progress!,
-                    percent: 100,
-                    processed_bytes: 1073741824,
-                    estimated: true,
-                  },
+              kind === "prepare"
+                ? undefined
+                : kind === "compress"
+                  ? progress
+                  : {
+                      ...progress!,
+                      percent: 100,
+                      processed_bytes: 1073741824,
+                      estimated: true,
+                    },
           },
           {
             id: "files-verify",
             kind: "verify",
             category: "files",
-            status: kind === "compress" ? "pending" : "succeeded",
+            status: ["prepare", "compress"].includes(kind)
+              ? "pending"
+              : kind === "verify"
+                ? "running"
+                : "succeeded",
+            progress: kind === "verify" ? progress : undefined,
           },
           {
             id: "files-deliver-0",
@@ -493,8 +509,19 @@ test("history timeline shows live byte progress, unknown values and refresh erro
   const fixture = await executionFixture(page);
   await openBackupExecution(page);
   await page.getByRole("button", { name: "立即备份", exact: true }).click();
-  fixture.progress();
   const dialog = page.getByRole("dialog");
+  fixture.progress(undefined, "prepare");
+  const preparation = dialog.getByRole("progressbar", {
+    name: "准备备份文件",
+  });
+  await expect(preparation).toBeVisible();
+  await expect(preparation).not.toHaveAttribute("aria-valuenow");
+  fixture.progress(25, "prepare");
+  await expect(dialog.locator('[aria-current="step"]')).toContainText(
+    "已复制 256.0 MB / 总量 —",
+  );
+  await expect(preparation).not.toHaveAttribute("aria-valuenow");
+  fixture.progress();
   const expectLatestCentered = async (finished = false) => {
     const step = finished
       ? dialog.locator(".backup-timeline-step").last()
@@ -534,6 +561,12 @@ test("history timeline shows live byte progress, unknown values and refresh erro
   await expect(dialog).toContainText("预计剩余（ETA）：1 分 15 秒");
   fixture.progress(70);
   await expect(compression).toHaveAttribute("aria-valuenow", "70");
+  await expectLatestCentered();
+  fixture.progress(30, "verify");
+  const verification = dialog.getByRole("progressbar", {
+    name: "校验文件备份",
+  });
+  await expect(verification).toHaveAttribute("aria-valuenow", "30");
   await expectLatestCentered();
   fixture.progress(40, "deliver");
   const delivery = dialog.getByRole("progressbar", { name: /写入本地/ });

@@ -247,7 +247,11 @@ function stepTitle(step: BackupStep) {
 
 function StepProgress({ step, now }: { step: BackupStep; now: number }) {
   const progress = step.progress;
-  if (!progress && !["compress", "deliver"].includes(step.kind)) return null;
+  if (
+    !progress &&
+    !["prepare", "compress", "verify", "deliver"].includes(step.kind)
+  )
+    return null;
   if (!progress && step.status !== "running") return null;
   const percent = progress?.percent;
   const value =
@@ -261,7 +265,11 @@ function StepProgress({ step, now }: { step: BackupStep; now: number }) {
       <div className="backup-progress-heading">
         <span>{stepStatusLabels[step.status] ?? step.status}</span>
         <strong>
-          {value == null ? "进度待更新" : `${Math.round(value)}%`}
+          {value == null
+            ? step.kind === "prepare" && step.status === "running"
+              ? "正在准备"
+              : "进度待更新"
+            : `${Math.round(value)}%`}
         </strong>
       </div>
       <Progress
@@ -272,7 +280,10 @@ function StepProgress({ step, now }: { step: BackupStep; now: number }) {
       />
       <div className="backup-progress-metrics">
         <span>
-          已处理{progress?.estimated ? "（估算）" : ""}{" "}
+          {step.kind === "prepare" && step.category === "files"
+            ? "已复制"
+            : "已处理"}
+          {progress?.estimated ? "（估算）" : ""}{" "}
           {bytes(progress?.processed_bytes)} / 总量{" "}
           {bytes(progress?.total_bytes)}
         </span>

@@ -4,7 +4,10 @@ package control
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +17,103 @@ import (
 
 	"github.com/azpanel/lnmp-gopanel/internal/backups"
 )
+
+func TestBackupPreparationReportsWithinLargeFileAndCancellation(t *testing.T) {
+	e, _, _ := backupExecutionFixture(t)
+	source := filepath.Join(e.store.state, "large-file")
+	data := make([]byte, 256<<10)
+	if err := os.WriteFile(source, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, cancelled := range []bool{false, true} {
+		stage := filepath.Join(e.store.state, "work", fmt.Sprintf("stage-%t", cancelled))
+		if err := os.MkdirAll(stage, 0700); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		var samples []backupProgressSample
+		ctx = context.WithValue(ctx, backupProgressKey{}, backupProgressReporter(func(sample backupProgressSample) {
+			samples = append(samples, sample)
+			if cancelled && sample.processed > 0 {
+				cancel()
+			}
+		}))
+		err := e.stageBackupFiles(ctx, []backups.FileSource{{Path: source}}, stage, &backupManifest{})
+		cancel()
+		if (err != nil) != cancelled {
+			t.Fatalf("cancelled=%t: %v", cancelled, err)
+		}
+		intermediate := false
+		for _, sample := range samples {
+			if sample.processed > 0 && sample.processed < int64(len(data)) {
+				intermediate = true
+			}
+		}
+		if !intermediate {
+			t.Fatal("no progress within a large file", samples)
+		}
+		last := samples[len(samples)-1]
+		if cancelled && (last.total >= 0 || last.percent >= 0) {
+			t.Fatal("cancelled copy reported completion", last)
+		}
+	}
+}
+
+func TestBackupVerificationProgressIncludesDigest(t *testing.T) {
+	tool := backupArchiveTestTool(t)
+	dir := t.TempDir()
+	stage := filepath.Join(dir, "stage")
+	if err := os.Mkdir(stage, 0700); err != nil {
+		t.Fatal(err)
+	}
+	data := make([]byte, 256<<10)
+	if err := os.WriteFile(filepath.Join(stage, "data"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(dir, "archive.zip")
+	if err := createBackupArchive(context.Background(), tool, stage, archive, backups.Compression{Format: "zip", Level: 0}, nil); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var samples []backupProgressSample
+	size, digest, err := verifyBackupArchiveDigest(progressContext(&samples), tool, stage, archive, nil)
+	wantDigest := sha256.Sum256(contents)
+	if err != nil || size != int64(len(contents)) || digest != hex.EncodeToString(wantDigest[:]) {
+		t.Fatal("verification changed digest", size, digest, err)
+	}
+	previous := int64(0)
+	checked, hashed := false, false
+	for _, sample := range samples {
+		if sample.total != int64(len(data)+len(contents)) || sample.processed < previous || !sample.estimated {
+			t.Fatal("incorrect combined verification progress", samples)
+		}
+		if sample.percent >= 0 && sample.processed > 0 && sample.processed <= int64(len(data)) {
+			checked = true
+		}
+		if sample.processed > int64(len(data)) && sample.processed < sample.total {
+			hashed = true
+		}
+		previous = sample.processed
+	}
+	if !checked || !hashed || samples[len(samples)-1].percent != 100 {
+		t.Fatal("integrity or hashing progress missing", samples)
+	}
+	if err := os.WriteFile(archive, []byte("broken archive"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	samples = nil
+	if _, _, err := verifyBackupArchiveDigest(progressContext(&samples), tool, stage, archive, nil); err == nil {
+		t.Fatal("corrupt archive passed verification")
+	}
+	for _, sample := range samples {
+		if sample.percent == 100 {
+			t.Fatal("corrupt archive reported completion")
+		}
+	}
+}
 
 func progressContext(samples *[]backupProgressSample) context.Context {
 	return context.WithValue(context.Background(), backupProgressKey{}, backupProgressReporter(func(s backupProgressSample) { *samples = append(*samples, s) }))

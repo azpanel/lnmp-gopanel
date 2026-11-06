@@ -224,11 +224,8 @@ func (e backupExecutor) executeRun(ctx context.Context, j *storedBackupRun) erro
 		}
 		if err == nil {
 			err = e.runStep(ctx, j, category+"-verify", func(ctx context.Context) error {
-				if err := verifyBackupArchive(ctx, tool, stage, archive, password); err != nil {
-					return err
-				}
 				var digestErr error
-				result.Bytes, result.SHA256, digestErr = backupFileDigest(ctx, archive)
+				result.Bytes, result.SHA256, digestErr = verifyBackupArchiveDigest(ctx, tool, stage, archive, password)
 				return digestErr
 			})
 		}
@@ -357,7 +354,9 @@ func copyBackupFile(ctx context.Context, source *os.File, destination string, re
 	if err != nil {
 		return err
 	}
-	n, copyErr := io.Copy(f, backupContextReader{ctx: ctx, r: io.LimitReader(source, before.Size()+1)})
+	reportBackupProgress(ctx, backupByteSample(before.Size(), 0))
+	counter := &backupCountingWriter{ctx: ctx, total: before.Size(), write: f.Write}
+	n, copyErr := io.Copy(counter, backupContextReader{ctx: ctx, r: io.LimitReader(source, before.Size()+1)})
 	if copyErr == nil {
 		copyErr = f.Chmod(before.Mode().Perm())
 	}
@@ -378,6 +377,18 @@ func copyBackupFile(ctx context.Context, source *os.File, destination string, re
 	return nil
 }
 func (e backupExecutor) stageBackupFiles(ctx context.Context, sources []backups.FileSource, stage string, manifest *backupManifest) error {
+	// Sources are discovered while copying. Report actual bytes without an
+	// unreliable total or a second traversal of the live source tree.
+	var processed int64
+	reportBackupProgress(ctx, backupByteSample(-1, 0))
+	copyFile := func(source *os.File, destination string, record func(os.FileInfo) error) error {
+		base := processed
+		copyCtx := context.WithValue(ctx, backupProgressKey{}, backupProgressReporter(func(sample backupProgressSample) {
+			processed = base + sample.processed
+			reportBackupProgress(ctx, backupByteSample(-1, processed))
+		}))
+		return copyBackupFile(copyCtx, source, destination, record)
+	}
 	workRoot, err := filepath.EvalSymlinks(filepath.Join(e.store.state, "work"))
 	if err != nil {
 		return err
@@ -414,7 +425,7 @@ func (e backupExecutor) stageBackupFiles(ctx context.Context, sources []backups.
 		}
 		manifest.Sources = append(manifest.Sources, backupManifestSource{Original: source.Path, ArchivePath: prefix})
 		if info.Mode().IsRegular() {
-			err = copyBackupFile(ctx, base, filepath.Join(target, filepath.Base(source.Path)), func(info os.FileInfo) error {
+			err = copyFile(base, filepath.Join(target, filepath.Base(source.Path)), func(info os.FileInfo) error {
 				return record(filepath.Join(prefix, filepath.Base(source.Path)), info)
 			})
 			base.Close()
@@ -484,7 +495,7 @@ func (e backupExecutor) stageBackupFiles(ctx context.Context, sources []backups.
 				dirs = append(dirs, directory{destination, current.Mode().Perm(), current.ModTime()})
 				return record(filepath.Join(prefix, relative), current)
 			}
-			return copyBackupFile(ctx, file, destination, func(info os.FileInfo) error {
+			return copyFile(file, destination, func(info os.FileInfo) error {
 				return record(filepath.Join(prefix, relative), info)
 			})
 		})
@@ -511,6 +522,7 @@ func (e backupExecutor) stageBackupFiles(ctx context.Context, sources []backups.
 	}
 	manifest.Version = 2
 	manifest.Metadata = "metadata.jsonl"
+	reportBackupProgress(ctx, backupByteSample(processed, processed))
 	return nil
 }
 
@@ -694,7 +706,7 @@ func createBackupArchive(ctx context.Context, tool, stage, archive string, c bac
 	return nil
 }
 func verifyBackupArchive(ctx context.Context, tool, stage, archive string, password []byte) error {
-	check := []string{"t", "-bd", "-bb0"}
+	check := []string{"t", "-bsp1", "-bb0"}
 	// On read, a bare -p defines an empty password and suppresses the prompt.
 	// Omit it so 7-Zip requests the real password through standard input.
 	check = append(check, "--", archive)
@@ -703,6 +715,35 @@ func verifyBackupArchive(ctx context.Context, tool, stage, archive string, passw
 	}
 	return nil
 }
+
+func verifyBackupArchiveDigest(ctx context.Context, tool, stage, archive string, password []byte) (int64, string, error) {
+	stagedBytes, err := backupStagedBytes(stage)
+	if err != nil {
+		return 0, "", err
+	}
+	info, err := os.Lstat(archive)
+	if err != nil || !info.Mode().IsRegular() {
+		return 0, "", errors.New("备份产物不是普通文件")
+	}
+	// Integrity testing reads the uncompressed contents; hashing reads the
+	// archive. Combine both workloads so reaching 100% includes the digest.
+	total := stagedBytes + info.Size()
+	progressContext := func(offset int64) context.Context {
+		return context.WithValue(ctx, backupProgressKey{}, backupProgressReporter(func(sample backupProgressSample) {
+			s := backupByteSample(total, offset+sample.processed)
+			if sample.percent < 0 {
+				s.percent = -1
+			}
+			s.estimated = true // 7-Zip reports percentages, not byte counts.
+			reportBackupProgress(ctx, s)
+		}))
+	}
+	if err := verifyBackupArchive(progressContext(0), tool, stage, archive, password); err != nil {
+		return 0, "", err
+	}
+	return backupFileDigest(progressContext(stagedBytes), archive)
+}
+
 func runBackupArchiveCommand(ctx context.Context, tool, dir string, args []string, password []byte) error {
 	cmd := exec.CommandContext(ctx, tool, args...)
 	configureProcess(cmd)
@@ -710,7 +751,7 @@ func runBackupArchiveCommand(ctx context.Context, tool, dir string, args []strin
 	cmd.Env = backupCommandEnvironment()
 	cmd.Stdout = &limitedBuffer{}
 	cmd.Stderr = &limitedBuffer{}
-	if len(args) > 0 && args[0] == "a" {
+	if len(args) > 0 && (args[0] == "a" || args[0] == "t") {
 		total, err := backupStagedBytes(dir)
 		if err != nil {
 			return err
@@ -736,6 +777,8 @@ func backupFileDigest(ctx context.Context, path string) (int64, string, error) {
 		return 0, "", errors.New("备份产物不是普通文件")
 	}
 	h := sha256.New()
-	n, err := io.Copy(h, backupContextReader{ctx: ctx, r: f})
+	reportBackupProgress(ctx, backupByteSample(info.Size(), 0))
+	counter := &backupCountingWriter{ctx: ctx, total: info.Size(), write: h.Write}
+	n, err := io.Copy(counter, backupContextReader{ctx: ctx, r: f})
 	return n, hex.EncodeToString(h.Sum(nil)), err
 }
