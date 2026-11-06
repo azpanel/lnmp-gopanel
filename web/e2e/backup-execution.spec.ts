@@ -495,8 +495,37 @@ test("history timeline shows live byte progress, unknown values and refresh erro
   await page.getByRole("button", { name: "立即备份", exact: true }).click();
   fixture.progress();
   const dialog = page.getByRole("dialog");
+  const expectLatestCentered = async (finished = false) => {
+    const step = finished
+      ? dialog.locator(".backup-timeline-step").last()
+      : dialog.locator('[aria-current="step"]');
+    await expect
+      .poll(() =>
+        step.evaluate((element) => {
+          const scroll = element.closest(".backup-history-scroll")!;
+          const rect = element.getBoundingClientRect();
+          const desired =
+            scroll.scrollTop +
+            rect.top -
+            scroll.getBoundingClientRect().top -
+            (scroll.clientHeight - rect.height) / 2;
+          const reachable = Math.max(
+            0,
+            Math.min(desired, scroll.scrollHeight - scroll.clientHeight),
+          );
+          return Math.abs(scroll.scrollTop - reachable);
+        }),
+      )
+      .toBeLessThan(2);
+  };
   const compression = dialog.getByRole("progressbar", { name: "压缩文件" });
   await expect(compression).toBeVisible();
+  await expectLatestCentered();
+  // Polling must resume following progress even when the payload is unchanged.
+  await dialog.locator(".backup-history-scroll").evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await expectLatestCentered();
   await expect(compression).not.toHaveAttribute("aria-valuenow");
   await expect(dialog).toContainText("计算中");
   fixture.progress(25);
@@ -505,10 +534,12 @@ test("history timeline shows live byte progress, unknown values and refresh erro
   await expect(dialog).toContainText("预计剩余（ETA）：1 分 15 秒");
   fixture.progress(70);
   await expect(compression).toHaveAttribute("aria-valuenow", "70");
+  await expectLatestCentered();
   fixture.progress(40, "deliver");
   const delivery = dialog.getByRole("progressbar", { name: /写入本地/ });
   await expect(delivery).toHaveAttribute("aria-valuenow", "40");
   await expect(compression).toHaveAttribute("aria-valuenow", "100");
+  await expectLatestCentered();
   await expect(dialog.getByRole("list", { name: "执行步骤" })).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath("backup-history-timeline.png"),
@@ -529,6 +560,7 @@ test("history timeline shows live byte progress, unknown values and refresh erro
   ).toBeVisible();
   await expect(delivery).toHaveAttribute("aria-valuenow", "100");
   await expect(dialog.locator('[aria-current="step"]')).toHaveCount(0);
+  await expectLatestCentered(true);
   const reads = fixture.reads;
   await page.waitForTimeout(1500);
   expect(fixture.reads).toBe(reads);

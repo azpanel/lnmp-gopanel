@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArchiveRestore,
@@ -296,12 +296,39 @@ function BackupRunDetails({ runId }: { runId: string }) {
     refetchOnWindowFocus: false,
   });
   const [now, setNow] = useState(Date.now);
+  const latestStepRef = useRef<HTMLLIElement>(null);
+  const steps = query.data ? backupTimeline(query.data) : [];
+  const latestStep =
+    [...steps].reverse().find((step) => step.status === "running") ??
+    [...steps].reverse().find((step) => step.status !== "pending") ??
+    steps[0];
   const running = activeBackupRun(query.data);
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [running]);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const step = latestStepRef.current;
+      const scroll = step?.closest<HTMLElement>(".backup-history-scroll");
+      if (!step || !scroll) return;
+      const stepRect = step.getBoundingClientRect();
+      const scrollRect = scroll.getBoundingClientRect();
+      // Keep scrolling inside the history dialog, without moving the page.
+      scroll.scrollTo({
+        top:
+          scroll.scrollTop +
+          stepRect.top -
+          scrollRect.top -
+          (scroll.clientHeight - stepRect.height) / 2,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "instant"
+          : "smooth",
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [query.data, query.dataUpdatedAt]);
   if (query.isPending) return <p role="status">正在读取执行详情…</p>;
   if (!query.data)
     return (
@@ -351,7 +378,7 @@ function BackupRunDetails({ runId }: { runId: string }) {
         </p>
       )}
       <ol className="backup-timeline" aria-label="执行步骤">
-        {backupTimeline(run).map((step) => {
+        {steps.map((step) => {
           const category = run.categories.find(
             (item) => item.category === step.category,
           );
@@ -364,6 +391,7 @@ function BackupRunDetails({ runId }: { runId: string }) {
           return (
             <li
               key={step.id}
+              ref={step.id === latestStep?.id ? latestStepRef : undefined}
               className="backup-timeline-step"
               data-status={step.status}
               aria-current={step.status === "running" ? "step" : undefined}
