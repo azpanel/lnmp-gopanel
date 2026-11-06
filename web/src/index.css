@@ -806,6 +806,24 @@ a {
 .service-cards [data-slot="card-content"] {
   padding: 24px;
 }
+.service-cards [data-slot="card"] {
+  position: relative;
+}
+.service-cards [data-slot="card-content"]:has(.service-upgrade-badge) {
+  padding-top: 40px;
+}
+.service-upgrade-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 3px 10px;
+  border-bottom-left-radius: 8px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+}
 .service-card-head {
   display: flex;
   align-items: center;
@@ -5357,6 +5375,10 @@ body,
 .backup-policy-dialog [data-slot="input"] {
   background: #fff;
   color: var(--foreground);
+}
+.backup-policy-dialog input,
+.backup-policy-dialog textarea {
+  font-size: 14px;
 }
 .policy-grid {
   display: grid;

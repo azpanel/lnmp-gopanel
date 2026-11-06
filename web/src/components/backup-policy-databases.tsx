@@ -151,27 +151,37 @@ export function BackupPolicyDatabases({
                   : "按需填写，仅用于本次查询"}
               </span>
             </summary>
-            <div className="policy-database-auth">
-              <label>
-                管理员密码（仅本次查询）
-                <Input
-                  type="password"
-                  aria-label="数据库管理员密码"
-                  autoComplete="off"
-                  onChange={(e) => {
-                    password.current = e.target.value;
-                  }}
-                />
-              </label>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={query.isFetching}
-                onClick={() => setEpoch((n) => n + 1)}
+            {active && authOpen && (
+              <form
+                className="policy-database-auth"
+                autoComplete="off"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!query.isFetching) setEpoch((n) => n + 1);
+                }}
               >
-                重新连接
-              </Button>
-            </div>
+                <label>
+                  管理员密码（仅本次查询）
+                  <Input
+                    type="password"
+                    name="backup-database-inspection-password"
+                    aria-label="数据库管理员密码"
+                    autoComplete="new-password"
+                    defaultValue={password.current}
+                    onChange={(e) => {
+                      password.current = e.target.value;
+                    }}
+                  />
+                </label>
+                <Button
+                  type="submit"
+                  variant="outline"
+                  disabled={query.isFetching}
+                >
+                  重新连接
+                </Button>
+              </form>
+            )}
           </details>
           {query.error && (
             <div className="notice" role="alert">

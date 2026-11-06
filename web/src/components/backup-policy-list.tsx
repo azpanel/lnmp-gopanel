@@ -1,7 +1,15 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { RefreshCw } from "lucide-react";
+import {
+  Copy,
+  Eye,
+  History,
+  Pencil,
+  Play,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -133,13 +141,23 @@ export function BackupPolicyList({
         ) : (
           <>
             {!!query.data?.length && (
-              <input
-                className="policy-select"
-                aria-label="搜索政策"
-                placeholder="搜索政策"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+              <form
+                role="search"
+                aria-label="搜索备份政策"
+                autoComplete="off"
+                onSubmit={(event) => event.preventDefault()}
+              >
+                <input
+                  type="search"
+                  name="backup-policy-search"
+                  autoComplete="off"
+                  className="policy-select"
+                  aria-label="搜索政策"
+                  placeholder="搜索政策"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </form>
             )}
             {!items.length ? (
               <p className="small-note">
@@ -208,6 +226,7 @@ export function BackupPolicyList({
                           }
                           onClick={() => execution.mutate(p)}
                         >
+                          <Play size={14} aria-hidden="true" />
                           立即备份
                         </Button>
                         <Button
@@ -215,6 +234,7 @@ export function BackupPolicyList({
                           variant="outline"
                           onClick={() => setHistory(p)}
                         >
+                          <History size={14} aria-hidden="true" />
                           执行历史
                         </Button>
                         <Button
@@ -222,6 +242,7 @@ export function BackupPolicyList({
                           variant="outline"
                           onClick={() => onOpen(p.id, true)}
                         >
+                          <Eye size={14} aria-hidden="true" />
                           查看
                         </Button>
                         <Button
@@ -229,6 +250,7 @@ export function BackupPolicyList({
                           variant="outline"
                           onClick={() => onOpen(p.id, false)}
                         >
+                          <Pencil size={14} aria-hidden="true" />
                           编辑
                         </Button>
                         <Button
@@ -236,6 +258,7 @@ export function BackupPolicyList({
                           variant="outline"
                           onClick={() => onOpen(p.id, false, true)}
                         >
+                          <Copy size={14} aria-hidden="true" />
                           复制
                         </Button>
                         <Button
@@ -247,6 +270,7 @@ export function BackupPolicyList({
                             setRemove(p);
                           }}
                         >
+                          <Trash2 size={14} aria-hidden="true" />
                           删除
                         </Button>
                       </div>

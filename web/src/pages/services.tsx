@@ -32,6 +32,7 @@ import { api } from "@/lib/api";
 import { LNMPInstallNotice } from "@/components/lnmp-install-notice";
 import { ServiceManagementRepair } from "@/components/service-management-repair";
 import { clock } from "@/lib/format";
+import { hasNewerStableVersion } from "@/lib/service-version";
 import type { Service, ServiceRelease, ComponentSnapshot } from "@/lib/types";
 const actions = {
   start: { label: "启动", icon: Play },
@@ -245,6 +246,13 @@ export function Services({
         {services?.map((service) => (
           <Card key={service.name} data-service={service.name}>
             <CardContent>
+              <UpgradeBadge
+                installed={service.version}
+                release={releases.data?.[service.name]}
+                failed={Boolean(
+                  error || service.version_error || releases.error,
+                )}
+              />
               <div className="service-card-head">
                 <ServiceIcon name={service.name} />
                 <div className="grow">
@@ -396,6 +404,13 @@ export function Services({
             return (
               <Card key={name} data-component={name}>
                 <CardContent>
+                  <UpgradeBadge
+                    installed={
+                      item?.status === "ready" ? item.version : undefined
+                    }
+                    release={releases.data?.[name]}
+                    failed={failed || Boolean(releases.error)}
+                  />
                   <div className="service-card-head">
                     <span className="component-logo" aria-hidden="true">
                       <img
@@ -677,6 +692,33 @@ function ReleaseRangeEditor({
         </p>
       )}
     </form>
+  );
+}
+
+function UpgradeBadge({
+  installed,
+  release,
+  failed,
+}: {
+  installed?: string;
+  release?: ServiceRelease;
+  failed: boolean;
+}) {
+  if (
+    failed ||
+    release?.status !== "ready" ||
+    !hasNewerStableVersion(installed, release.version)
+  ) {
+    return null;
+  }
+
+  return (
+    <span
+      className="service-upgrade-badge"
+      title={`可升级至 ${release.version}`}
+    >
+      可升级
+    </span>
   );
 }
 

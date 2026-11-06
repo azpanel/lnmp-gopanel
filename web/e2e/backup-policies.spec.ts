@@ -423,6 +423,13 @@ test("backup policy tabs, source rules, secrets and CRUD", async ({
   await choosePolicyOption(page, "压缩密码", "设置新密码");
   await dialog.getByLabel("新压缩密码").fill("archive-only-secret");
   await dialog.getByLabel("确认压缩密码").fill("archive-only-secret");
+  expect(
+    await dialog
+      .locator("input, textarea")
+      .evaluateAll((inputs) => [
+        ...new Set(inputs.map((input) => getComputedStyle(input).fontSize)),
+      ]),
+  ).toEqual(["14px"]);
   await adjustRetention(page, "数据库备份保留份数", 14);
   await adjustRetention(page, "文件备份保留份数", 4);
   await dialog
@@ -466,10 +473,21 @@ test("backup policy tabs, source rules, secrets and CRUD", async ({
   await page.keyboard.press("Escape");
   await expect(format).toBeFocused();
   await expect(dialog.getByRole("alertdialog")).toHaveCount(0);
+  await expect(dialog.getByLabel("数据库管理员密码")).toHaveCount(0);
 
   await dialog.getByRole("tab", { name: "数据库", exact: true }).click();
   await expect(dialog.getByText(/无法认证本机数据库管理员/)).toBeVisible();
   await dialog.getByLabel("数据库管理员密码").fill("db-only-secret");
+  await dialog.getByRole("tab", { name: "基本设置", exact: true }).click();
+  await expect(dialog.getByLabel("数据库管理员密码")).toHaveCount(0);
+  await dialog.getByRole("tab", { name: "数据库", exact: true }).click();
+  await expect(
+    dialog.getByRole("checkbox", { name: "备份数据库 app", exact: true }),
+  ).toBeChecked();
+  await dialog.locator(".policy-db-connection summary").click();
+  await expect(dialog.getByLabel("数据库管理员密码")).toHaveValue(
+    "db-only-secret",
+  );
   await dialog.getByRole("button", { name: "重新连接" }).click();
   await expect(
     dialog.getByRole("checkbox", { name: "备份数据库 app", exact: true }),
@@ -574,7 +592,22 @@ test("backup policy tabs, source rules, secrets and CRUD", async ({
   await expect(
     page.getByRole("switch", { name: "启用 网站每日备份" }),
   ).not.toBeChecked();
+  const search = page.getByRole("searchbox", {
+    name: "搜索政策",
+    includeHidden: true,
+  });
+  await search.fill("网站");
+  await search.press("Enter");
   await page.getByRole("button", { name: "查看", exact: true }).click();
+  await expect(search).toHaveValue("网站");
+  await expect(dialog.getByLabel("数据库管理员密码")).toHaveCount(0);
+  expect(
+    await search.evaluate((input: HTMLInputElement) => ({
+      autocomplete: input.autocomplete,
+      role: input.form?.getAttribute("role"),
+      passwords: input.form?.querySelectorAll('input[type="password"]').length,
+    })),
+  ).toEqual({ autocomplete: "off", role: "search", passwords: 0 });
   await expect(dialog.getByLabel("名称", { exact: true })).toBeDisabled();
   await expect(
     dialog.getByRole("slider", { name: "数据库备份保留份数" }),
@@ -583,6 +616,8 @@ test("backup policy tabs, source rules, secrets and CRUD", async ({
     "编辑后的备注",
   );
   await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(search).toHaveValue("网站");
+  await search.fill("");
   await page.getByRole("button", { name: "删除", exact: true }).click();
   await page.getByRole("button", { name: "确认删除", exact: true }).click();
   await expect(
