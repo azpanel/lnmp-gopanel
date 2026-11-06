@@ -1,5 +1,11 @@
 import { useSessionMutation } from "@/lib/use-session-mutation";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -14,12 +20,15 @@ import {
   FolderOpen,
   Globe2,
   HardDrive,
+  Info,
   LayoutGrid,
   Loader2,
   LockKeyhole,
   ListOrdered,
+  Network,
   Power,
   RefreshCw,
+  Route,
   Search,
   ShieldCheck,
   ShieldX,
@@ -257,7 +266,7 @@ function Certificate({
     </div>
   );
 }
-function SiteDirectory({
+function SiteInformation({
   site,
   usage: inventory,
   loading,
@@ -267,62 +276,115 @@ function SiteDirectory({
   loading: boolean;
 }) {
   return (
-    <div className="vhost-directory-panel">
+    <div className="vhost-information-panel">
       <div className="site-section-label">
-        <HardDrive size={14} />
-        站点目录占用
+        <Info size={14} aria-hidden="true" />
+        网站信息
       </div>
-      {site.roots.length ? (
-        site.roots.map((root) => {
-          const usage = inventory?.[root.path];
-          return (
-            <div className="site-root" key={root.configured}>
-              <div className="site-root-size">
-                {root.error || usage?.error ? (
-                  <span className="site-detail-error">
-                    {root.error || usage?.error}
-                  </span>
-                ) : usage?.bytes != null ? (
-                  <strong>{bytes(usage.bytes)}</strong>
-                ) : loading ? (
-                  <span>
-                    <Loader2 size={13} className="animate-spin" />
-                    正在计算…
-                  </span>
-                ) : (
-                  <span className="small-note">等待刷新统计</span>
-                )}
-              </div>
-              <code>{root.path || root.configured}</code>
-              {root.public_parent && (
-                <div className="public-root-note">
-                  入口 {root.configured}，统计上一级项目目录
+      <dl className="certificate-fields site-information-fields">
+        <div>
+          <dt>
+            <Network size={14} aria-hidden="true" />
+            监听端口
+          </dt>
+          <dd>
+            <ListenEndpoints listens={site.listens} />
+          </dd>
+        </div>
+        <div>
+          <dt>
+            <Globe2 size={14} aria-hidden="true" />
+            域名
+          </dt>
+          <dd>{site.domains.join("、") || "未解析到 server_name"}</dd>
+        </div>
+        {site.roots.length ? (
+          site.roots.map((root) => {
+            const usage = inventory?.[root.path];
+            return (
+              <Fragment key={root.configured}>
+                <div>
+                  <dt>
+                    <HardDrive size={14} aria-hidden="true" />
+                    目录占用大小
+                  </dt>
+                  <dd>
+                    {root.error || usage?.error ? (
+                      <span className="site-detail-error">
+                        {root.error || usage?.error}
+                      </span>
+                    ) : usage?.bytes != null ? (
+                      <span className="font-mono">{bytes(usage.bytes)}</span>
+                    ) : loading ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Loader2 size={13} className="animate-spin" />
+                        正在计算…
+                      </span>
+                    ) : (
+                      <span className="small-note">等待刷新统计</span>
+                    )}
+                  </dd>
                 </div>
-              )}
+                <div>
+                  <dt>
+                    <FolderOpen size={14} aria-hidden="true" />
+                    网站目录
+                  </dt>
+                  <dd>
+                    <code>{root.path || root.configured}</code>
+                    {root.public_parent && (
+                      <div className="public-root-note">
+                        入口 {root.configured}，统计上一级项目目录
+                      </div>
+                    )}
+                  </dd>
+                </div>
+              </Fragment>
+            );
+          })
+        ) : (
+          <>
+            <div>
+              <dt>
+                <HardDrive size={14} aria-hidden="true" />
+                目录占用大小
+              </dt>
+              <dd>—</dd>
             </div>
-          );
-        })
-      ) : (
-        <div className="site-no-root">
-          <FolderOpen size={25} />
-          <span>
-            {site.proxies.length
-              ? "反向代理，无本地站点目录"
-              : "未配置可统计的站点根目录"}
-          </span>
+            <div>
+              <dt>
+                <FolderOpen size={14} aria-hidden="true" />
+                网站目录
+              </dt>
+              <dd>
+                {site.proxies.length
+                  ? "反向代理，无本地站点目录"
+                  : "未配置可统计的站点根目录"}
+              </dd>
+            </div>
+          </>
+        )}
+        {site.proxies.length > 0 && (
+          <div>
+            <dt>
+              <Route size={14} aria-hidden="true" />
+              反向代理
+            </dt>
+            <dd>
+              {site.proxies.map((proxy) => (
+                <div key={proxy}>
+                  <code>{proxy}</code>
+                </div>
+              ))}
+            </dd>
+          </div>
+        )}
+      </dl>
+      {site.roots.length > 0 && (
+        <div className="site-space-note">
+          按实际磁盘块统计；public 入口统计其上一级目录。
         </div>
       )}
-      {site.proxies.length > 0 && (
-        <div className="site-upstreams">
-          <span>反向代理</span>
-          {site.proxies.map((proxy) => (
-            <code key={proxy}>{proxy}</code>
-          ))}
-        </div>
-      )}
-      <div className="site-space-note">
-        按实际磁盘块统计；public 入口统计其上一级目录。
-      </div>
     </div>
   );
 }
@@ -798,24 +860,9 @@ export function Vhosts() {
                   {renderActions(site)}
                 </div>
                 {site.error && <div className="notice mt-4">{site.error}</div>}
-                <div className="vhost-domains">
-                  <span>域名</span>
-                  {site.domains.length ? (
-                    site.domains.map((domain) => (
-                      <span className="domain-chip" key={domain}>
-                        {domain}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="small-note">未解析到 server_name</span>
-                  )}
-                  <div className="vhost-listens">
-                    <ListenEndpoints listens={site.listens} />
-                  </div>
-                </div>
                 <div className="vhost-details">
                   {screenshots.preview(site)}
-                  <SiteDirectory
+                  <SiteInformation
                     site={site}
                     usage={data?.usage}
                     loading={loading || scanning}
