@@ -54,6 +54,7 @@ genisoimage -quiet -output "$work/seed.iso" -volid cidata -joliet -rock "$work/u
 qemu-img create -q -f qcow2 -F qcow2 -b "$work/$image" "$work/disk.qcow2" 12G
 acceleration=(-accel "tcg,thread=multi" -cpu max)
 if [[ -r /dev/kvm && -w /dev/kvm ]]; then acceleration=(-accel kvm -cpu host); fi
+printf 'Debian VM acceleration: %s\n' "${acceleration[1]}"
 # Allocate the forwarded port dynamically; this runner owns the QEMU process.
 port="$(python3 - <<'PY'
 import socket

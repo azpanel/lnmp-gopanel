@@ -267,7 +267,10 @@ jobs:
       - name: Install VM tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils genisoimage openssh-client
+          sudo apt-get install -y qemu-system-x86 qemu-utils genisoimage openssh-client acl
+          if [[ -c /dev/kvm ]]; then
+            sudo setfacl -m "u:$(id -un):rw" /dev/kvm
+          fi
       - name: Verify image and test real Debian installation
         run: bash scripts/test-debian-vm.sh dist/lnmp-gopanel_linux_amd64.tar.gz
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
