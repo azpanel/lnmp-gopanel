@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/backups"
 )
@@ -33,7 +34,7 @@ func (b *policyBuffer) Write(p []byte) (int, error) {
 }
 func (h Helper) BackupPolicy(ctx context.Context, action string, input any) (json.RawMessage, error) {
 	switch action {
-	case "list", "get", "save", "delete", "databases", "tables", "files", "paths", "run", "runs", "run-get", "runtime":
+	case "list", "get", "save", "delete", "databases", "tables", "files", "paths", "run", "runs", "run-get", "runtime", "artifacts":
 	default:
 		return nil, backups.ErrInvalid
 	}
@@ -43,6 +44,12 @@ func (h Helper) BackupPolicy(ctx context.Context, action string, input any) (jso
 	}
 	cmd := exec.CommandContext(ctx, "/usr/bin/sudo", "-n", h.Path, "backup-policies", action)
 	configureProcess(cmd)
+	if action == "artifacts" {
+		// Allow the helper to cancel its remote child, release the account lock,
+		// and remove the temporary credential environment on dialog close.
+		configureProvisionProcess(cmd)
+		cmd.WaitDelay = 3 * time.Second
+	}
 	cmd.Stdin = bytes.NewReader(data)
 	out := &policyBuffer{}
 	if action == "run-get" {

@@ -5,6 +5,7 @@ import {
   Copy,
   Eye,
   History,
+  FolderArchive,
   Pencil,
   Play,
   RefreshCw,
@@ -31,6 +32,7 @@ import {
   runStatusLabels,
   type BackupRun,
 } from "@/lib/backup-runs";
+import { BackupArtifactsDialog } from "@/components/backup-artifacts";
 import { BackupRunHistory } from "@/components/backup-runs";
 
 export function BackupPolicyList({
@@ -42,6 +44,7 @@ export function BackupPolicyList({
   const [remove, setRemove] = useState<PolicySummary>();
   const [search, setSearch] = useState("");
   const [history, setHistory] = useState<PolicySummary>();
+  const [artifacts, setArtifacts] = useState<PolicySummary>();
   const query = useQuery({
     queryKey: ["backup-policies"],
     queryFn: ({ signal }) =>
@@ -240,6 +243,14 @@ export function BackupPolicyList({
                         <Button
                           size="sm"
                           variant="outline"
+                          onClick={() => setArtifacts(p)}
+                        >
+                          <FolderArchive size={14} aria-hidden="true" />
+                          查看备份
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
                           onClick={() => onOpen(p.id, true)}
                         >
                           <Eye size={14} aria-hidden="true" />
@@ -316,6 +327,13 @@ export function BackupPolicyList({
           </DialogContent>
         </Dialog>
       </CardContent>
+      {artifacts && (
+        <BackupArtifactsDialog
+          key={artifacts.id}
+          policy={artifacts}
+          onClose={() => setArtifacts(undefined)}
+        />
+      )}
       {history && (
         <BackupRunHistory
           key={history.id}

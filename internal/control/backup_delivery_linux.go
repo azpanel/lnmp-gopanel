@@ -101,6 +101,9 @@ var backupDriveID = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,256}$`)
 // invocation its own config home; only its selected, trusted credential directory
 // is shared so refreshed tokens are persisted without changing root's selection.
 func (e backupExecutor) gdriveEnvironment(runID, account string) ([]string, func(), error) {
+	return e.gdriveEnvironmentAt(e.workPath(runID), account)
+}
+func (e backupExecutor) gdriveEnvironmentAt(work, account string) ([]string, func(), error) {
 	if account == "." || account == ".." || filepath.Base(account) != account {
 		return nil, nil, backups.ErrInvalid
 	}
@@ -113,10 +116,10 @@ func (e backupExecutor) gdriveEnvironment(runID, account string) ([]string, func
 			return nil, nil, errors.New("gdrive 账户凭据缺失或权限不安全")
 		}
 	}
-	if err := privateBackupDirectory(e.workPath(runID)); err != nil {
+	if err := privateBackupDirectory(work); err != nil {
 		return nil, nil, err
 	}
-	home, err := os.MkdirTemp(e.workPath(runID), "gdrive-")
+	home, err := os.MkdirTemp(work, "gdrive-")
 	if err != nil {
 		return nil, nil, err
 	}

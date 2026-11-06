@@ -32,7 +32,7 @@ TARGETS = (
 VHOST_COMMANDS = tuple(f"vhosts {action}" for action in ("list", "config", "format", "usage", "toggle", "options", "create", "ssl-renew-preview", "ssl-renew", "basic-auth-get", "basic-auth-set", "basic-auth-disable"))
 LNMP_INSTALL_COMMANDS = tuple(f"lnmp-install {action}" for action in ("inspect", "prepare", "start", "read"))
 NGINX_REPAIR_COMMANDS = ("nginx repair-preview", "nginx repair")
-BACKUP_POLICY_COMMANDS = tuple(f"backup-policies {action}" for action in ("list", "get", "save", "delete", "databases", "tables", "files", "paths", "run", "runs", "run-get", "runtime"))
+BACKUP_POLICY_COMMANDS = tuple(f"backup-policies {action}" for action in ("list", "get", "save", "delete", "databases", "tables", "files", "paths", "run", "runs", "run-get", "runtime", "artifacts"))
 BACKUP_COMPONENT_COMMANDS = ("backup-components inspect", "backup-components install")
 LOGGING_COMMANDS = ("logging status", "logging enable-php", "logging enable-database")
 
@@ -830,7 +830,7 @@ exit 0
             self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
         sudoers = (self.root / "etc/sudoers.d/lnmp-gopanel").read_text()
         sudo_log = (self.root / "run/sudo.log").read_text()
-        for command in ("logs list", "logs read", "components snapshot"):
+        for command in ("logs list", "logs read", "components snapshot", "backup-policies artifacts"):
             self.assertIn(f"/usr/local/libexec/lnmp-gopanel-control {command},", sudoers)
             self.assertIn(f"-n -l -- /usr/local/libexec/lnmp-gopanel-control {command}\n", sudo_log)
         # Log files are absent in this chroot. The installer must only check
@@ -965,6 +965,15 @@ exit 0
         write(self.root, "/run/deny-helper-command", "/usr/local/libexec/lnmp-gopanel-control backup-policies paths\n")
         result = self.run_installer(success=False)
         self.assertIn("Panel account cannot use helper: backup-policies paths", result.stderr)
+        for target in TARGETS:
+            self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
+        self.assertFalse((self.root / "run/helper.log").exists())
+
+    def test_backup_artifacts_permission_failure_rolls_back(self):
+        previous = self.old_installation(https=True)
+        write(self.root, "/run/deny-helper-command", "/usr/local/libexec/lnmp-gopanel-control backup-policies artifacts\n")
+        result = self.run_installer(success=False)
+        self.assertIn("Panel account cannot use helper: backup-policies artifacts", result.stderr)
         for target in TARGETS:
             self.assertEqual((self.root / target.lstrip("/")).read_bytes(), previous[target])
         self.assertFalse((self.root / "run/helper.log").exists())

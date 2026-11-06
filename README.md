@@ -326,6 +326,8 @@ Composer 检测沿用 `components snapshot` 授权，升级时使用同一源码
 
 “网站备份”页面（`/backups`）提供备份政策配置和 gdrive、rclone 组件安装。右上角“添加备份政策”打开四个 Tab，支持新增、查看、编辑、删除及启停政策。保存后，启用政策在下个 Cron 时间自动执行；已有启用政策升级后同样生效，不补跑过去的任务。列表提供“立即备份”、最近结果和执行历史；停用政策也可手动执行。每次分别生成一个数据库包和一个文件包，交付到各存储位置，再按类别及目的地独立保留最近 N 份。暂不提供恢复或下载功能。
 
+“执行历史”右侧的“查看备份”按当前政策配置的存储位置分 Tab 展示实际存在的备份文件，包含文件名、类别、大小和备份时间。切换位置及点击“刷新备份”会重新查询；仅匹配当前政策直接存放的 ZIP/7z 文件，不递归扫描子目录。每页 20 条，单次最多返回 1000 条，达到查询或输出上限时提示结果不完整；远端查询最长 30 秒，失败后保留上次结果。gdrive 返回的大小为近似值，以“约”标注。升级此功能需同时更新面板、辅助程序及 sudoers 的 `backup-policies artifacts` 授权；安装器只检查授权，不读取备份文件。
+
 - **基本设置**：名称、备注、启用状态；通过常用频率、五字段表单或直接输入组装 Cron，按服务器时区预览接下来五次计划时间。默认每天 02:00，启用；ZIP 等级 0–9，7z 等级 0、1、3、5、7、9，默认 ZIP/5/不加密；数据库和文件分别默认保留 7 份，通过滑块调整 1–100 份（已有更大值会扩展滑块上限），仅在对应类别的新备份成功交付后清理旧版本。
 - **存储位置**：一条政策可添加多个本地、gdrive 或 rclone 目的地。本地目录允许尚未创建，保存不创建目录；gdrive 绑定具体账户并填写文件夹 ID（`root` 为根目录），rclone 绑定远程名称并填写远程内路径（空值为根目录）。保存不连接云端；实际执行时检查账户并上传，失败原因记录在执行详情。启用政策必须配置至少一个完整目的地，且云端账户能从本机配置识别；停用政策允许无目的地并保留当前缺失的账户。旧政策读取时补空目的地列表，不自动改写文件或启用状态，需补齐目的地后才能保存为启用状态。
 
@@ -881,6 +883,7 @@ bash scripts/package.sh arm64 vX.Y.Z
 | LNMP 安装      | `GET /lnmp-installation`、`POST /lnmp-installation/prepare`、`POST /lnmp-installation/jobs/:id/start`、`GET /lnmp-installation/jobs/:id`、`GET /lnmp-installation/jobs/:id/events`、`GET /lnmp-installation/jobs/:id/logs` |
 | 备份政策       | `GET/POST /backups/policies`、`GET/PUT/DELETE /backups/policies/:id`（更新和删除携带 revision） |
 | 备份执行       | `POST /backups/policies/:id/run`（携带 revision，返回 202）、`GET /backups/policies/:id/runs?page=1`、`GET /backups/runs/:run_id`、`GET /backups/runtime` |
+| 备份文件       | `GET /backups/policies/:id/artifacts?revision=N&destination_index=0`（按保存的存储位置实时查询） |
 | 备份路径预检   | `POST /backups/policies/validate-paths`（请求包含 files、destinations，仅检查元数据） |
 | 备份来源与频率 | `POST /backups/databases/inspect`、`POST /backups/databases/tables`、`POST /backups/files/inspect`、`POST /backups/schedule/preview` |
 | 网站备份组件   | `GET /backups/components`、`POST /backups/components/install`（请求体为 `{"components":["gdrive","rclone"]}`） |

@@ -6374,3 +6374,124 @@ select,
     transition: none;
   }
 }
+
+.backup-artifact-dialog {
+  width: min(920px, calc(100vw - 24px));
+  max-width: 920px;
+  max-height: calc(100dvh - 24px);
+  background: #fff;
+  overflow: hidden;
+}
+.backup-artifact-tabs {
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+}
+.backup-artifact-tabs-list {
+  display: flex;
+  width: 100%;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  grid-template-columns: none;
+  margin-bottom: 12px;
+}
+.backup-artifact-tabs-list button {
+  flex: 0 0 auto;
+  font-size: 14px;
+}
+.backup-artifact-tab-content {
+  min-width: 0;
+  outline: none;
+}
+.backup-artifact-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.backup-artifact-toolbar button {
+  flex-shrink: 0;
+}
+.backup-artifact-destination {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.backup-artifact-location > .small-note {
+  margin: 10px 0;
+}
+.backup-artifact-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.backup-artifact-table th,
+.backup-artifact-table td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.backup-artifact-table th {
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.backup-artifact-table th:first-child {
+  width: 48%;
+}
+.backup-artifact-table th:nth-child(2) {
+  width: 12%;
+}
+.backup-artifact-table th:nth-child(3) {
+  width: 15%;
+}
+.backup-artifact-table th:nth-child(4) {
+  width: 25%;
+}
+.backup-artifact-name {
+  font-family: var(--font-mono, monospace);
+}
+.backup-artifact-empty {
+  margin: 24px 0;
+  color: var(--muted-foreground);
+}
+.backup-artifact-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 13px;
+  margin-top: 16px;
+}
+.backup-artifact-mobile-label {
+  display: none;
+}
+@media (max-width: 640px) {
+  .backup-artifact-table thead {
+    display: none;
+  }
+  .backup-artifact-table,
+  .backup-artifact-table tbody {
+    display: block;
+  }
+  .backup-artifact-table tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-bottom: 1px solid var(--border);
+    padding: 10px 0;
+  }
+  .backup-artifact-table td {
+    border: 0;
+    padding: 4px 0;
+  }
+  .backup-artifact-table td:first-child,
+  .backup-artifact-table td:last-child {
+    grid-column: 1 / -1;
+  }
+  .backup-artifact-mobile-label {
+    display: inline;
+    color: var(--muted-foreground);
+  }
+}

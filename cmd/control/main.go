@@ -50,7 +50,13 @@ func run() error {
 		return control.RunBackupPolicyWorker(os.Args[2])
 	}
 	if len(os.Args) == 3 && os.Args[1] == "backup-policies" {
-		ctx, cancel := context.WithTimeout(context.Background(), 65*time.Second)
+		parent := context.Background()
+		if os.Args[2] == "artifacts" {
+			var stop context.CancelFunc
+			parent, stop = signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+			defer stop()
+		}
+		ctx, cancel := context.WithTimeout(parent, 65*time.Second)
 		defer cancel()
 		return control.HandleBackupPolicy(ctx, os.Args[2], os.Stdin, os.Stdout)
 	}

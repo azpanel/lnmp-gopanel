@@ -14,6 +14,30 @@ import (
 )
 
 func (s *Server) registerBackupPolicies(r *gin.RouterGroup) {
+	r.GET("/backups/policies/:id/artifacts", func(c *gin.Context) {
+		revision, revErr := strconv.ParseUint(c.Query("revision"), 10, 64)
+		index, indexErr := strconv.Atoi(c.Query("destination_index"))
+		input := backups.ArtifactQuery{ID: c.Param("id"), Revision: revision, DestinationIndex: &index}
+		if revErr != nil || indexErr != nil || backups.ValidateArtifactQuery(input) != nil {
+			fail(c, 400, "备份政策版本或存储位置无效")
+			return
+		}
+		// Reject arbitrary path/remote arguments instead of silently ignoring them.
+		for key, values := range c.Request.URL.Query() {
+			if (key != "revision" && key != "destination_index") || len(values) != 1 {
+				fail(c, 400, "备份文件查询参数无效")
+				return
+			}
+		}
+		select {
+		case s.backupScanSlots <- struct{}{}:
+			defer func() { <-s.backupScanSlots }()
+		default:
+			fail(c, 429, "正在查询其他备份位置，请稍后重试")
+			return
+		}
+		s.policyCall(c, "artifacts", input, 30*time.Second)
+	})
 	r.GET("/backups/runtime", func(c *gin.Context) { s.policyCall(c, "runtime", struct{}{}, 20*time.Second) })
 	r.GET("/backups/runs/:run_id", func(c *gin.Context) {
 		if !backups.ValidPolicyID(c.Param("run_id")) {

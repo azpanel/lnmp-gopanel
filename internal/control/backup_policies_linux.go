@@ -394,6 +394,12 @@ func HandleBackupPolicy(ctx context.Context, action string, in io.Reader, out io
 	var result any
 	var err error
 	switch action {
+	case "artifacts":
+		var r backups.ArtifactQuery
+		err = decodeBackupPolicy(in, &r)
+		if err == nil {
+			result, err = defaultBackupExecutor().listArtifacts(ctx, r)
+		}
 	case "run", "runs", "run-get", "runtime":
 		result, err = backupRunCall(ctx, action, in)
 	case "list":
