@@ -421,22 +421,13 @@ export function BackupRunHistory({
   const [refreshing, setRefreshing] = useState(false);
   const queryClient = useQueryClient();
   const query = useQuery({
-    queryKey: ["backup-runs", policy.id, 1],
-    queryFn: ({ signal }) =>
-      api<BackupRunList>(`/backups/policies/${policy.id}/runs?page=1`, {
-        signal,
-      }),
-    refetchInterval: (q) =>
-      q.state.data?.items.some(activeBackupRun) ? 3000 : false,
-    refetchOnWindowFocus: false,
-  });
-  const pageCount = Math.min(
-    5,
-    Math.ceil((query.data?.total ?? 0) / (query.data?.page_size ?? 20)),
-  );
-  const older = useQuery({
-    queryKey: ["backup-runs-older", policy.id, pageCount],
+    queryKey: ["backup-runs", policy.id, "history"],
     queryFn: async ({ signal }) => {
+      const first = await api<BackupRunList>(
+        `/backups/policies/${policy.id}/runs?page=1`,
+        { signal },
+      );
+      const pageCount = Math.min(5, Math.ceil(first.total / first.page_size));
       const pages = await Promise.all(
         Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) =>
           api<BackupRunList>(
@@ -445,12 +436,15 @@ export function BackupRunHistory({
           ),
         ),
       );
-      return pages.flatMap((page) => page.items);
+      // Publish all pages together. Mixing a refreshed first page with cached
+      // later pages loses runs that move across a page boundary during polling.
+      return mergeBackupRuns(first.items, ...pages.map((page) => page.items));
     },
-    enabled: !!query.data && pageCount > 1,
+    refetchInterval: (q) =>
+      q.state.data?.some(activeBackupRun) ? 3000 : false,
     refetchOnWindowFocus: false,
   });
-  const runs = mergeBackupRuns(query.data?.items ?? [], older.data ?? []);
+  const runs = query.data ?? [];
   const current = runs.some((run) => run.id === selected)
     ? selected
     : runs[0]?.id;
@@ -459,7 +453,6 @@ export function BackupRunHistory({
     try {
       await Promise.all([
         query.refetch(),
-        ...(pageCount > 1 ? [older.refetch()] : []),
         ...(current
           ? [
               queryClient.refetchQueries({
@@ -528,14 +521,14 @@ export function BackupRunHistory({
               刷新历史
             </Button>
           </div>
-          {(query.error || older.error) && (
+          {query.error && (
             <p role="alert" className="form-error">
-              历史更新失败：{query.error?.message ?? older.error?.message}
+              历史更新失败：{query.error.message}
             </p>
           )}
-          {older.isFetching && (
+          {query.isFetching && (
             <p role="status" className="small-note">
-              正在读取更多执行记录…
+              正在读取执行记录…
             </p>
           )}
           {query.data && !runs.length && <p>暂无执行记录。</p>}

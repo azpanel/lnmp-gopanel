@@ -304,7 +304,13 @@ test("backup runtime loads on demand, refreshes and restores trigger focus", asy
   const refresh = page.getByRole("button", { name: "刷新政策", exact: true });
   await expect(refresh).toHaveText("");
   await expect(refresh.locator("svg")).toHaveCount(1);
-  const heading = refresh.locator("..");
+  const heading = page.locator(".policy-list-header");
+  await expect(heading.locator('[data-slot="card-title"]')).toHaveText(
+    "备份政策",
+  );
+  await expect(
+    heading.getByRole("button", { name: "刷新政策", exact: true }),
+  ).toBeVisible();
   expect(
     await heading.evaluate((el) => getComputedStyle(el).justifyContent),
   ).toBe("space-between");
@@ -609,4 +615,105 @@ test("history Select merges 100 records, preserves selection and stays beside re
     path: testInfo.outputPath("backup-history-select.png"),
     fullPage: true,
   });
+});
+
+test("history polling keeps a selected run across page boundaries and failed refreshes", async ({
+  page,
+}) => {
+  const fixture = await executionFixture(page);
+  await openBackupExecution(page);
+  await page.getByRole("button", { name: "立即备份", exact: true }).click();
+  const records: BackupRun[] = Array.from({ length: 40 }, (_, index) => ({
+    ...fixture.current,
+    id: (index + 1).toString(16).padStart(32, "0"),
+    status: index === 0 ? "running" : "succeeded",
+    phase: index === 0 ? "files" : "finished",
+    revision: index + 1,
+    created_at: new Date(
+      Date.UTC(2026, 10, 6, 12) - index * 60000,
+    ).toISOString(),
+  }));
+  let holdOlder = false,
+    failOlder = false,
+    olderReads = 0;
+  let releaseOlder!: () => void;
+  const pendingOlder = new Promise<void>((resolve) => {
+    releaseOlder = resolve;
+  });
+  await page.route("**/api/v1/backups/policies/*/runs?*", async (route) => {
+    const number = Number(
+      new URL(route.request().url()).searchParams.get("page"),
+    );
+    if (number > 1) {
+      olderReads++;
+      if (holdOlder) await pendingOlder;
+      if (failOlder)
+        return route.fulfill({
+          status: 503,
+          json: { error: "后续历史页暂不可用" },
+        });
+    }
+    return route.fulfill({
+      json: {
+        items: records.slice((number - 1) * 20, number * 20),
+        total: records.length,
+        page: number,
+        page_size: 20,
+      },
+    });
+  });
+  await page.route("**/api/v1/backups/runs/*", (route) =>
+    route.fulfill({
+      json:
+        records.find((run) => route.request().url().endsWith(run.id)) ??
+        fixture.current,
+    }),
+  );
+  const dialog = page.getByRole("dialog");
+  const refresh = dialog.getByRole("button", { name: "刷新历史", exact: true });
+  const select = dialog.getByRole("combobox", { name: "执行任务" });
+  await refresh.click();
+  await select.click();
+  await expect(page.getByRole("option")).toHaveCount(40);
+  await page.getByRole("option").nth(19).click();
+  await expect(dialog).toContainText("政策版本 20");
+  const selectedText = await select.textContent();
+
+  // A scheduled skip pushes the selected first-page boundary run onto page 2.
+  // Delay that page to ensure the UI never publishes a partial refresh.
+  holdOlder = true;
+  records.splice(1, 0, {
+    ...records[1],
+    id: "f".repeat(32),
+    status: "skipped",
+    revision: 999,
+    created_at: "2026-11-06T12:01:00Z",
+  });
+  records.pop();
+  const before = olderReads;
+  await expect.poll(() => olderReads).toBeGreaterThan(before);
+  await expect(dialog).toContainText("政策版本 20");
+  await expect(select).toHaveText(selectedText!);
+  holdOlder = false;
+  releaseOlder();
+  await expect(dialog.getByRole("status")).toHaveCount(0);
+  await expect(select).toHaveText(selectedText!);
+  await expect(dialog).toContainText("政策版本 20");
+  await select.click();
+  await expect(page.getByRole("option")).toHaveCount(40);
+  await expect(page.getByRole("option").first()).toContainText("已跳过");
+  await page.keyboard.press("Escape");
+
+  failOlder = true;
+  await refresh.click();
+  await expect(dialog.getByRole("alert")).toContainText("后续历史页暂不可用", {
+    timeout: 15000,
+  });
+  await expect(select).toHaveText(selectedText!);
+  await expect(dialog).toContainText("政策版本 20");
+  failOlder = false;
+  await expect(refresh).toBeEnabled();
+  await refresh.click();
+  await expect(dialog.getByRole("alert")).toHaveCount(0);
+  await expect(select).toHaveText(selectedText!);
 });

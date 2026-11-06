@@ -23,6 +23,10 @@ const backupArtifactLimit = 1000
 const backupArtifactScanLimit = 100000
 const backupArtifactOutputLimit = 8 << 20
 
+// gdrive passes every table through TabWriter, which expands tab separators
+// into padding. A printable separator survives that formatting unchanged.
+const backupGdriveFieldSeparator = "|"
+
 var backupArchivePattern = regexp.MustCompile(`^([a-f0-9]{32})-(databases|files)-([0-9]{8}T[0-9]{6}Z)-([a-f0-9]{32})\.(zip|7z)$`)
 var backupSizeDisplay = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?\s*(?:B|[KMGTPE]i?B)$`)
 var errArtifactOutput = errors.New("备份文件列表格式无效，请检查存储组件版本")
@@ -276,7 +280,7 @@ func parseGdriveArtifacts(reader io.Reader, id string, result *backups.ArtifactL
 		if line == "" {
 			continue
 		}
-		fields := strings.Split(line, "\t")
+		fields := strings.Split(line, backupGdriveFieldSeparator)
 		if len(fields) != 5 {
 			return false, errArtifactOutput
 		}
@@ -355,7 +359,7 @@ func (e backupExecutor) listGdriveArtifacts(ctx context.Context, id string, d ba
 		return errors.New("gdrive 文件夹不可读取，请检查文件夹 ID、账户授权及网络")
 	}
 	query := "'" + d.FolderID + "' in parents and trashed = false and name contains '" + id + "-' and mimeType != 'application/vnd.google-apps.folder' and mimeType != 'application/vnd.google-apps.shortcut'"
-	args := []string{"files", "list", "--query", query, "--order-by", "createdTime desc,name", "--max", "1001", "--skip-header", "--full-name", "--field-separator", "\t"}
+	args := []string{"files", "list", "--query", query, "--order-by", "createdTime desc,name", "--max", "1001", "--skip-header", "--full-name", "--field-separator", backupGdriveFieldSeparator}
 	truncated, err := runBackupArtifactCommand(ctx, tool, env, args, func(reader io.Reader) (bool, error) { return parseGdriveArtifacts(reader, id, result) })
 	result.Truncated = result.Truncated || truncated
 	return err

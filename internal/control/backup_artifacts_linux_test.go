@@ -150,7 +150,7 @@ func TestBackupArtifactsParsers(t *testing.T) {
 		}
 	}
 	result = backups.ArtifactList{}
-	row := func(object string) string { return object + "\t" + name + "\tregular\t1.2 MiB\t2026-11-06 04:00:00\n" }
+	row := func(object string) string { return object + "|" + name + "|regular|1.2 MiB|2026-11-06 04:00:00\n" }
 	truncated, err = parseGdriveArtifacts(strings.NewReader(row("id1")+row("id2")), id, &result)
 	if err != nil || truncated || len(result.Items) != 2 || result.Items[0].Bytes != nil || result.Items[0].SizeDisplay != "1.2 MiB" {
 		t.Fatal(result, err)
@@ -175,7 +175,23 @@ func TestBackupArtifactsGdriveIsolationBusyAndFailures(t *testing.T) {
 	name := artifactName(p.ID, "files", "20261106T040000Z", 1)
 	calls := filepath.Join(e.store.state, "calls")
 	tool := filepath.Join(e.store.state, "gdrive")
-	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" >> '%s'\ncat \"$HOME/.config/gdrive3/account.json\" > '%s.account'\nif [ \"$2\" = info ]; then printf 'Mime: application/vnd.google-apps.folder\\n'; else printf 'id_123\\t%s\\tregular\\t1.2 MiB\\t2026-11-06 04:00:00\\n'; fi\n", calls, calls, name)
+	// Model gdrive's table output: literal tabs become padding even when
+	// --field-separator explicitly requests a tab. Other separators survive.
+	script := fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$@" >> '%s'
+cat "$HOME/.config/gdrive3/account.json" > '%s.account'
+if [ "$2" = info ]; then
+  printf 'Mime: application/vnd.google-apps.folder\n'
+else
+  separator=$(printf '\t')
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = --field-separator ]; then shift; separator=$1; break; fi
+    shift
+  done
+  if [ "$separator" = "$(printf '\t')" ]; then separator='   '; fi
+  printf 'id_123%%s%s%%sregular%%s1.2 MiB%%s2026-11-06 04:00:00\n' "$separator" "$separator" "$separator" "$separator"
+fi
+`, calls, calls, name)
 	if err := os.WriteFile(tool, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +201,7 @@ func TestBackupArtifactsGdriveIsolationBusyAndFailures(t *testing.T) {
 		t.Fatal(result, err)
 	}
 	args, _ := os.ReadFile(calls)
-	for _, required := range []string{"info\nfolder_123", "'folder_123' in parents", p.ID + "-", "--max\n1001", "--skip-header", "--full-name"} {
+	for _, required := range []string{"info\nfolder_123", "'folder_123' in parents", p.ID + "-", "--max\n1001", "--skip-header", "--full-name", "--field-separator\n|\n"} {
 		if !strings.Contains(string(args), required) {
 			t.Fatal("query scope missing", required)
 		}
