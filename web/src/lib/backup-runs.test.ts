@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   backupETA,
+  refreshingBackupRun,
   backupTimeline,
   mergeBackupRuns,
   type BackupRun,
@@ -77,4 +78,15 @@ describe("backup history", () => {
       "计算中",
     );
   });
+});
+
+it("continues polling a completed backup until notification delivery finishes", () => {
+  const completed = run("notified");
+  expect(refreshingBackupRun(completed)).toBe(false);
+  for (const status of ["pending", "sending", "sent", "failed"] as const) {
+    completed.notification = { status, updated_at: completed.updated_at };
+    expect(refreshingBackupRun(completed)).toBe(
+      ["pending", "sending"].includes(status),
+    );
+  }
 });

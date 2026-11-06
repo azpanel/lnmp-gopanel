@@ -32,7 +32,20 @@ export type PathsResult = {
   errors: PathDiagnostic[];
   warnings: PathDiagnostic[];
 };
+export type BackupNotification = {
+  enabled: boolean;
+  channel: "telegram";
+  uid: string;
+  has_token: boolean;
+};
+export const emptyNotification = (): BackupNotification => ({
+  enabled: false,
+  channel: "telegram",
+  uid: "",
+  has_token: false,
+});
 export type Policy = {
+  notification?: BackupNotification;
   id: string;
   revision: number;
   name: string;
@@ -66,6 +79,8 @@ export type PolicySummary = Pick<
   file_count: number;
 };
 export type PolicySave = Policy & {
+  notification_token_action?: "keep" | "replace" | "clear";
+  notification_token?: string;
   password_action: "keep" | "replace" | "clear";
   password: string;
   copy_from?: { id: string; revision: number };
@@ -120,6 +135,9 @@ export function newPolicy(): PolicySave {
     destinations: [],
     created_at: "0001-01-01T00:00:00Z",
     updated_at: "0001-01-01T00:00:00Z",
+    notification: emptyNotification(),
+    notification_token_action: "keep",
+    notification_token: "",
     password_action: "keep",
     password: "",
   };
@@ -145,11 +163,13 @@ export function toggleDatabase(
 }
 export function policyValidation(p: PolicySave):
   | {
-      tab: "basic" | "databases" | "files" | "storage";
+      tab: "basic" | "databases" | "files" | "storage" | "notification";
       message: string;
       field?: string;
     }
   | undefined {
+  const notificationIssue = notificationValidation(p);
+  if (notificationIssue) return notificationIssue;
   if (!p.name.trim() || [...p.name].length > 80)
     return {
       tab: "basic",
@@ -241,4 +261,36 @@ export function destinationLabel(d: Destination): string {
   if (d.type === "local") return `本地：${d.path}`;
   if (d.type === "gdrive") return `gdrive：${d.account} / ${d.folder_id}`;
   return `rclone：${d.remote}:${d.path || "/"}`;
+}
+
+export function notificationValidation(
+  p: PolicySave,
+  test = false,
+): { tab: "notification"; message: string; field: string } | undefined {
+  const n = p.notification ?? emptyNotification();
+  const error = (message: string, field: string) => ({
+    tab: "notification" as const,
+    message,
+    field,
+  });
+  if (
+    (test || n.enabled || n.uid) &&
+    (!/^[1-9][0-9]{0,18}$/.test(n.uid) || BigInt(n.uid) > 9223372036854775807n)
+  )
+    return error("通知用户 UID 须为正整数", "policy-notification-uid");
+  if (p.notification_token_action === "replace") {
+    const token = p.notification_token ?? "";
+    if (token.length > 256 || !/^[0-9]+:[A-Za-z0-9_-]{20,200}$/.test(token))
+      return error("通知机器人 Token 格式无效", "policy-notification-token");
+  } else if (
+    (test || n.enabled) &&
+    (p.notification_token_action === "clear" || !n.has_token)
+  ) {
+    return error(
+      "请填写通知机器人 Token",
+      p.notification_token_action === "clear"
+        ? "policy-notification-token-action"
+        : "policy-notification-token",
+    );
+  }
 }

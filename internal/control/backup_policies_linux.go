@@ -25,7 +25,8 @@ import (
 
 type storedBackupPolicy struct {
 	backups.Policy
-	Ciphertext string `json:"password_ciphertext,omitempty"`
+	Ciphertext             string `json:"password_ciphertext,omitempty"`
+	NotificationCiphertext string `json:"notification_ciphertext,omitempty"`
 }
 type backupPolicyStore struct{ state, accountHome string }
 
@@ -55,6 +56,10 @@ func (s backupPolicyStore) load() ([]storedBackupPolicy, error) {
 		return nil, errors.New("政策文件损坏，请恢复备份")
 	}
 	for i := range policies {
+		if policies[i].Notification == nil {
+			policies[i].Notification = &backups.Notification{Channel: "telegram"}
+		}
+		policies[i].Notification.HasToken = policies[i].NotificationCiphertext != ""
 		if policies[i].Destinations == nil {
 			policies[i].Destinations = []backups.Destination{}
 		}
@@ -87,7 +92,7 @@ func (s backupPolicyStore) policyCipher(create bool) (cipher.AEAD, error) {
 			return nil, loadErr
 		}
 		for _, p := range policies {
-			if p.Ciphertext != "" {
+			if p.Ciphertext != "" || p.NotificationCiphertext != "" {
 				return nil, errors.New("政策密钥缺失，请恢复原密钥")
 			}
 		}
@@ -100,14 +105,11 @@ func (s backupPolicyStore) policyCipher(create bool) (cipher.AEAD, error) {
 			return nil, indexErr
 		}
 		for _, ref := range index.Runs {
-			if !backups.ActiveRun(ref.Status) {
-				continue
-			}
 			job, loadErr := e.loadRun(ref.ID)
 			if loadErr != nil {
 				return nil, loadErr
 			}
-			if job.Snapshot != nil && job.Snapshot.Ciphertext != "" {
+			if job.NotificationDelivery != nil || (job.Snapshot != nil && (job.Snapshot.Ciphertext != "" || job.Snapshot.NotificationCiphertext != "")) {
 				return nil, errors.New("政策密钥缺失，请恢复原密钥")
 			}
 		}
@@ -271,6 +273,9 @@ func (s backupPolicyStore) save(r backups.SavePolicyRequest) (backups.Policy, er
 		r.ID = hex.EncodeToString(id)
 	}
 	p := storedBackupPolicy{Policy: r.Policy, Ciphertext: old.Ciphertext}
+	if err := s.configureNotification(&p, old, source, r); err != nil {
+		return backups.Policy{}, err
+	}
 	if r.CopyFrom != nil && r.PasswordAction == "keep" && source.Ciphertext != "" {
 		aead, err := s.aead()
 		if err != nil {
@@ -394,6 +399,13 @@ func HandleBackupPolicy(ctx context.Context, action string, in io.Reader, out io
 	var result any
 	var err error
 	switch action {
+	case "notification-test":
+		var r backups.NotificationTestRequest
+		err = decodeBackupPolicy(in, &r)
+		if err == nil {
+			err = s.testNotification(ctx, r, sendTelegram)
+			result = struct{}{}
+		}
 	case "artifacts":
 		var r backups.ArtifactQuery
 		err = decodeBackupPolicy(in, &r)

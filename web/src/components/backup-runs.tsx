@@ -37,6 +37,7 @@ import {
 } from "@/lib/backup-policies";
 import {
   activeBackupRun,
+  refreshingBackupRun,
   backupTimeline,
   backupETA,
   mergeBackupRuns,
@@ -304,7 +305,7 @@ function BackupRunDetails({ runId }: { runId: string }) {
     queryKey: ["backup-run", runId],
     queryFn: ({ signal }) =>
       api<BackupRun>(`/backups/runs/${runId}`, { signal }),
-    refetchInterval: (q) => (activeBackupRun(q.state.data) ? 1000 : false),
+    refetchInterval: (q) => (refreshingBackupRun(q.state.data) ? 1000 : false),
     refetchOnWindowFocus: false,
   });
   const [now, setNow] = useState(Date.now);
@@ -373,6 +374,26 @@ function BackupRunDetails({ runId }: { runId: string }) {
           <span>计划：{backupRunTime(run.scheduled_for)}</span>
         )}
       </div>
+      {run.notification && (
+        <p
+          className={
+            run.notification.status === "failed" ? "form-error" : "small-note"
+          }
+          role="status"
+          aria-label="通知状态"
+        >
+          Telegram 通知：
+          {
+            {
+              pending: "待发送",
+              sending: "发送中",
+              sent: "已发送",
+              failed: "发送失败",
+            }[run.notification.status]
+          }
+          {run.notification.error && ` · ${run.notification.error}`}
+        </p>
+      )}
       {query.error && (
         <p className="form-error" role="alert">
           进度更新失败：{query.error.message}
@@ -482,7 +503,7 @@ export function BackupRunHistory({
       return mergeBackupRuns(first.items, ...pages.map((page) => page.items));
     },
     refetchInterval: (q) =>
-      q.state.data?.some(activeBackupRun) ? 3000 : false,
+      q.state.data?.some(refreshingBackupRun) ? 3000 : false,
     refetchOnWindowFocus: false,
   });
   const runs = query.data ?? [];

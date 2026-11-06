@@ -44,7 +44,14 @@ async function policyFixture(page: Page) {
     if (route.request().method() === "POST") {
       const body = route.request().postDataJSON() as PolicySave;
       saves.push(body);
-      const { password: _password, password_action, copy_from, ...data } = body;
+      const {
+        password: _password,
+        password_action,
+        copy_from,
+        notification_token: _token,
+        notification_token_action,
+        ...data
+      } = body;
       const source = copy_from ? policies.get(copy_from.id) : undefined;
       if (copy_from && (!source || source.revision !== copy_from.revision))
         return route.fulfill({
@@ -55,6 +62,15 @@ async function policyFixture(page: Page) {
         ...data,
         id: String(policies.size + 1).padStart(32, "0"),
         revision: 1,
+        notification: data.notification
+          ? {
+              ...data.notification,
+              has_token:
+                notification_token_action === "replace" ||
+                (notification_token_action === "keep" &&
+                  !!source?.notification?.has_token),
+            }
+          : undefined,
         compression: {
           ...data.compression,
           has_password:
@@ -82,10 +98,25 @@ async function policyFixture(page: Page) {
     if (route.request().method() === "PUT") {
       const body = route.request().postDataJSON() as PolicySave;
       saves.push(body);
-      const { password: _password, password_action, ...data } = body;
+      const {
+        password: _password,
+        password_action,
+        notification_token: _token,
+        notification_token_action,
+        ...data
+      } = body;
       const policy = {
         ...data,
         revision: previous.revision + 1,
+        notification: data.notification
+          ? {
+              ...data.notification,
+              has_token:
+                notification_token_action === "replace" ||
+                (notification_token_action === "keep" &&
+                  !!previous.notification?.has_token),
+            }
+          : previous.notification,
         compression: {
           ...data.compression,
           has_password:
@@ -1041,4 +1072,117 @@ test("destination feedback is inline, delayed for empty rows, and error tabs loc
   expect(
     await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth),
   ).toBeTruthy();
+});
+
+test("policy Telegram notifications test unsaved settings and preserve private tokens", async ({
+  page,
+}, testInfo) => {
+  const f = await policyFixture(page);
+  const tests: {
+    id?: string;
+    revision?: number;
+    notification: { uid: string };
+    token_action: string;
+    token: string;
+  }[] = [];
+  let failTest = false;
+  await page.route("**/api/v1/backups/notifications/test", (route) => {
+    tests.push(route.request().postDataJSON());
+    return route.fulfill(
+      failTest
+        ? {
+            status: 502,
+            json: { error: "通知发送失败：用户未授权或已屏蔽机器人" },
+          }
+        : { json: {} },
+    );
+  });
+  await page.getByRole("button", { name: "添加备份政策", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("名称", { exact: true }).fill("Telegram 通知政策");
+  await dialog.getByRole("switch", { name: "启用政策", exact: true }).uncheck();
+  await dialog.getByRole("tab", { name: "通知", exact: true }).click();
+  const toggle = dialog.getByRole("switch", { name: "启用通知", exact: true });
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await dialog.getByRole("button", { name: "保存政策", exact: true }).click();
+  const uid = dialog.getByLabel("接收用户 UID", { exact: true });
+  await expect(uid).toBeFocused();
+  await expect(uid).toHaveAttribute("aria-invalid", "true");
+  await uid.fill("123456789");
+  const token = dialog.getByLabel("机器人 Token", { exact: true });
+  await token.fill("123456:abcdefghijklmnopqrstuv_xyz-0123456789");
+  await expect(token).toHaveAttribute("type", "password");
+  await expect(
+    dialog.getByRole("combobox", { name: "通知渠道", exact: true }),
+  ).toHaveCSS("font-size", "14px");
+  const test = dialog.getByRole("button", {
+    name: "发送测试消息",
+    exact: true,
+  });
+  await test.click();
+  await expect(dialog.getByRole("status")).toContainText("测试消息已发送");
+  expect(tests[0].token_action).toBe("replace");
+  expect(tests[0].notification.uid).toBe("123456789");
+  expect(f.saves).toHaveLength(0);
+  expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
+    true,
+  );
+  await page.screenshot({
+    path: testInfo.outputPath("backup-notification-settings.png"),
+    fullPage: true,
+  });
+  await dialog.getByRole("button", { name: "保存政策", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(f.saves).toHaveLength(1);
+  const saved = [...f.policies.values()][0];
+  expect(saved.notification?.has_token).toBe(true);
+  expect(JSON.stringify(saved)).not.toContain("abcdefghijklmnopqrstuv");
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await dialog.getByRole("tab", { name: "通知", exact: true }).click();
+  await expect(token).toHaveValue("");
+  await expect(token).toHaveAttribute("placeholder", "已配置，原 Token 不回显");
+  await uid.fill("987654321");
+  await test.click();
+  await expect(dialog.getByRole("status")).toContainText("测试消息已发送");
+  expect(tests.at(-1)).toMatchObject({
+    id: saved.id,
+    revision: saved.revision,
+    token_action: "keep",
+    token: "",
+    notification: { uid: "987654321" },
+  });
+  expect(f.policies.get(saved.id)?.notification?.uid).toBe("123456789");
+  failTest = true;
+  await test.click();
+  await expect(dialog.getByRole("alert")).toContainText(
+    "用户未授权或已屏蔽机器人",
+  );
+  await toggle.uncheck();
+  await dialog.getByRole("button", { name: "保存政策", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(f.policies.get(saved.id)?.notification).toMatchObject({
+    enabled: false,
+    has_token: true,
+    uid: "987654321",
+  });
+  await page.getByRole("button", { name: "查看", exact: true }).click();
+  await dialog.getByRole("tab", { name: "通知", exact: true }).click();
+  await expect(toggle).toBeDisabled();
+  await expect(uid).toBeDisabled();
+  await expect(test).toHaveCount(0);
+  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByRole("button", { name: "复制", exact: true }).click();
+  await dialog.getByRole("tab", { name: "通知", exact: true }).click();
+  await expect(toggle).not.toBeChecked();
+  await expect(token).toHaveValue("");
+  failTest = false;
+  await test.click();
+  await expect(dialog.getByRole("status")).toContainText("测试消息已发送");
+  expect(tests.at(-1)).toMatchObject({
+    id: saved.id,
+    revision: saved.revision + 1,
+    token_action: "keep",
+    token: "",
+  });
 });

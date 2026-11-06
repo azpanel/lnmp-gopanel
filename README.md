@@ -320,11 +320,17 @@ Composer 检测沿用 `components snapshot` 授权，升级时使用同一源码
 
 ## 网站备份
 
-执行历史弹窗使用任务 Select 选择最近 100 条记录，右侧“刷新历史”同时更新列表和当前详情。执行详情按实际顺序显示纵向时间线，分别记录准备、压缩、校验、逐目标交付及清理结果。运行中的详情每秒刷新，历史摘要每 3 秒刷新；结束或关闭弹窗后停止相应轮询。压缩及交付进度旁显示已处理量、总量和预计剩余时间（ETA），刷新失败保留最后数据并提供重试。
+执行历史弹窗使用任务 Select 选择最近 100 条记录，右侧“刷新历史”同时更新列表和当前详情。执行详情按实际顺序显示纵向时间线，分别记录准备、压缩、校验、逐目标交付及清理结果。运行中的详情每秒刷新，历史摘要每 3 秒刷新；结束且通知发送完成后，或关闭弹窗后停止相应轮询。压缩及交付进度旁显示已处理量、总量和预计剩余时间（ETA），刷新失败保留最后数据并提供重试。
 
 压缩总量来自实际暂存文件大小，处理量根据 7-Zip 百分比换算并标注“估算”；本地交付按实际复制字节计量，rclone 读取传输统计，gdrive 按分块起始偏移更新已完成量（默认 32 MiB 分块，进度逐块变化）。进度到达 100% 后仍可能需要校验、同步或发布，以步骤状态和最终结果为准。尚无有效采样时显示不定进度；ETA 无法计算或采样过期时显示“计算中”。旧历史记录继续显示已有结果，不补造进度或步骤时间。升级时同步更新前端和辅助程序，无需迁移历史数据。
 
-“网站备份”页面（`/backups`）提供备份政策配置和 gdrive、rclone 组件安装。右上角“添加备份政策”打开四个 Tab，支持新增、查看、编辑、删除及启停政策。保存后，启用政策在下个 Cron 时间自动执行；已有启用政策升级后同样生效，不补跑过去的任务。列表提供“立即备份”、最近结果和执行历史；停用政策也可手动执行。每次分别生成一个数据库包和一个文件包，交付到各存储位置，再按类别及目的地独立保留最近 N 份。暂不提供恢复或下载功能。
+“网站备份”页面（`/backups`）提供备份政策配置和 gdrive、rclone 组件安装。右上角“添加备份政策”打开基本设置、数据库、存储位置、文件与目录、通知五个 Tab，支持新增、查看、编辑、删除及启停政策。保存后，启用政策在下个 Cron 时间自动执行；已有启用政策升级后同样生效，不补跑过去的任务。列表提供“立即备份”、最近结果和执行历史；停用政策也可手动执行。每次分别生成一个数据库包和一个文件包，交付到各存储位置，再按类别及目的地独立保留最近 N 份。暂不提供恢复或下载功能。
+
+“通知”选项卡可为每个政策独立启用 Telegram 机器人通知，填写 BotFather 提供的 Token 和一个接收用户的数字 UID。新政策默认关闭；接收用户须先与该机器人私聊发送 `/start`，服务器也须能够访问 Telegram 官方 API。暂不支持用户名、群组、多收件人或自定义 API 地址。Token 加密保存在 root 私有政策存储中，编辑时仅显示“已配置”，支持保留、更换和清除；关闭通知保留配置，复制政策时重新加密凭据且默认关闭通知。请一并备份政策文件和 `policies.key`。
+
+“发送测试消息”使用当前表单中的配置，无需先保存政策，也不改变政策内容；使用已保存的 Token 时校验政策版本。测试接口要求登录及 CSRF 校验，全局每分钟最多 10 次。测试消息和实际结果通过固定的 Telegram `sendMessage` API 发送，单次请求最多 10 秒，不跟随重定向、不自动重试。
+
+手动和计划备份完成后，按任务入队时的通知配置发送一条成功、部分成功或失败结果，包含主机、政策、触发方式、时间、耗时、分类大小、交付概况和简短错误原因。启动失败和执行中断同样通知，计划跳过及排队取消不发送。执行历史独立显示通知状态，通知失败不改变备份结果；发送进程中断时显示“发送中断，结果未知”，不会重复发送。尚未尝试的通知由调度器继续处理，处理结束后清除任务中的通知凭据副本。升级此功能需同步更新面板、辅助程序和 sudoers 的 `backup-policies notification-test` 授权；安装器只检查授权，不发送测试消息。
 
 “执行历史”右侧的“查看备份”按当前政策配置的存储位置分 Tab 展示实际存在的备份文件，包含文件名、类别、大小和备份时间。切换位置及点击“刷新备份”会重新查询；仅匹配当前政策直接存放的 ZIP/7z 文件，不递归扫描子目录。每页 20 条，单次最多返回 1000 条，达到查询或输出上限时提示结果不完整；远端查询最长 30 秒，失败后保留上次结果。gdrive 返回的大小为近似值，以“约”标注。升级此功能需同时更新面板、辅助程序及 sudoers 的 `backup-policies artifacts` 授权；安装器只检查授权，不读取备份文件。
 
@@ -882,6 +888,7 @@ bash scripts/package.sh arm64 vX.Y.Z
 | 版本查询       | `GET /services/releases`、`POST /services/releases/refresh`、`PUT /services/releases/:name/range`                                                                                                                          |
 | LNMP 安装      | `GET /lnmp-installation`、`POST /lnmp-installation/prepare`、`POST /lnmp-installation/jobs/:id/start`、`GET /lnmp-installation/jobs/:id`、`GET /lnmp-installation/jobs/:id/events`、`GET /lnmp-installation/jobs/:id/logs` |
 | 备份政策       | `GET/POST /backups/policies`、`GET/PUT/DELETE /backups/policies/:id`（更新和删除携带 revision） |
+| 备份通知测试 | `POST /backups/notifications/test`（当前配置、Token 操作，可选政策 ID 和 revision；要求 CSRF） |
 | 备份执行       | `POST /backups/policies/:id/run`（携带 revision，返回 202）、`GET /backups/policies/:id/runs?page=1`、`GET /backups/runs/:run_id`、`GET /backups/runtime` |
 | 备份文件       | `GET /backups/policies/:id/artifacts?revision=N&destination_index=0`（按保存的存储位置实时查询） |
 | 备份路径预检   | `POST /backups/policies/validate-paths`（请求包含 files、destinations，仅检查元数据） |

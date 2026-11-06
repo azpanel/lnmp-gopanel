@@ -31,14 +31,16 @@ var errBackupLaunchUnknown = errors.New("无法确认备份系统任务是否已
 
 type storedBackupRun struct {
 	backups.Run
-	Snapshot *storedBackupPolicy `json:"snapshot,omitempty"`
+	Snapshot             *storedBackupPolicy         `json:"snapshot,omitempty"`
+	NotificationDelivery *backupNotificationDelivery `json:"notification_delivery,omitempty"`
 }
 type backupRunRef struct {
-	ID        string    `json:"id"`
-	PolicyID  string    `json:"policy_id"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	NotificationPending bool      `json:"notification_pending,omitempty"`
+	ID                  string    `json:"id"`
+	PolicyID            string    `json:"policy_id"`
+	Status              string    `json:"status"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 func recentBackupRuns(refs []backupRunRef) []backupRunRef {
@@ -76,6 +78,7 @@ type backupExecutor struct {
 	execute     func(context.Context, *storedBackupRun) error
 	installLock string
 	tools       func(string) string
+	notify      backupNotificationSender
 }
 
 func (e backupExecutor) executable(name string) string {
@@ -192,6 +195,7 @@ func (e backupExecutor) saveRun(j *storedBackupRun) error {
 	j.Error = backupDiagnostic(j.Error)
 	if !backups.ActiveRun(j.Status) {
 		finishBackupSteps(j, j.UpdatedAt)
+		prepareBackupNotification(j, j.UpdatedAt)
 		j.Snapshot = nil
 	}
 	if err := privateBackupDirectory(filepath.Dir(e.runPath(j.ID))); err != nil {
@@ -227,6 +231,7 @@ func (e backupExecutor) update(j *storedBackupRun) error {
 				return err
 			}
 			i.Runs[n].Status = j.Status
+			i.Runs[n].NotificationPending = backups.PendingNotification(j.Notification)
 			i.Runs[n].UpdatedAt = j.UpdatedAt
 			return e.saveIndex(i)
 		}
@@ -385,6 +390,7 @@ func (e backupExecutor) dispatch(ctx context.Context, tick bool) error {
 		}
 		if j.Status != r.Status {
 			r.Status = j.Status
+			r.NotificationPending = backups.PendingNotification(j.Notification)
 			r.UpdatedAt = j.UpdatedAt
 			if !backups.ActiveRun(j.Status) {
 				interrupted = append(interrupted, j)
@@ -415,6 +421,7 @@ func (e backupExecutor) dispatch(ctx context.Context, tick bool) error {
 				return err
 			}
 			r.Status = j.Status
+			r.NotificationPending = backups.PendingNotification(j.Notification)
 			r.UpdatedAt = j.UpdatedAt
 		}
 	}
@@ -494,7 +501,7 @@ func (e backupExecutor) dispatch(ctx context.Context, tick bool) error {
 	retained := map[string]bool{}
 	for _, r := range recentBackupRuns(i.Runs) {
 		counts[r.PolicyID]++
-		if counts[r.PolicyID] <= 100 || backups.ActiveRun(r.Status) {
+		if counts[r.PolicyID] <= 100 || backups.ActiveRun(r.Status) || r.NotificationPending {
 			retained[r.ID] = true
 		}
 	}
@@ -552,7 +559,7 @@ func (e backupExecutor) dispatch(ctx context.Context, tick bool) error {
 			}
 		}
 	}
-	return nil
+	return e.deliverNotifications(ctx)
 }
 func (e backupExecutor) list(r backups.RunQuery) (backups.RunList, error) {
 	result := backups.RunList{Items: []backups.Run{}, Page: r.Page, PageSize: 20}
@@ -679,7 +686,8 @@ func (e backupExecutor) worker(ctx context.Context, id string) error {
 	// The periodic dispatcher also recovers queues if this best-effort call fails.
 	nextCtx, done := context.WithTimeout(context.Background(), 20*time.Second)
 	defer done()
-	return e.dispatch(nextCtx, false)
+	notifyErr := e.deliverNotification(nextCtx, id)
+	return errors.Join(notifyErr, e.dispatch(nextCtx, false))
 }
 
 func (e backupExecutor) cleanupWork(j storedBackupRun) {

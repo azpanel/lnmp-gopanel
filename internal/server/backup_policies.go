@@ -14,6 +14,22 @@ import (
 )
 
 func (s *Server) registerBackupPolicies(r *gin.RouterGroup) {
+	r.POST("/backups/notifications/test", s.csrf, func(c *gin.Context) {
+		var input backups.NotificationTestRequest
+		if !policyBody(c, &input) {
+			return
+		}
+		if err := backups.ValidateNotificationTest(input); err != nil {
+			policyFailure(c, err)
+			return
+		}
+		if !s.notificationLimiter.Allow() {
+			c.Header("Retry-After", "60")
+			fail(c, 429, "通知测试次数过多，请稍后重试")
+			return
+		}
+		s.policyCall(c, "notification-test", input, 12*time.Second)
+	})
 	r.GET("/backups/policies/:id/artifacts", func(c *gin.Context) {
 		revision, revErr := strconv.ParseUint(c.Query("revision"), 10, 64)
 		index, indexErr := strconv.Atoi(c.Query("destination_index"))

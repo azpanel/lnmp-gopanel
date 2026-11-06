@@ -46,6 +46,7 @@ type FileSource struct {
 	Excludes []string `json:"excludes"`
 }
 type Policy struct {
+	Notification *Notification     `json:"notification,omitempty"`
 	ID           string            `json:"id"`
 	Revision     uint64            `json:"revision"`
 	Name         string            `json:"name"`
@@ -62,9 +63,11 @@ type Policy struct {
 }
 type SavePolicyRequest struct {
 	Policy
-	PasswordAction string          `json:"password_action"`
-	Password       string          `json:"password"`
-	CopyFrom       *PolicyIdentity `json:"copy_from,omitempty"`
+	NotificationTokenAction string          `json:"notification_token_action,omitempty"`
+	NotificationToken       string          `json:"notification_token,omitempty"`
+	PasswordAction          string          `json:"password_action"`
+	Password                string          `json:"password"`
+	CopyFrom                *PolicyIdentity `json:"copy_from,omitempty"`
 }
 type PolicyIdentity struct {
 	ID       string `json:"id"`
@@ -155,6 +158,9 @@ func SchedulePreview(expression string, now time.Time) (cronpreview.Preview, err
 	return result, nil
 }
 func ValidatePolicy(r SavePolicyRequest) error {
+	if err := ValidateNotification(r.Notification, r.NotificationTokenAction, r.NotificationToken); err != nil {
+		return err
+	}
 	p := r.Policy
 	if r.CopyFrom != nil && (p.ID != "" || !ValidPolicyID(r.CopyFrom.ID) || r.CopyFrom.Revision == 0) {
 		return invalidPolicy("复制来源无效，复制只能创建新政策")

@@ -69,6 +69,7 @@ type Server struct {
 	accountOnce         sync.Once
 	authMu              authGate
 	securityLimiter     auth.Limiter
+	notificationLimiter auth.Limiter
 }
 
 func New(c config.Config, m *metrics.Collector, svc *control.Manager, assets fs.FS) *Server {

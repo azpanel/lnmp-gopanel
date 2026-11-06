@@ -1,6 +1,11 @@
 import type { Destination } from "@/lib/backup-policies";
 
 export type BackupRun = {
+  notification?: {
+    status: "pending" | "sending" | "sent" | "failed";
+    updated_at: string;
+    error?: string;
+  };
   id: string;
   policy_id: string;
   policy_name: string;
@@ -182,4 +187,14 @@ export function backupETA(
   if (seconds < 3600)
     return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
   return `${Math.floor(seconds / 3600)} 小时 ${Math.floor((seconds % 3600) / 60)} 分`;
+}
+
+export function pendingBackupNotification(run?: BackupRun) {
+  return (
+    !!run?.notification &&
+    ["pending", "sending"].includes(run.notification.status)
+  );
+}
+export function refreshingBackupRun(run?: BackupRun) {
+  return activeBackupRun(run) || pendingBackupNotification(run);
 }

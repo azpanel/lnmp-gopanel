@@ -10,21 +10,22 @@ var ErrRunBusy = errors.New("该政策已有备份正在排队或执行，请等
 // Run records execution only; policy configuration and credentials are never
 // embedded in public responses.
 type Run struct {
-	ID           string           `json:"id"`
-	PolicyID     string           `json:"policy_id"`
-	PolicyName   string           `json:"policy_name"`
-	Revision     uint64           `json:"revision"`
-	Trigger      string           `json:"trigger"`
-	Status       string           `json:"status"`
-	Phase        string           `json:"phase"`
-	CreatedAt    time.Time        `json:"created_at"`
-	StartedAt    *time.Time       `json:"started_at,omitempty"`
-	FinishedAt   *time.Time       `json:"finished_at,omitempty"`
-	UpdatedAt    time.Time        `json:"updated_at"`
-	ScheduledFor *time.Time       `json:"scheduled_for,omitempty"`
-	Error        string           `json:"error,omitempty"`
-	Categories   []CategoryResult `json:"categories"`
-	Steps        []RunStep        `json:"steps,omitempty"`
+	Notification *NotificationResult `json:"notification,omitempty"`
+	ID           string              `json:"id"`
+	PolicyID     string              `json:"policy_id"`
+	PolicyName   string              `json:"policy_name"`
+	Revision     uint64              `json:"revision"`
+	Trigger      string              `json:"trigger"`
+	Status       string              `json:"status"`
+	Phase        string              `json:"phase"`
+	CreatedAt    time.Time           `json:"created_at"`
+	StartedAt    *time.Time          `json:"started_at,omitempty"`
+	FinishedAt   *time.Time          `json:"finished_at,omitempty"`
+	UpdatedAt    time.Time           `json:"updated_at"`
+	ScheduledFor *time.Time          `json:"scheduled_for,omitempty"`
+	Error        string              `json:"error,omitempty"`
+	Categories   []CategoryResult    `json:"categories"`
+	Steps        []RunStep           `json:"steps,omitempty"`
 }
 
 type RunStep struct {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   newPolicy,
+  notificationValidation,
   databaseSelected,
   toggleDatabase,
   policyValidation,
@@ -86,5 +87,42 @@ describe("backup policy configuration", () => {
       folder_id: "root",
     };
     expect(policyValidation(p)).toBeUndefined();
+  });
+});
+
+describe("backup notifications", () => {
+  it("defaults off and validates draft tests independently of the switch", () => {
+    const p = newPolicy();
+    expect(p.notification?.enabled).toBe(false);
+    expect(notificationValidation(p)).toBeUndefined();
+    expect(notificationValidation(p, true)?.field).toBe(
+      "policy-notification-uid",
+    );
+    p.notification!.uid = "123456789";
+    expect(notificationValidation(p, true)?.field).toBe(
+      "policy-notification-token",
+    );
+    p.notification_token_action = "replace";
+    p.notification_token = "123:abcdefghijklmnopqrstuv_0123456789";
+    expect(notificationValidation(p, true)).toBeUndefined();
+    p.notification!.enabled = true;
+    for (const uid of ["", "0", "-123", "@user", "9223372036854775808"]) {
+      p.notification!.uid = uid;
+      expect(notificationValidation(p)?.field).toBe("policy-notification-uid");
+    }
+    p.notification!.uid = "123";
+    p.notification_token_action = "keep";
+    p.notification_token = "";
+    p.notification!.has_token = true;
+    expect(notificationValidation(p)).toBeUndefined();
+    p.notification_token_action = "clear";
+    expect(notificationValidation(p)?.field).toBe(
+      "policy-notification-token-action",
+    );
+    p.notification!.enabled = false;
+    expect(notificationValidation(p)).toBeUndefined();
+    expect(notificationValidation(p, true)?.field).toBe(
+      "policy-notification-token-action",
+    );
   });
 });

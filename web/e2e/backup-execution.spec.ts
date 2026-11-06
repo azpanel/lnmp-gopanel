@@ -783,3 +783,33 @@ test("history polling keeps a selected run across page boundaries and failed ref
   await expect(dialog.getByRole("alert")).toHaveCount(0);
   await expect(select).toHaveText(selectedText!);
 });
+
+test("completed backup keeps polling notification delivery without changing its result", async ({
+  page,
+}) => {
+  const fixture = await executionFixture(page);
+  await openBackupExecution(page);
+  await page.getByRole("button", { name: "立即备份", exact: true }).click();
+  fixture.complete();
+  fixture.current.notification = {
+    status: "pending",
+    updated_at: new Date().toISOString(),
+  };
+  const dialog = page.getByRole("dialog");
+  const status = dialog.getByRole("status", { name: "通知状态", exact: true });
+  await expect(status).toContainText("待发送");
+  fixture.current.notification.status = "sending";
+  await expect(status).toContainText("发送中");
+  fixture.current.notification = {
+    status: "failed",
+    updated_at: new Date().toISOString(),
+    error: "发送中断，结果未知",
+  };
+  await expect(status).toContainText("发送失败 · 发送中断，结果未知");
+  await expect(
+    dialog.getByRole("heading", { name: "执行详情 · 部分成功", exact: true }),
+  ).toBeVisible();
+  const reads = fixture.reads;
+  await page.waitForTimeout(1600);
+  expect(fixture.reads).toBe(reads);
+});

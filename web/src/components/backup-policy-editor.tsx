@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Bell,
   Archive,
   Database,
   DatabaseBackup,
@@ -30,6 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { BackupPolicyNotifications } from "@/components/backup-policy-notifications";
 import { BackupPolicyStorage } from "@/components/backup-policy-storage";
 import { useBackupPolicyPaths } from "@/components/backup-policy-path-check";
 import {
@@ -49,12 +51,13 @@ import { api } from "@/lib/api";
 import { useSessionMutation } from "@/lib/use-session-mutation";
 import {
   newPolicy,
+  emptyNotification,
   policyValidation,
   type Policy,
   type PolicySave,
 } from "@/lib/backup-policies";
 
-type Tab = "basic" | "databases" | "files" | "storage";
+type Tab = "basic" | "databases" | "files" | "storage" | "notification";
 export function BackupPolicyEditor({
   policyId,
   readOnly,
@@ -90,11 +93,15 @@ export function BackupPolicyEditor({
     "policy-password-confirm",
     "policy-password-action",
     "policy-cron",
+    "policy-notification-token",
+    "policy-notification-token-action",
+    "policy-notification-uid",
   ];
   const fieldError = (field: string) =>
     errorField === field ? error : undefined;
   const counts: Record<Tab, number> = {
     basic: 0,
+    notification: 0,
     databases: 0,
     files: paths?.errors.filter((item) => item.field === "files").length ?? 0,
     storage:
@@ -174,6 +181,12 @@ export function BackupPolicyEditor({
     if (query.data && query.isFetchedAfterMount && !initialized.current) {
       const value = {
         ...query.data,
+        notification: {
+          ...(query.data.notification ?? emptyNotification()),
+          ...(copy ? { enabled: false } : {}),
+        },
+        notification_token_action: "keep" as const,
+        notification_token: "",
         destinations: (query.data.destinations ?? []).map((d) =>
           d.type === "rclone" ? { ...d, path: d.path ?? "" } : d,
         ),
@@ -232,15 +245,17 @@ export function BackupPolicyEditor({
     },
     onError: (e) => {
       const message = policyMessage(e.message);
-      const target: Tab | undefined = /存储|账户|远程|目的地/.test(message)
-        ? "storage"
-        : /路径|来源|排除/.test(message)
-          ? "files"
-          : /数据库|表规则/.test(message)
-            ? "databases"
-            : /密码|名称|Cron/.test(message)
-              ? "basic"
-              : undefined;
+      const target: Tab | undefined = /通知|Token|UID/.test(message)
+        ? "notification"
+        : /存储|账户|远程|目的地/.test(message)
+          ? "storage"
+          : /路径|来源|排除/.test(message)
+            ? "files"
+            : /数据库|表规则/.test(message)
+              ? "databases"
+              : /密码|名称|Cron/.test(message)
+                ? "basic"
+                : undefined;
       setError(message);
       setErrorField(undefined);
       setErrorTab(target);
@@ -453,6 +468,25 @@ export function BackupPolicyEditor({
                   >
                     <FolderOpen size={16} aria-hidden="true" />
                     文件与目录{tabBadge("files")}
+                  </Tabs.Trigger>
+                  <Tabs.Trigger
+                    value="notification"
+                    aria-label="通知"
+                    title={
+                      counts.notification
+                        ? `${counts.notification} 项错误，点击定位`
+                        : undefined
+                    }
+                    onClick={() => {
+                      if (counts.notification)
+                        focusIssue(
+                          "notification",
+                          errorTab === "notification" ? errorField : undefined,
+                        );
+                    }}
+                  >
+                    <Bell size={16} aria-hidden="true" />
+                    通知{tabBadge("notification")}
                   </Tabs.Trigger>
                 </Tabs.List>
                 <Tabs.Content
@@ -769,6 +803,21 @@ export function BackupPolicyEditor({
                     value={draft.files}
                     readOnly={disabled}
                     onChange={(v) => update("files", v)}
+                  />
+                </Tabs.Content>
+                <Tabs.Content
+                  forceMount
+                  value="notification"
+                  className="policy-tab-panel"
+                >
+                  <BackupPolicyNotifications
+                    value={draft}
+                    readOnly={disabled}
+                    fieldError={fieldError}
+                    onChange={(patch) => {
+                      setDraft((old) => ({ ...old, ...patch }));
+                      setError("");
+                    }}
                   />
                 </Tabs.Content>
               </Tabs.Root>
