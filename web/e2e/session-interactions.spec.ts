@@ -69,6 +69,73 @@ async function emit(page: Page, path: string, name: string, data = {}) {
   );
 }
 
+test("logout requires confirmation and allows retry without duplicate requests", async ({
+  page,
+}, info) => {
+  await login(page, "/system");
+  if (info.project.name === "mobile")
+    await page.getByRole("button", { name: "打开导航", exact: true }).click();
+  const trigger = page.getByRole("button", { name: "退出登录", exact: true });
+  const dialog = page.getByRole("dialog", { name: "退出登录", exact: true });
+  let requests = 0;
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/v1/auth/logout", async (route) => {
+    requests++;
+    if (requests === 1) {
+      await pending;
+      return route.fulfill({
+        status: 503,
+        json: { error: "退出暂时失败，请重试" },
+      });
+    }
+    await route.continue();
+  });
+  await trigger.click();
+  await expect(
+    dialog.getByRole("button", { name: "取消", exact: true }),
+  ).toBeFocused();
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await trigger.click();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await trigger.click();
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(requests).toBe(0);
+  await expect(page.locator(".workspace")).toBeVisible();
+
+  await trigger.click();
+  await dialog.getByRole("button", { name: "确认退出", exact: true }).click();
+  await expect.poll(() => requests).toBe(1);
+  await expect(
+    dialog.getByRole("button", { name: "正在退出…", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    dialog.getByRole("button", { name: "取消", exact: true }),
+  ).toBeDisabled();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  expect(requests).toBe(1);
+  release();
+  await expect(
+    page.getByText("退出暂时失败，请重试", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "确认退出", exact: true }),
+  ).toBeEnabled();
+  await expect(page.locator(".workspace")).toBeVisible();
+  await dialog.getByRole("button", { name: "确认退出", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "登录管理面板", exact: true }),
+  ).toBeVisible();
+  expect(requests).toBe(2);
+});
+
 test("late session refresh cannot restore the workspace after logout", async ({
   page,
 }, info) => {
@@ -94,6 +161,10 @@ test("late session refresh cannot restore the workspace after logout", async ({
   if (info.project.name === "mobile")
     await page.getByRole("button", { name: "打开导航", exact: true }).click();
   await page.getByRole("button", { name: "退出登录", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "退出登录", exact: true })
+    .getByRole("button", { name: "确认退出", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "登录管理面板", exact: true }),
   ).toBeVisible();

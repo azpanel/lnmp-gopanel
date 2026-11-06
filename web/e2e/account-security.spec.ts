@@ -38,6 +38,10 @@ async function signOut(page: Page, mobile: boolean) {
   if (mobile && (await menu.getAttribute("aria-expanded")) !== "true")
     await menu.click();
   await page.getByRole("button", { name: "退出登录", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "退出登录", exact: true })
+    .getByRole("button", { name: "确认退出", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "登录管理面板" }),
   ).toBeVisible();

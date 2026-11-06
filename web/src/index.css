@@ -5033,6 +5033,12 @@ body,
   gap: 12px;
   cursor: pointer;
 }
+.backup-component-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
 .backup-component-description {
   display: block;
   margin-top: 4px;
@@ -5207,6 +5213,72 @@ body,
 }
 .backup-policy-list {
   margin-bottom: 20px;
+}
+.policy-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.policy-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+}
+.policy-search-form {
+  width: 220px;
+  min-width: 0;
+}
+.policy-search-form .policy-select {
+  height: 32px;
+  background: #fff;
+  color: #20262b;
+  font-size: 14px;
+}
+.policy-search-form .policy-select::placeholder {
+  color: #687078;
+  font-size: 14px;
+}
+.policy-list-toolbar > button {
+  flex-shrink: 0;
+}
+.policy-destination-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.policy-destination-badge {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  list-style: none;
+  white-space: normal;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.policy-destination-part {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.policy-destination-separator {
+  color: var(--muted-foreground);
+}
+@media (max-width: 520px) {
+  .policy-list-toolbar {
+    width: 100%;
+  }
+  .policy-search-form {
+    flex: 1;
+  }
 }
 .backup-policy-dialog,
 .backup-runtime-dialog,

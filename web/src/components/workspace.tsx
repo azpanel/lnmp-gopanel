@@ -1,6 +1,15 @@
 import { AccountSecurity } from "@/components/account-security";
 import { LoadBoundary } from "@/components/load-boundary";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { api, logout } from "@/lib/api";
 import { formatBuildTime } from "@/lib/build-info";
 import { SessionCancelledError } from "@/lib/session-scope";
@@ -91,6 +100,7 @@ export default function Workspace({
   const { pathname } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false),
     [loggingOut, setLoggingOut] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(() => {
     try {
       return localStorage.getItem("sidebar-hidden") === "true";
@@ -159,6 +169,7 @@ export default function Workspace({
     paused: "已暂停",
   };
   async function signOut() {
+    if (loggingOut) return;
     setLoggingOut(true);
     try {
       await logout();
@@ -308,19 +319,55 @@ export default function Workspace({
             </div>
             <div className="sidebar-profile-actions">
               <AccountSecurity username={session.username} />
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="退出登录"
-                onClick={() => void signOut()}
-                disabled={loggingOut}
+              <Dialog
+                open={logoutOpen}
+                onOpenChange={(open) => {
+                  if (!loggingOut) setLogoutOpen(open);
+                }}
               >
-                {loggingOut ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <LogOut size={16} />
-                )}
-              </Button>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="退出登录"
+                    disabled={loggingOut}
+                  >
+                    {loggingOut ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <LogOut size={16} />
+                    )}
+                  </Button>
+                </DialogTrigger>
+                <DialogContent showCloseButton={!loggingOut}>
+                  <DialogHeader>
+                    <DialogTitle>退出登录</DialogTitle>
+                    <DialogDescription>确定退出当前登录吗？</DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      disabled={loggingOut}
+                      onClick={() => setLogoutOpen(false)}
+                    >
+                      取消
+                    </Button>
+                    <Button
+                      disabled={loggingOut}
+                      onClick={() => void signOut()}
+                    >
+                      {loggingOut && (
+                        <Loader2
+                          size={14}
+                          className="animate-spin"
+                          aria-hidden="true"
+                        />
+                      )}
+                      {loggingOut ? "正在退出…" : "确认退出"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           </div>
         </div>

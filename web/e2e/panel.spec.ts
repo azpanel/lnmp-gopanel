@@ -122,6 +122,10 @@ test("login, real metrics, routes, pause, theme and logout", async ({
   ).toBeVisible();
   if (mobile) await page.getByRole("button", { name: "打开导航" }).click();
   await page.getByRole("button", { name: "退出登录" }).click();
+  await page
+    .getByRole("dialog", { name: "退出登录", exact: true })
+    .getByRole("button", { name: "确认退出", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "登录管理面板" }),
   ).toBeVisible();

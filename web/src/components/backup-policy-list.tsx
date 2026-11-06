@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { useSessionMutation } from "@/lib/use-session-mutation";
-import { destinationLabel } from "@/lib/backup-policies";
+import { BackupDestinationSummary } from "@/components/backup-destination-summary";
 import type { Policy, PolicySummary } from "@/lib/backup-policies";
 import {
   activeBackupRun,
@@ -110,22 +110,44 @@ export function BackupPolicyList({
   );
   return (
     <Card className="backup-policy-list">
-      <CardHeader className="flex items-center justify-between">
+      <CardHeader className="policy-list-header">
         <CardTitle>备份政策</CardTitle>
-        <Button
-          size="icon-sm"
-          variant="outline"
-          aria-label="刷新政策"
-          title="刷新政策"
-          disabled={query.isFetching}
-          onClick={() => void query.refetch()}
-        >
-          <RefreshCw
-            size={14}
-            className={query.isFetching ? "animate-spin" : ""}
-            aria-hidden="true"
-          />
-        </Button>
+        <div className="policy-list-toolbar">
+          {!!query.data?.length && (
+            <form
+              className="policy-search-form"
+              role="search"
+              aria-label="搜索备份政策"
+              autoComplete="off"
+              onSubmit={(event) => event.preventDefault()}
+            >
+              <input
+                type="search"
+                name="backup-policy-search"
+                autoComplete="off"
+                className="policy-select"
+                aria-label="搜索政策"
+                placeholder="搜索政策"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </form>
+          )}
+          <Button
+            size="icon-sm"
+            variant="outline"
+            aria-label="刷新政策"
+            title="刷新政策"
+            disabled={query.isFetching}
+            onClick={() => void query.refetch()}
+          >
+            <RefreshCw
+              size={14}
+              className={query.isFetching ? "animate-spin" : ""}
+              aria-hidden="true"
+            />
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {query.isPending ? (
@@ -143,25 +165,6 @@ export function BackupPolicyList({
           </div>
         ) : (
           <>
-            {!!query.data?.length && (
-              <form
-                role="search"
-                aria-label="搜索备份政策"
-                autoComplete="off"
-                onSubmit={(event) => event.preventDefault()}
-              >
-                <input
-                  type="search"
-                  name="backup-policy-search"
-                  autoComplete="off"
-                  className="policy-select"
-                  aria-label="搜索政策"
-                  placeholder="搜索政策"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </form>
-            )}
             {!items.length ? (
               <p className="small-note">
                 {search
@@ -190,11 +193,7 @@ export function BackupPolicyList({
                           : "不备份数据库"}{" "}
                         · {p.file_count} 个文件来源
                       </p>
-                      <p className="small-note policy-destination-summary">
-                        {p.destinations?.length
-                          ? p.destinations.map(destinationLabel).join("； ")
-                          : "尚未配置存储位置"}
-                      </p>
+                      <BackupDestinationSummary destinations={p.destinations} />
                       <p className="small-note">
                         保留数据库备份 {p.retention.databases} 份，文件备份{" "}
                         {p.retention.files}{" "}

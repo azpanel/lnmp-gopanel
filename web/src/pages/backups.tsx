@@ -7,7 +7,7 @@ import {
 } from "@/components/backup-component-accounts";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, Download, Loader2, RefreshCw } from "lucide-react";
+import { Archive, Download, Loader2, Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -110,9 +110,6 @@ export function Backups() {
         </div>
         <div className="policy-heading-actions">
           <BackupRuntimeStatus />
-          <Button size="sm" onClick={() => setEditor({ readOnly: false })}>
-            添加备份政策
-          </Button>
           <Dialog
             open={open}
             onOpenChange={(value) => {
@@ -247,6 +244,10 @@ export function Backups() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          <Button size="sm" onClick={() => setEditor({ readOnly: false })}>
+            <Plus size={14} aria-hidden="true" />
+            添加备份政策
+          </Button>
         </div>
       </div>
       <BackupPolicyList
@@ -307,11 +308,21 @@ export function Backups() {
                     key={item.name}
                   >
                     <div className="backup-component-summary">
-                      <div>
-                        <strong>{item.name}</strong>
-                        <span className="backup-component-description">
-                          {descriptions[item.name]}
-                        </span>
+                      <div className="backup-component-identity">
+                        <img
+                          className="backup-component-icon"
+                          src={`/brands/${item.name === "gdrive" ? "googledrive" : "rclone"}.svg`}
+                          width={32}
+                          height={32}
+                          alt=""
+                          aria-hidden="true"
+                        />
+                        <div>
+                          <strong>{item.name}</strong>
+                          <span className="backup-component-description">
+                            {descriptions[item.name]}
+                          </span>
+                        </div>
                       </div>
                       <div className="backup-component-status" role="status">
                         <span>
