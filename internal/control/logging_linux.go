@@ -434,6 +434,10 @@ func (p loggingController) plan(services []config.Service, kind string) (logging
 // Walk with directory descriptors: log directories may belong to www/mysql,
 // so path checks alone cannot protect a root chown from a rename/symlink race.
 func (p loggingController) logFile(plan loggingPlan, create bool) (*os.File, bool, error) {
+	access, err := serviceAccessFor(plan.uid, plan.gid)
+	if err != nil {
+		return nil, false, err
+	}
 	start := "/"
 	if p.root != "" {
 		start = p.root
@@ -443,8 +447,13 @@ func (p loggingController) logFile(plan loggingPlan, create bool) (*os.File, boo
 		return nil, false, err
 	}
 	defer func() { unix.Close(fd) }()
+	if err := access.checkFD(fd, start, "-x"); err != nil {
+		return nil, false, err
+	}
 	parts := strings.Split(strings.TrimPrefix(plan.path, "/"), "/")
+	directory := "/"
 	for _, part := range parts[:len(parts)-1] {
+		directory = filepath.Join(directory, part)
 		next, e := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		if errors.Is(e, unix.ENOENT) && create {
 			if e = unix.Mkdirat(fd, part, 0750); e != nil {
@@ -465,6 +474,10 @@ func (p loggingController) logFile(plan loggingPlan, create bool) (*os.File, boo
 		if e = unix.Fstat(next, &st); e != nil || (st.Uid != 0 && int(st.Uid) != plan.uid) || st.Mode&0022 != 0 {
 			unix.Close(next)
 			return nil, false, errors.New("日志目录权限不安全")
+		}
+		if e = access.checkFD(next, directory, "-x"); e != nil {
+			unix.Close(next)
+			return nil, false, e
 		}
 		unix.Close(fd)
 		fd = next
@@ -489,6 +502,12 @@ func (p loggingController) logFile(plan loggingPlan, create bool) (*os.File, boo
 		return nil, false, errors.New("日志文件类型或所有权不安全")
 	}
 	ready := int(stat.Uid) == plan.uid && int(stat.Gid) == plan.gid && info.Mode().Perm() == 0640
+	if ready {
+		if err := access.check(f, plan.path, "-w"); err != nil {
+			f.Close()
+			return nil, false, err
+		}
+	}
 	return f, ready, nil
 }
 func (p loggingController) snapshot(ctx context.Context, services []config.Service) LoggingSnapshot {
@@ -697,6 +716,13 @@ func (p loggingController) enable(ctx context.Context, kind string) (result Resu
 	if err = logfile.Chmod(0640); err != nil {
 		return result, err
 	}
+	// Recheck the path and effective write access before changing configuration
+	// or restarting a service; root's ability to open the file is insufficient.
+	verified, _, accessErr := p.logFile(plan, false)
+	if accessErr != nil {
+		return result, accessErr
+	}
+	verified.Close()
 	if err = p.write(p.path(original.path), plan.data, original.file.Mode, original.file.GID); err != nil {
 		return result, fmt.Errorf("配置写入失败：%w", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
@@ -36,10 +37,23 @@ func newLoggingFixture(t *testing.T) *loggingFixture {
 	f := &loggingFixture{}
 	f.p = defaultLoggingController()
 	f.p.root = t.TempDir()
+	if err := os.Chmod(f.p.root, 0755); err != nil {
+		t.Fatal(err)
+	}
 	f.p.trust = func(string) error { return nil }
 	f.p.lock = func(string) (func(), error) { return func() {}, nil }
 	f.p.lookup = func(string) (int, int, error) { return 12345, 12345, nil }
 	f.p.group = func(string) (int, error) { return 12345, nil }
+	// Model pre-existing system directories; backups must not create a private
+	// /var in the fixture before the database log directory is prepared.
+	for _, path := range []string{"/var", "/var/log"} {
+		if err := os.Mkdir(f.p.path(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(f.p.path(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	f.p.run = func(_ context.Context, _ string, _ ...string) (string, error) {
 		f.checks++
 		if f.beforeCheck != nil {
@@ -74,7 +88,15 @@ func (f *loggingFixture) put(t *testing.T, path, data string) {
 	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
 		t.Fatal(err)
 	}
+	for dir := filepath.Dir(full); dir != f.p.root; dir = filepath.Dir(dir) {
+		if err := os.Chmod(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := os.WriteFile(full, []byte(data), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(full, 0644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -394,6 +416,59 @@ func TestDatabaseLoggingDoesNotExecuteDaemon(t *testing.T) {
 					}
 				})
 			}
+		}
+	}
+}
+
+func TestLoggingRejectsInaccessibleParentBeforeChanges(t *testing.T) {
+	for _, kind := range []string{"php", "database"} {
+		for _, existing := range []bool{false, true} {
+			t.Run(kind+fmt.Sprint(existing), func(t *testing.T) {
+				f := newLoggingFixture(t)
+				path, configPath := logs.PHP, loggingPHPConfig
+				if kind == "database" {
+					path, configPath = logs.MySQL, loggingDBConfig
+				}
+				f.put(t, path, "preserve log\n")
+				full := f.p.path(path)
+				if !existing {
+					if err := os.Remove(full); err != nil {
+						t.Fatal(err)
+					}
+				}
+				parent := filepath.Dir(full)
+				if err := os.Chmod(parent, 0700); err != nil {
+					t.Fatal(err)
+				}
+				before := f.data(t, configPath)
+				_, err := f.p.enable(context.Background(), kind)
+				if err == nil || !strings.Contains(err.Error(), filepath.Dir(path)) {
+					t.Fatal("inaccessible parent accepted", err)
+				}
+				if f.restarts != 0 || f.checks != 0 || !bytes.Equal(before, f.data(t, configPath)) {
+					t.Fatal("service or config changed")
+				}
+				info, err := os.Stat(parent)
+				if err != nil || info.Mode().Perm() != 0700 || info.Sys().(*syscall.Stat_t).Uid != 0 {
+					t.Fatal("existing parent changed", err)
+				}
+				if existing {
+					if string(f.data(t, path)) != "preserve log\n" {
+						t.Fatal("existing log changed")
+					}
+				} else if _, err := os.Stat(full); !os.IsNotExist(err) {
+					t.Fatal("log created below inaccessible parent")
+				}
+				services, err := f.p.services()
+				if err != nil {
+					t.Fatal(err)
+				}
+				plan, err := f.p.plan(services, kind)
+				view := f.p.view(context.Background(), kind, plan, err)
+				if view.Available || view.Configured {
+					t.Fatal("status advertises inaccessible logs as usable")
+				}
+			})
 		}
 	}
 }

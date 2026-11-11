@@ -31,6 +31,21 @@ func siteRootTestOwner(t *testing.T) (int, int) {
 	return os.Geteuid(), os.Getegid()
 }
 
+func siteRootTestBase(t *testing.T) string {
+	t.Helper()
+	// A standalone temporary directory avoids root-only t.TempDir ancestors
+	// hiding the permission boundary that this fixture is intended to exercise.
+	base, err := os.MkdirTemp("", "gopanel-site-root-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(base) })
+	if err := os.Chmod(base, 0755); err != nil {
+		t.Fatal(err)
+	}
+	return base
+}
+
 func TestPrepareSiteRootRejectsOutsideBase(t *testing.T) {
 	for _, path := range []string{"/etc/systemd/system/nginx.service.d", "/home/wwwroot", "/home/wwwroot-other/new", "/home/wwwroot/../outside"} {
 		if p, err := prepareSiteRoot(path); err == nil || p != nil {
@@ -40,7 +55,7 @@ func TestPrepareSiteRootRejectsOutsideBase(t *testing.T) {
 }
 
 func TestSiteRootDoesNotFollowSymlinksOrChangeExistingDirectory(t *testing.T) {
-	base := t.TempDir()
+	base := siteRootTestBase(t)
 	target := filepath.Join(base, "existing")
 	if err := os.Mkdir(target, 0700); err != nil {
 		t.Fatal(err)
@@ -49,8 +64,11 @@ func TestSiteRootDoesNotFollowSymlinksOrChangeExistingDirectory(t *testing.T) {
 	if err := os.WriteFile(ini, []byte("existing=unchanged\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := os.Stat(target)
 	uid, gid := siteRootTestOwner(t)
+	if err := os.Chown(target, uid, gid); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.Stat(target)
 	p, err := prepareSiteRootAt(base, "existing", uid, gid)
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +100,7 @@ func TestSiteRootDoesNotFollowSymlinksOrChangeExistingDirectory(t *testing.T) {
 }
 
 func TestSiteRootRollbackRemovesOnlyNewTree(t *testing.T) {
-	base := t.TempDir()
+	base := siteRootTestBase(t)
 	uid, gid := siteRootTestOwner(t)
 	p, err := prepareSiteRootAt(base, "new/nested/site", uid, gid)
 	if err != nil {
@@ -105,7 +123,7 @@ func TestSiteRootRollbackRemovesOnlyNewTree(t *testing.T) {
 }
 
 func TestSiteRootPreparationFailureCleansIntermediateDirectories(t *testing.T) {
-	base := t.TempDir()
+	base := siteRootTestBase(t)
 	uid, gid := siteRootTestOwner(t)
 	if p, err := prepareSiteRootAt(base, "new/"+strings.Repeat("x", 256), uid, gid); err == nil || p != nil {
 		t.Fatal("invalid component accepted")
@@ -119,9 +137,12 @@ func TestSiteRootPreparationFailureCleansIntermediateDirectories(t *testing.T) {
 func TestSiteRootRollbackPreservesConcurrentChanges(t *testing.T) {
 	for _, scenario := range []string{"new file", "modified ini", "replaced ini", "hardlinked ini", "replaced directory", "directory symlink", "writable parent"} {
 		t.Run(scenario, func(t *testing.T) {
-			base := t.TempDir()
+			base := siteRootTestBase(t)
 			parent := filepath.Join(base, "parent")
 			if err := os.Mkdir(parent, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(parent, 0755); err != nil {
 				t.Fatal(err)
 			}
 			if scenario == "writable parent" {
@@ -192,7 +213,7 @@ func TestProvisionDirectoryRollbackBoundary(t *testing.T) {
 	for _, scenario := range []string{"check", "reload", "managed record", "uncertain reload", "concurrent data", "success", "ssl", "database", "existing root"} {
 		t.Run(scenario, func(t *testing.T) {
 			p, r, _ := provisionFixture(t)
-			base := t.TempDir()
+			base := siteRootTestBase(t)
 			uid, gid := siteRootTestOwner(t)
 			root := filepath.Join(base, "new/nested/site")
 			r.Root = "/home/wwwroot/new/nested/site"
@@ -276,5 +297,104 @@ func TestProvisionDirectoryRollbackBoundary(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSiteRootRejectsInaccessibleExistingDirectories(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root")
+	}
+	for _, relative := range []string{"existing", "existing/child", "new/site"} {
+		t.Run(relative, func(t *testing.T) {
+			base := siteRootTestBase(t)
+			blocked := filepath.Join(base, "existing")
+			if err := os.Mkdir(blocked, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if relative == "new/site" {
+				blocked = base
+				if err := os.Chmod(base, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			marker := filepath.Join(blocked, "user-data")
+			if err := os.WriteFile(marker, []byte("unchanged"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.Stat(blocked)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prepared, err := prepareSiteRootAt(base, relative, 12345, 12345)
+			if prepared != nil || err == nil || !strings.Contains(err.Error(), blocked) {
+				t.Fatal("inaccessible directory accepted", err)
+			}
+			after, err := os.Stat(blocked)
+			if err != nil || !os.SameFile(before, after) || after.Mode() != before.Mode() || after.Sys().(*syscall.Stat_t).Uid != 0 {
+				t.Fatal("existing permissions changed", err)
+			}
+			if data, err := os.ReadFile(marker); err != nil || string(data) != "unchanged" {
+				t.Fatal("existing contents changed", err)
+			}
+			if relative != "existing" {
+				if _, err := os.Stat(filepath.Join(base, relative)); !os.IsNotExist(err) {
+					t.Fatal("created descendants of inaccessible directory")
+				}
+			}
+		})
+	}
+}
+
+func TestProvisionRejectsInaccessibleRootBeforeInstallingConfig(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root")
+	}
+	p, r, _ := provisionFixture(t)
+	r.Name = "example.com.conf"
+	base := siteRootTestBase(t)
+	target := filepath.Join(base, "existing")
+	if err := os.Mkdir(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	r.Root = "/home/wwwroot/existing"
+	r.SSL.Mode = "none"
+	p.prepareRoot = func(string) (siteRootPreparation, error) {
+		return prepareSiteRootAt(base, "existing", 12345, 12345)
+	}
+	p.run = func(context.Context, string, ...string) (string, error) {
+		t.Fatal("nginx called for inaccessible root")
+		return "", nil
+	}
+	_, err := p.create(context.Background(), r, "/trusted/nginx", func(vhosts.CreateEvent) {})
+	if err == nil || !strings.Contains(err.Error(), target) {
+		t.Fatal("inaccessible root accepted", err)
+	}
+	for _, path := range []string{filepath.Join(p.store.Directory, r.Name), filepath.Join(p.stateDir, r.Name+".json")} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatal("configuration or managed record created", path)
+		}
+	}
+}
+
+func TestSiteRootAcceptsExistingSearchOnlyDirectory(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root")
+	}
+	base := siteRootTestBase(t)
+	path := filepath.Join(base, "existing")
+	if err := os.Mkdir(path, 0711); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0711); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := prepareSiteRootAt(base, "existing", 12345, 12345)
+	if err != nil {
+		t.Fatal("directory listing permission is not required for serving known paths", err)
+	}
+	prepared.Close()
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0711 {
+		t.Fatal("existing directory changed", err)
 	}
 }

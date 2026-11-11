@@ -56,18 +56,24 @@ func prepareSiteRoot(path string) (siteRootPreparation, error) {
 }
 
 // Open every base component without following symlinks, including wwwroot itself.
-func openSiteRootBase(path string) (*os.File, error) {
+func openSiteRootBase(path string, access serviceAccess) (*os.File, error) {
 	fd, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, err
 	}
+	directory := "/"
 	for _, part := range strings.Split(strings.TrimPrefix(path, "/"), "/") {
+		directory = filepath.Join(directory, part)
 		next, e := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		_ = unix.Close(fd)
 		if e != nil {
 			return nil, errors.New("站点路径包含符号链接、非目录组件或不可访问目录")
 		}
 		fd = next
+		if err := access.checkFD(fd, directory, "-x"); err != nil {
+			_ = unix.Close(fd)
+			return nil, err
+		}
 	}
 	return os.NewFile(uintptr(fd), path), nil
 }
@@ -83,7 +89,11 @@ func prepareSiteRootAt(base, relative string, uid, gid int) (prepared *linuxSite
 	if !vhosts.SafeAbsolutePath(base) || relative == "." || filepath.IsAbs(relative) || filepath.Clean(relative) != relative || relative == ".." || strings.HasPrefix(relative, "../") {
 		return nil, errors.New("站点子目录无效")
 	}
-	parent, err := openSiteRootBase(base)
+	access, err := serviceAccessFor(uid, gid)
+	if err != nil {
+		return nil, err
+	}
+	parent, err := openSiteRootBase(base, access)
 	if err != nil {
 		return nil, err
 	}
@@ -106,8 +116,12 @@ func prepareSiteRootAt(base, relative string, uid, gid int) (prepared *linuxSite
 			next, e = p.createDirectory(parent, part, filepath.Join(base, filepath.Join(parts[:i+1]...)))
 			fresh = i == len(parts)-1
 		} else if e == nil {
-			next = os.NewFile(uintptr(fd), part)
+			path := filepath.Join(base, filepath.Join(parts[:i+1]...))
+			next = os.NewFile(uintptr(fd), path)
 			p.files = append(p.files, next)
+			// Check existing directories before creating anything beneath them.
+			// Preserve administrator ownership, permissions and ACLs.
+			e = access.check(next, path, "-x")
 		}
 		if e != nil {
 			return nil, fmt.Errorf("站点子目录无法创建或包含符号链接：%w", e)
@@ -141,6 +155,12 @@ func prepareSiteRootAt(base, relative string, uid, gid int) (prepared *linuxSite
 	}
 	if fresh {
 		if e := parent.Chown(uid, gid); e != nil {
+			return nil, e
+		}
+	}
+	// Newly created directories can inherit restrictive default ACLs too.
+	for _, dir := range p.dirs {
+		if e := access.check(dir.file, dir.path, "-x"); e != nil {
 			return nil, e
 		}
 	}
