@@ -469,7 +469,7 @@ Go 辅助程序生成配置并检查、重载 Nginx，配置或重载失败会�
 
 认证接口：`GET /api/v1/vhosts/basic-auth?name=example.conf` 读取状态；`PUT /api/v1/vhosts/basic-auth` 使用 JSON `{"name":"example.conf","username":"visitor","password":"新密码"}` 开启或完整替换凭证；`DELETE /api/v1/vhosts/basic-auth?name=example.conf` 关闭，重复关闭成功。均需登录，写操作需要 CSRF，JSON 上限 4 KiB。状态返回 `name`、`status`（`disabled/enabled/external/unknown`）、`managed`、`site_enabled`，以及可选 `username` 和 `message`，不返回密码及哈希。用户名为 1–64 位字母、数字、点、下划线或连字符；密码为 8–256 字节，不含控制字符。
 
-辅助程序只接受固定 `vhosts basic-auth-get/set/disable`，凭证通过 JSON stdin 传递。需要可信 `/usr/bin/openssl` 生成带随机盐的 SHA-512 crypt 哈希；只将用户名和哈希保存在 `/usr/local/nginx/conf/gopanel-auth/`，目录 `0755`、文件 `0644`，均由 root 管理且不可被其他用户写入，供 Nginx worker 读取。每次更新使用独立凭证文件，原凭证文件保留供平滑退出的旧 worker 完成请求，不复用或改写。配置检查或重载失败会恢复原配置，确认回滚成功后未被引用的新凭证会清理；关闭认证精确移除面板插入的配置片段，保留原配置内容和权限。卸载面板保留网站认证及凭证文件。升级需同步安装面板、辅助程序和 sudoers；安装仅检查新增命令的精确授权，不读取或修改认证。
+辅助程序只接受固定 `vhosts basic-auth-get/set/disable`，凭证通过 JSON stdin 传递。需要可信 `/usr/bin/openssl` 生成带随机盐的 SHA-512 crypt 哈希；只将用户名和哈希保存在 `/usr/local/nginx/conf/gopanel-auth/`，目录 `0755`、文件 `0644`，均由 root 管理且不可被其他用户写入，供 Nginx worker 读取。开启或更新认证时，在确认目录可信且不是符号链接后显式设置目录权限，避免面板服务的 `UMask=0077` 将新目录收紧为 `0700`，并修复旧版本遗留的目录权限；不修改服务的全局 umask。每次更新使用独立凭证文件，原凭证文件保留供平滑退出的旧 worker 完成请求，不复用或改写。配置检查或重载失败会恢复原配置，确认回滚成功后未被引用的新凭证会清理；关闭认证精确移除面板插入的配置片段，保留原配置内容和权限。卸载面板保留网站认证及凭证文件。升级需同步安装面板、辅助程序和 sudoers；安装仅检查新增命令的精确授权，不读取或修改认证。
 
 </details>
 

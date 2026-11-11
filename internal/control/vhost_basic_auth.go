@@ -280,6 +280,12 @@ func (p basicAuthController) execute(ctx context.Context, action string, r vhost
 		if e = p.trust(dir); e != nil {
 			return state, errors.New("认证目录权限不安全")
 		}
+		// The panel's UMask=0077 also applies to the privileged helper.
+		// MkdirAll respects it and leaves existing directories unchanged, so
+		// explicitly allow Nginx workers to traverse this trusted directory.
+		if e = os.Chmod(dir, 0755); e != nil {
+			return state, errors.New("无法设置认证目录读取权限")
+		}
 		nonce := make([]byte, 16)
 		if _, e = rand.Read(nonce); e != nil {
 			return state, errors.New("无法生成凭证文件名")

@@ -10,12 +10,73 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	osuser "os/user"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 )
+
+func TestBasicAuthRestrictiveUmask(t *testing.T) {
+	// umask is process-wide: isolate it from other tests and their goroutines.
+	const child = "GOPANEL_TEST_BASIC_AUTH_UMASK"
+	if os.Getenv(child) != "1" {
+		binary, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(binary, "-test.run=^TestBasicAuthRestrictiveUmask$", "-test.v")
+		cmd.Env = append(os.Environ(), child+"=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("restrictive umask regression: %v\n%s", err, out)
+		}
+		return
+	}
+	for _, existing := range []bool{false, true} {
+		t.Run(fmt.Sprintf("existing=%t", existing), func(t *testing.T) {
+			p, r := authFixture(t)
+			dir := p.store.BasicAuthDirectory()
+			if existing {
+				if err := os.Mkdir(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			oldMask := syscall.Umask(0077)
+			defer syscall.Umask(oldMask)
+			p.check = func(context.Context) error {
+				info, err := os.Stat(dir)
+				if err != nil || info.Mode().Perm() != 0755 {
+					t.Fatalf("authentication directory must be worker-accessible before nginx -t: %v, %v", info, err)
+				}
+				view, err := p.store.Read(r.Name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, file, err := p.store.StripBasicAuth(r.Name, view.Content)
+				if err != nil {
+					t.Fatal(err)
+				}
+				info, err = os.Stat(file)
+				if err != nil || info.Mode().Perm() != 0644 {
+					t.Fatalf("credential must be worker-readable before nginx -t: %v, %v", info, err)
+				}
+				return nil
+			}
+			if _, err := p.execute(context.Background(), "basic-auth-set", r); err != nil {
+				t.Fatal(err)
+			}
+			// Password rotation must also repair directories from older versions.
+			if err := os.Chmod(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			r.Password = "replacement-password"
+			if _, err := p.execute(context.Background(), "basic-auth-set", r); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
 
 // All Nginx processes, ports, logs and configuration are confined to this fixture.
 func TestBasicAuthNginxIntegration(t *testing.T) {
@@ -62,7 +123,22 @@ func TestBasicAuthNginxIntegration(t *testing.T) {
 	}
 	user := ""
 	if os.Geteuid() == 0 {
-		user = "user root;\n"
+		worker, err := osuser.Lookup("nobody")
+		if err != nil {
+			t.Fatal(err)
+		}
+		group, err := osuser.LookupGroupId(worker.Gid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Root workers hide unreadable credential directories. Let an ordinary
+		// worker traverse only this fixture's temporary parent and document root.
+		for _, path := range []string{filepath.Dir(dir), dir} {
+			if err = os.Chmod(path, 0755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		user = fmt.Sprintf("user %s %s;\n", worker.Username, group.Name)
 	}
 	main := fmt.Sprintf("%sdaemon off; worker_processes 1; pid %q; error_log %q notice; events { worker_connections 32; } http { access_log off; include %q; }\n", user, filepath.Join(dir, "nginx.pid"), filepath.Join(dir, "error.log"), sitePath)
 	config := filepath.Join(dir, "nginx.conf")

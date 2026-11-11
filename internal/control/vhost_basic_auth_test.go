@@ -207,6 +207,10 @@ func TestBasicAuthUncertainRollbackRetainsCredential(t *testing.T) {
 func TestBasicAuthRejectsSymlinkDirectory(t *testing.T) {
 	p, r := authFixture(t)
 	target := t.TempDir()
+	before, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink(target, p.store.BasicAuthDirectory()); err != nil {
 		t.Fatal(err)
 	}
@@ -216,5 +220,34 @@ func TestBasicAuthRejectsSymlinkDirectory(t *testing.T) {
 	entries, _ := os.ReadDir(target)
 	if len(entries) != 0 {
 		t.Fatal("wrote into symlink target")
+	}
+	after, err := os.Stat(target)
+	if err != nil || after.Mode() != before.Mode() {
+		t.Fatal("changed symlink target permissions", err)
+	}
+}
+
+func TestBasicAuthRejectsUntrustedDirectoryBeforeChmod(t *testing.T) {
+	p, r := authFixture(t)
+	dir := p.store.BasicAuthDirectory()
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	p.trust = func(path string) error {
+		if path == dir {
+			return errors.New("untrusted directory")
+		}
+		return nil
+	}
+	if _, err := p.execute(context.Background(), "basic-auth-set", r); err == nil {
+		t.Fatal("untrusted directory accepted")
+	}
+	info, err := os.Stat(dir)
+	if err != nil || info.Mode().Perm() != 0700 {
+		t.Fatal("untrusted directory permissions changed", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("wrote into untrusted directory", err)
 	}
 }
