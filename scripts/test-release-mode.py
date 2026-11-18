@@ -103,6 +103,16 @@ class ReleaseModes(unittest.TestCase):
                     publish(env, directory, mock.Mock(side_effect=responses), run)
                 run.assert_not_called()
 
+    def test_only_v0127_release_notes_disclose_the_temporary_audit_exception(self):
+        with tempfile.TemporaryDirectory() as directory:
+            artifacts(directory)
+            for tag in ("v0.1.27", "v0.1.28"):
+                run = mock.Mock()
+                publish({"RELEASE_TAG": tag, "RELEASE_SHA": SHA, "RELEASE_MODE": "fast", "NEW_TAG": "true"}, directory, mock.Mock(return_value=None), run)
+                command = run.call_args_list[0].args[0]
+                notes = command[command.index("--notes") + 1]
+                self.assertEqual("GHSA-fc5q-39xc-vjpf" in notes, tag == "v0.1.27")
+
     def test_corrupt_or_missing_assets_stop_before_creating_a_tag(self):
         env = {"RELEASE_TAG": "v0.1.20", "RELEASE_SHA": SHA, "RELEASE_MODE": "fast", "NEW_TAG": "true"}
         with tempfile.TemporaryDirectory() as directory:

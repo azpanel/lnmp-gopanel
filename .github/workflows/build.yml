@@ -60,11 +60,22 @@ jobs:
         run: npm ci --prefix web
       - name: Check and test frontend
         working-directory: web
+        env:
+          FRONTEND_AUDIT_MODE: ${{ steps.release.outputs.mode }}
+          FRONTEND_AUDIT_RELEASE: ${{ steps.release.outputs.version }}
         run: |
           npm run format:check
           npm test
-          npm audit
+          python3 ../scripts/audit-frontend.py
           npm run build
+      - name: Preserve frontend audit report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: frontend-audit-report
+          path: test-results/frontend-audit.json
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Check and test Go
         run: |
           test -z "$(gofmt -l cmd internal web/*.go)"
@@ -79,6 +90,7 @@ jobs:
           python3 scripts/test-required-checker.py
           python3 scripts/test-integration-tools.py
           python3 scripts/test-release-mode.py
+          python3 scripts/test-audit-frontend.py
           sudo python3 scripts/test-install.py
       - name: Require privileged and real Nginx tests
         run: |
