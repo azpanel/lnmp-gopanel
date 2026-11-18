@@ -107,11 +107,11 @@ def publish(env, directory="dist", request=github, run=subprocess.run):
         command = ["gh", "release", "create", tag, *assets, "--verify-tag", "--draft", "--generate-notes", "--title", tag, "--target", env["RELEASE_SHA"]]
         if env["RELEASE_MODE"] == "fast":
             command += ["--notes", "本版本使用快速发布模式：通过基础测试、漏洞扫描、双架构打包和安装包冒烟验证；完整浏览器、systemd 及 Debian 12 回归未作为发布条件。"]
-            if tag == "v0.1.27":
+            if tag in {"v0.1.27", "v0.1.28"}:
                 command[command.index("--notes") + 1] = (
                     "本版本使用快速发布模式：基础测试、双架构打包和安装包冒烟验证通过；"
                     "完整浏览器、systemd 及 Debian 12 回归未作为发布条件。\n\n"
-                    "依赖安全审计例外：经仓库所有者确认，仅本次 v0.1.27 快速发布临时豁免 "
+                    f"依赖安全审计例外：经仓库所有者确认，仅本次 {tag} 快速发布临时豁免 "
                     "GHSA-fc5q-39xc-vjpf（picomatch 4.0.7 的 ReDoS 及依赖链告警）。"
                     "当前无上游修复版；生产面板运行 Go 与内嵌静态资源，不运行相关 Node.js 构建/测试依赖链。"
                     "其他漏洞仍会阻止发布。原始审计报告保存在本次工作流的 frontend-audit-report 附件中。\n"

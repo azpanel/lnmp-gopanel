@@ -61,9 +61,11 @@ class FrontendAuditTests(unittest.TestCase):
 
     def test_exception_is_limited_to_the_approved_release_event_mode_and_version(self):
         env = {"GITHUB_EVENT_NAME": "workflow_dispatch", "FRONTEND_AUDIT_MODE": "fast", "FRONTEND_AUDIT_RELEASE": "v0.1.27"}
-        self.assertTrue(approved_exception(env, "4.0.7"))
+        self.assertEqual(module["APPROVED_RELEASES"], {"v0.1.27", "v0.1.28"})
+        for release in module["APPROVED_RELEASES"]:
+            self.assertTrue(approved_exception({**env, "FRONTEND_AUDIT_RELEASE": release}, "4.0.7"))
         for key, value in (("GITHUB_EVENT_NAME", "push"), ("GITHUB_EVENT_NAME", "pull_request"),
-                           ("FRONTEND_AUDIT_MODE", "full"), ("FRONTEND_AUDIT_RELEASE", "v0.1.28")):
+                           ("FRONTEND_AUDIT_MODE", "full"), ("FRONTEND_AUDIT_RELEASE", "v0.1.29")):
             with self.subTest(key=key, value=value):
                 self.assertFalse(approved_exception({**env, key: value}, "4.0.7"))
         self.assertFalse(approved_exception({}, "4.0.7"))
