@@ -86,7 +86,7 @@ func RootVhostOptions(ctx context.Context) (vhosts.CreateOptions, error) {
 			if entry.Name() != name+".conf" || name == "none" || !rewriteNamePattern.MatchString(name) {
 				continue
 			}
-			if TrustedPath(filepath.Join(conf, "rewrite", entry.Name())) == nil {
+			if trustedNginxConfigPath(filepath.Join(conf, "rewrite", entry.Name())) == nil {
 				o.Rewrites = append(o.Rewrites, name)
 			}
 		}

@@ -96,7 +96,10 @@ test("select sites and renew serially with per-site CA, live logs and failed ret
       certificates: [
         {
           path: `/ssl/${domain}/fullchain.pem`,
-          issuer: index === 0 ? "O=ZeroSSL" : "O=Let's Encrypt",
+          issuer:
+            index === 0
+              ? "CN=ZeroSSL RSA DV SSL CA 2,O=ZeroSSL GmbH,C=AT"
+              : "O=Let's Encrypt",
           subject: `CN=${domain}`,
           dns_names: [domain],
           not_before: now,
@@ -252,19 +255,112 @@ test("select sites and renew serially with per-site CA, live logs and failed ret
     .click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("站点已停用，请先启用");
+  const configTable = dialog.getByRole("table", { name: "续签站点配置" });
+  await expect(
+    configTable.getByRole("columnheader", { includeHidden: true }),
+  ).toHaveText(["站点", "当前签发者", "到期时间", "签发机构", "联系邮箱"]);
   const first = dialog
     .locator(".renew-config-item")
     .filter({ has: page.getByText("a.example.com", { exact: true }) });
   const second = dialog
     .locator(".renew-config-item")
     .filter({ has: page.getByText("b.example.com", { exact: true }) });
+  await expect(first.locator('[data-label="当前签发者"]')).toHaveAttribute(
+    "title",
+    "CN=ZeroSSL RSA DV SSL CA 2,O=ZeroSSL GmbH,C=AT",
+  );
+  await expect(configTable).not.toContainText("ZeroSSL RSA DV SSL CA 2");
+  await expect(configTable).not.toContainText("签发域名：");
+  await expect(configTable).not.toContainText("a.example.com.conf");
+  await expect(dialog.locator(".renew-bulk-email .small-note")).toHaveCount(0);
+  await dialog
+    .getByRole("button", { name: "批量联系邮箱说明", exact: true })
+    .click();
+  await expect(page.getByRole("tooltip")).toHaveText(
+    "应用后仍可逐站修改联系邮箱。",
+  );
+  await dialog.getByLabel("批量联系邮箱", { exact: true }).click();
+  await expect(page.getByRole("tooltip")).toBeHidden();
+  await expect
+    .poll(() =>
+      configTable
+        .locator("img[data-provider]")
+        .evaluateAll(
+          (images) =>
+            images.length > 0 &&
+            images.every(
+              (image) =>
+                (image as HTMLImageElement).complete &&
+                (image as HTMLImageElement).naturalWidth > 0,
+            ),
+        ),
+    )
+    .toBe(true);
+  await expect(configTable.locator("th svg")).toHaveCount(5);
+  if (testInfo.project.name === "desktop") {
+    expect((await dialog.boundingBox())!.width).toBe(1080);
+  }
+  await dialog.screenshot({
+    path: testInfo.outputPath("renew-preview-top.png"),
+  });
+  await dialog
+    .getByLabel("批量联系邮箱", { exact: true })
+    .fill("a@example.com");
+  await dialog
+    .getByRole("button", { name: "应用到全部可续签站点", exact: true })
+    .click();
+  await expect(first.getByLabel("联系邮箱", { exact: true })).toHaveValue(
+    "a@example.com",
+  );
+  await expect(second.getByLabel("联系邮箱", { exact: true })).toHaveValue(
+    "a@example.com",
+  );
+  await expect(configTable.getByRole("textbox")).toHaveCount(2);
+
+  // A short viewport reproduces the nested scrolling and excess bottom space.
+  await page.setViewportSize({
+    width: testInfo.project.name === "mobile" ? 390 : 1440,
+    height: 420,
+  });
+  await expect
+    .poll(() =>
+      dialog.evaluate(
+        (el) =>
+          [el, ...el.querySelectorAll("*")].filter(
+            (node) =>
+              node.scrollHeight > node.clientHeight + 1 &&
+              /^(auto|scroll)$/.test(getComputedStyle(node).overflowY),
+          ).length,
+      ),
+    )
+    .toBe(1);
+  const providerBox = await first.getByRole("combobox").boundingBox();
+  const emailBox = await first
+    .getByLabel("联系邮箱", { exact: true })
+    .boundingBox();
+  expect(providerBox).toBeTruthy();
+  expect(emailBox).toBeTruthy();
+  expect(Math.abs(providerBox!.y - emailBox!.y)).toBeLessThanOrEqual(1);
+  expect(providerBox!.height).toBeLessThanOrEqual(32);
+  expect(emailBox!.height).toBeLessThanOrEqual(32);
+  await dialog.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  const bottomGap = await dialog.evaluate((el) => {
+    const footer = el.querySelector('[data-slot="dialog-footer"]')!;
+    return (
+      el.getBoundingClientRect().bottom - footer.getBoundingClientRect().bottom
+    );
+  });
+  expect(bottomGap).toBeGreaterThanOrEqual(20);
+  expect(bottomGap).toBeLessThanOrEqual(26);
+  await dialog.screenshot({ path: testInfo.outputPath("renew-preview.png") });
   await first.getByRole("combobox").click();
   await page
     .getByRole("option", { name: "Let's Encrypt", exact: true })
     .click();
   await second.getByRole("combobox").click();
   await page.getByRole("option", { name: "ZeroSSL", exact: true }).click();
-  await first.getByLabel("联系邮箱").fill("a@example.com");
   await second.getByLabel("联系邮箱").fill("b@example.com");
   await dialog
     .getByRole("button", { name: "开始逐个续签（2）", exact: true })

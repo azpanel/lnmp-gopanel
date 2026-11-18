@@ -31,7 +31,7 @@ func RootPreviewRenewal(ctx context.Context, names []string) ([]vhosts.RenewPrev
 			return nil, err
 		}
 		item := vhosts.RenewPreview{Name: name, Domains: []string{}, Provider: "letsencrypt"}
-		plan, err := store.PlanRenewal(name, TrustedPath)
+		plan, err := store.PlanRenewal(name, trustedNginxConfigPath)
 		item.Domains = append(item.Domains, plan.Domains...)
 		if strings.Contains(strings.ToLower(plan.Certificate.Issuer), "zerossl") {
 			item.Provider = "zerossl"
@@ -93,7 +93,7 @@ func RootRenewVhost(ctx context.Context, id string, item vhosts.RenewItem, emit 
 			return errors.New("已有续期任务权限不安全或无法读取")
 		}
 	}
-	p := siteProvisioner{store: vhosts.DefaultStore(), stateDir: managedSites, trust: TrustedPath, lock: LockNginx, run: RunCommand}
+	p := siteProvisioner{store: vhosts.DefaultStore(), stateDir: managedSites, trust: trustedNginxConfigPath, lock: LockNginx, run: RunCommand}
 	p.issue = func(ctx context.Context, r vhosts.CreateRequest, binary string, log func(string)) (string, string, error) {
 		return issueCertificate(ctx, r, binary, log, client, true, destination, false)
 	}

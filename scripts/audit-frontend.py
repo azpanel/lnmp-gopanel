@@ -9,7 +9,7 @@ import sys
 
 
 ADVISORY = "https://github.com/advisories/GHSA-fc5q-39xc-vjpf"
-APPROVED_RELEASES = {"v0.1.27", "v0.1.28"}
+APPROVED_RELEASES = {"v0.1.27", "v0.1.28", "v0.1.29"}
 REVIEWED_PACKAGES = {"picomatch", "fdir", "tinyglobby", "vite", "vitest"}
 
 

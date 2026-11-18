@@ -107,7 +107,7 @@ def publish(env, directory="dist", request=github, run=subprocess.run):
         command = ["gh", "release", "create", tag, *assets, "--verify-tag", "--draft", "--generate-notes", "--title", tag, "--target", env["RELEASE_SHA"]]
         if env["RELEASE_MODE"] == "fast":
             command += ["--notes", "本版本使用快速发布模式：通过基础测试、漏洞扫描、双架构打包和安装包冒烟验证；完整浏览器、systemd 及 Debian 12 回归未作为发布条件。"]
-            if tag in {"v0.1.27", "v0.1.28"}:
+            if tag in {"v0.1.27", "v0.1.28", "v0.1.29"}:
                 command[command.index("--notes") + 1] = (
                     "本版本使用快速发布模式：基础测试、双架构打包和安装包冒烟验证通过；"
                     "完整浏览器、systemd 及 Debian 12 回归未作为发布条件。\n\n"

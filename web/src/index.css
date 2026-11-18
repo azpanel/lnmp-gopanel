@@ -4454,20 +4454,110 @@ body,
 }
 
 .vhost-renew-dialog {
-  width: min(900px, calc(100vw - 2rem));
-  max-width: 900px;
+  display: flex;
+  flex-direction: column;
+  width: min(1080px, calc(100vw - 2rem));
+  max-width: 1080px;
   max-height: 90dvh;
   overflow-y: auto;
 }
-.renew-items {
-  max-height: 36dvh;
-  overflow-y: auto;
-  margin-bottom: 1rem;
+.vhost-renew-dialog > * {
+  flex-shrink: 0;
+  min-width: 0;
 }
-.renew-item,
-.renew-config-item {
+.vhost-renew-dialog form {
+  display: grid;
+  gap: 1rem;
+}
+.renew-dialog-title,
+.renew-config-table th > span {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.renew-dialog-title > svg,
+.renew-config-table th svg {
+  flex-shrink: 0;
+}
+.certificate-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.certificate-provider > img {
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.certificate-provider > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.renew-items {
+  min-width: 0;
+}
+.renew-item {
   padding: 0.85rem 0;
   border-bottom: 1px solid var(--border);
+}
+.renew-config-table {
+  table-layout: fixed;
+}
+.renew-config-table :is(th, td) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: middle;
+}
+.renew-config-table th:first-child {
+  width: 22%;
+}
+.renew-config-table th:nth-child(2),
+.renew-config-table th:nth-child(3) {
+  width: 15%;
+}
+.renew-config-table th:nth-child(4) {
+  width: 20%;
+}
+.renew-config-table th:nth-child(5) {
+  width: 28%;
+}
+.renew-config-item > tr {
+  border-bottom: 1px solid var(--border);
+}
+.renew-config-item td {
+  padding-block: 0.65rem;
+}
+.renew-config-error .site-detail-error {
+  margin: 0;
+}
+.renew-bulk-email-label {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 0.3rem;
+}
+.renew-bulk-email-label .create-help-button {
+  width: 20px;
+  height: 20px;
+}
+.renew-bulk-email-controls {
+  display: flex;
+  gap: 0.75rem;
+}
+.renew-bulk-email-controls > input {
+  flex: 1;
+}
+.vhost-renew-dialog :is([data-slot="input"], [data-slot="select-trigger"]) {
+  height: 32px;
+  min-height: 32px;
+  padding-inline: 8px;
+  background: #fff;
+  color: #1f2937;
+  font-size: 14px;
 }
 .renew-item {
   display: flex;
@@ -4483,16 +4573,9 @@ body,
   flex-shrink: 0;
   gap: 0.3rem;
 }
-.renew-config-fields {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-  gap: 0.75rem;
-  margin-top: 0.75rem;
-}
-.renew-config-fields label {
+.renew-bulk-email-label > label {
   display: block;
   font-size: 0.8rem;
-  margin-bottom: 0.3rem;
 }
 .renew-progress {
   display: flex;
@@ -4507,8 +4590,38 @@ body,
   accent-color: var(--primary);
 }
 @media (max-width: 600px) {
-  .renew-config-fields {
-    grid-template-columns: minmax(0, 1fr);
+  .renew-config-table,
+  .renew-config-table :is(tbody, tr, td) {
+    display: block;
+    width: 100%;
+  }
+  .renew-config-table thead {
+    display: none;
+  }
+  .renew-config-item > tr:first-child {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .renew-config-item [data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--muted-foreground);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 400;
+  }
+  .renew-config-item [data-label="站点"] {
+    display: grid;
+    grid-template-columns: 5rem minmax(0, 1fr);
+    grid-column: 1 / -1;
+    gap: 0.5rem;
+  }
+  .renew-bulk-email-controls {
+    flex-direction: column;
+  }
+  .renew-config-error {
+    grid-column: 1 / -1;
   }
   .renew-item {
     flex-wrap: wrap;

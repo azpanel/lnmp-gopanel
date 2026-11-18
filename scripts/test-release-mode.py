@@ -106,12 +106,12 @@ class ReleaseModes(unittest.TestCase):
     def test_only_approved_release_notes_disclose_the_temporary_audit_exception(self):
         with tempfile.TemporaryDirectory() as directory:
             artifacts(directory)
-            for tag in ("v0.1.27", "v0.1.28", "v0.1.29"):
+            for tag in ("v0.1.27", "v0.1.28", "v0.1.29", "v0.1.30"):
                 run = mock.Mock()
                 publish({"RELEASE_TAG": tag, "RELEASE_SHA": SHA, "RELEASE_MODE": "fast", "NEW_TAG": "true"}, directory, mock.Mock(return_value=None), run)
                 command = run.call_args_list[0].args[0]
                 notes = command[command.index("--notes") + 1]
-                approved = tag in {"v0.1.27", "v0.1.28"}
+                approved = tag in {"v0.1.27", "v0.1.28", "v0.1.29"}
                 self.assertEqual("GHSA-fc5q-39xc-vjpf" in notes, approved)
                 if approved:
                     self.assertIn("仅本次 " + tag + " 快速发布临时豁免", notes)

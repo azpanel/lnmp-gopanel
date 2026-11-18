@@ -1,7 +1,20 @@
 import { useSessionMutation } from "@/lib/use-session-mutation";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw, Terminal } from "lucide-react";
+import {
+  BadgeCheck,
+  CalendarClock,
+  CircleHelp,
+  FileKey,
+  Globe2,
+  Loader2,
+  Mail,
+  RefreshCw,
+  ShieldCheck,
+  Terminal,
+} from "lucide-react";
+import { Tooltip } from "radix-ui";
+import { CertificateProvider } from "@/components/certificate-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +33,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { api } from "@/lib/api";
+import { certificateIssuer } from "@/lib/certificate-issuer";
 import { useVhostJob } from "@/lib/use-vhost-job";
 import type { Vhost } from "@/lib/types";
 import type {
@@ -43,6 +65,44 @@ const phases: Record<string, string> = {
   deploy: "部署证书",
   done: "完成",
 };
+
+function BulkEmailHelp() {
+  const [open, setOpen] = useState(false);
+  return (
+    <Tooltip.Provider delayDuration={150}>
+      <Tooltip.Root open={open} onOpenChange={setOpen}>
+        <Tooltip.Trigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="create-help-button"
+            aria-label="批量联系邮箱说明"
+            onClick={(event) => {
+              event.preventDefault();
+              setOpen(true);
+            }}
+          >
+            <CircleHelp size={14} aria-hidden="true" />
+          </Button>
+        </Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content
+            className="create-help-tooltip"
+            style={{ pointerEvents: "none" }}
+            side="top"
+            sideOffset={6}
+            collisionPadding={16}
+          >
+            应用后仍可逐站修改联系邮箱。
+            <Tooltip.Arrow className="create-help-arrow" />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
+  );
+}
+
 export function VhostRenew({
   names,
   sites,
@@ -59,6 +119,8 @@ export function VhostRenew({
   const [selected, setSelected] = useState<string | null>(null);
   const [preview, setPreview] = useState<VhostRenewPreview[]>([]);
   const [error, setError] = useState("");
+  const [bulkEmail, setBulkEmail] = useState("");
+  const bulkEmailRef = useRef<HTMLInputElement>(null);
   const [logSite, setLogSite] = useState("all");
   const requestID = useRef(crypto.randomUUID());
   const previewRequest = useRef<{
@@ -143,6 +205,7 @@ export function VhostRenew({
     requestID.current = crypto.randomUUID();
     setSelected(null);
     setPreview([]);
+    setBulkEmail("");
     setError("");
     setLogSite("all");
     follow.current = true;
@@ -207,7 +270,8 @@ export function VhostRenew({
       >
         <DialogContent className="vhost-renew-dialog">
           <DialogHeader>
-            <DialogTitle>
+            <DialogTitle className="renew-dialog-title">
+              <FileKey size={18} aria-hidden="true" />
               {selected ? "SSL 续签任务" : "提前续签 SSL"}
             </DialogTitle>
             <DialogDescription>
@@ -250,9 +314,13 @@ export function VhostRenew({
                         <strong>{siteName(item.name)}</strong>
                         <div className="small-note">
                           {item.name} ·{" "}
-                          {item.provider === "zerossl"
-                            ? "ZeroSSL"
-                            : "Let's Encrypt"}
+                          <CertificateProvider
+                            name={
+                              item.provider === "zerossl"
+                                ? "ZeroSSL"
+                                : "Let's Encrypt"
+                            }
+                          />
                         </div>
                         {item.error && (
                           <p className="site-detail-error" role="alert">
@@ -391,81 +459,168 @@ export function VhostRenew({
                 });
               }}
             >
-              <div className="renew-items">
+              {eligible.length > 1 && (
+                <div className="renew-bulk-email">
+                  <div className="renew-bulk-email-label">
+                    <label htmlFor="renew-bulk-email">批量联系邮箱</label>
+                    <BulkEmailHelp />
+                  </div>
+                  <div className="renew-bulk-email-controls">
+                    <Input
+                      id="renew-bulk-email"
+                      ref={bulkEmailRef}
+                      type="email"
+                      maxLength={254}
+                      placeholder="输入统一的联系邮箱"
+                      value={bulkEmail}
+                      disabled={submit.isPending}
+                      onChange={(e) => setBulkEmail(e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={submit.isPending || !bulkEmail.trim()}
+                      onClick={() => {
+                        if (!bulkEmailRef.current?.reportValidity()) return;
+                        const email = bulkEmail.trim();
+                        setPreview((old) =>
+                          old.map((item) =>
+                            item.eligible ? { ...item, email } : item,
+                          ),
+                        );
+                      }}
+                    >
+                      应用到全部可续签站点
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <Table className="renew-config-table" aria-label="续签站点配置">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>
+                      <span>
+                        <Globe2 size={14} aria-hidden="true" />
+                        站点
+                      </span>
+                    </TableHead>
+                    <TableHead>
+                      <span>
+                        <BadgeCheck size={14} aria-hidden="true" />
+                        当前签发者
+                      </span>
+                    </TableHead>
+                    <TableHead>
+                      <span>
+                        <CalendarClock size={14} aria-hidden="true" />
+                        到期时间
+                      </span>
+                    </TableHead>
+                    <TableHead>
+                      <span>
+                        <ShieldCheck size={14} aria-hidden="true" />
+                        签发机构
+                      </span>
+                    </TableHead>
+                    <TableHead>
+                      <span>
+                        <Mail size={14} aria-hidden="true" />
+                        联系邮箱
+                      </span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
                 {preview.map((item) => {
                   const site = sites.find((site) => site.name === item.name);
+                  const certificate = site?.certificates[0];
                   return (
-                    <div className="renew-config-item" key={item.name}>
-                      <strong>{siteName(item.name)}</strong>
-                      <div className="small-note font-mono">{item.name}</div>
-                      {site?.certificates[0] && (
-                        <div className="small-note">
-                          当前签发者：{site.certificates[0].issuer || "未知"} ·
-                          到期：
-                          {site.certificates[0].not_after
+                    <TableBody className="renew-config-item" key={item.name}>
+                      <TableRow>
+                        <TableCell data-label="站点">
+                          <strong>{siteName(item.name)}</strong>
+                        </TableCell>
+                        <TableCell
+                          data-label="当前签发者"
+                          title={certificate?.issuer}
+                        >
+                          <CertificateProvider
+                            name={
+                              certificateIssuer(certificate?.issuer || "").label
+                            }
+                          />
+                        </TableCell>
+                        <TableCell data-label="到期时间">
+                          {certificate?.not_after
                             ? new Date(
-                                site.certificates[0].not_after,
+                                certificate.not_after,
                               ).toLocaleDateString("zh-CN")
                             : "未知"}
-                        </div>
-                      )}
-                      {item.domains.length > 0 && (
-                        <div className="small-note">
-                          签发域名：{item.domains.join("、")}
-                        </div>
-                      )}
-                      {item.eligible ? (
-                        <div className="renew-config-fields">
-                          <div>
-                            <label htmlFor={`provider-${item.name}`}>
-                              签发机构
-                            </label>
-                            <Select
-                              value={item.provider}
-                              onValueChange={(value) =>
-                                update(item.name, {
-                                  provider: value as VhostRenewItem["provider"],
-                                })
-                              }
-                              disabled={submit.isPending}
-                            >
-                              <SelectTrigger id={`provider-${item.name}`}>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="letsencrypt">
-                                  Let's Encrypt
-                                </SelectItem>
-                                <SelectItem value="zerossl">ZeroSSL</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <label htmlFor={`email-${item.name}`}>
-                              联系邮箱
-                            </label>
-                            <Input
-                              id={`email-${item.name}`}
-                              type="email"
-                              maxLength={254}
-                              required
-                              value={item.email}
-                              disabled={submit.isPending}
-                              onChange={(e) =>
-                                update(item.name, { email: e.target.value })
-                              }
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="site-detail-error">
-                          无法续签：{item.reason}
-                        </p>
-                      )}
-                    </div>
+                        </TableCell>
+                        {item.eligible ? (
+                          <>
+                            <TableCell data-label="签发机构">
+                              <label
+                                className="sr-only"
+                                htmlFor={`provider-${item.name}`}
+                              >
+                                签发机构
+                              </label>
+                              <Select
+                                value={item.provider}
+                                onValueChange={(value) =>
+                                  update(item.name, {
+                                    provider:
+                                      value as VhostRenewItem["provider"],
+                                  })
+                                }
+                                disabled={submit.isPending}
+                              >
+                                <SelectTrigger id={`provider-${item.name}`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="letsencrypt">
+                                    <CertificateProvider name="Let's Encrypt" />
+                                  </SelectItem>
+                                  <SelectItem value="zerossl">
+                                    <CertificateProvider name="ZeroSSL" />
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell data-label="联系邮箱">
+                              <label
+                                className="sr-only"
+                                htmlFor={`email-${item.name}`}
+                              >
+                                联系邮箱
+                              </label>
+                              <Input
+                                id={`email-${item.name}`}
+                                type="email"
+                                maxLength={254}
+                                required
+                                value={item.email}
+                                disabled={submit.isPending}
+                                onChange={(e) =>
+                                  update(item.name, { email: e.target.value })
+                                }
+                              />
+                            </TableCell>
+                          </>
+                        ) : (
+                          <TableCell colSpan={2} className="renew-config-error">
+                            <p className="site-detail-error">
+                              无法续签：{item.reason}
+                            </p>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    </TableBody>
                   );
                 })}
-              </div>
+              </Table>
               <DialogFooter>
                 <Button
                   type="button"
