@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/azpanel/lnmp-gopanel/internal/testutil"
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -29,6 +30,7 @@ func legacyHash(t *testing.T) string {
 }
 func testAccount(t *testing.T) (*Account, string) {
 	t.Helper()
+	testutil.PasswordChecker(t)
 	dir := filepath.Join(t.TempDir(), "private")
 	a, err := OpenAccount(dir, "admin", legacyHash(t))
 	if err != nil {
@@ -54,6 +56,7 @@ func enableTOTP(t *testing.T, a *Account) (Setup, []string) {
 	return setup, codes
 }
 func TestPasswordPolicy(t *testing.T) {
+	testutil.PasswordChecker(t)
 	data, err := os.ReadFile("../../web/src/lib/password-cases.json")
 	if err != nil {
 		t.Fatal(err)
@@ -71,6 +74,35 @@ func TestPasswordPolicy(t *testing.T) {
 				t.Errorf("case %d accepted=%v want=%v", i, got, item.Valid)
 			}
 		})
+	}
+}
+
+func TestPasswordCheckerFailurePreservesCredentialsAndRecoveryCodes(t *testing.T) {
+	a, dir := testAccount(t)
+	_, codes := enableTOTP(t, a)
+	before, err := os.ReadFile(filepath.Join(dir, "auth-state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := testutil.PasswordChecker(t)
+	if err := os.Rename(checker, checker+".disabled"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Rename(checker+".disabled", checker); err != nil {
+			t.Error(err)
+		}
+	})
+	// Recovery verification must remain uncommitted if scoring cannot finish.
+	if err := a.ChangePassword(oldPassword, strongPassword, "", codes[0]); !errors.Is(err, ErrPasswordCheck) {
+		t.Fatalf("checker failure was bypassed: %v", err)
+	}
+	if err := a.ResetPasswordOffline(strongPassword); !errors.Is(err, ErrPasswordCheck) {
+		t.Fatalf("checker failure was bypassed: %v", err)
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "auth-state.json"))
+	if err != nil || !bytes.Equal(before, after) || !a.Security().TOTPEnabled || a.Security().RecoveryRemaining != len(codes) {
+		t.Fatal("checker failure changed account state")
 	}
 }
 func TestPasswordPersistsWithoutBootstrapFallback(t *testing.T) {
@@ -348,6 +380,7 @@ func TestPrivateStorageAndExclusiveLock(t *testing.T) {
 }
 
 func TestOfflinePasswordResetClearsFactorsAtomically(t *testing.T) {
+	testutil.PasswordChecker(t)
 	dir := filepath.Join(t.TempDir(), "auth")
 	hash := legacyHash(t)
 	a, err := OpenAccount(dir, "admin", hash)

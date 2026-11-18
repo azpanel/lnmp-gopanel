@@ -35,7 +35,8 @@ UNIT = Path("/etc/systemd/system/lnmp-gopanel.service")
 SUDOERS = Path("/etc/sudoers.d/lnmp-gopanel")
 TARGETS = [Path(PANEL), Path(HELPER), UNIT, SUDOERS, CONFIG,
            CONFIG.with_name("services.yaml"), CONFIG.parent / "tls/panel.crt",
-           CONFIG.parent / "tls/panel.key", Path("/etc/cron.d/lnmp-gopanel-backups")]
+           CONFIG.parent / "tls/panel.key", Path("/etc/cron.d/lnmp-gopanel-backups"),
+           Path("/usr/local/bin/lnmp-gopanel-password-check")]
 
 
 def run(*args, success=True, **kwargs):

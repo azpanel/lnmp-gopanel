@@ -28,6 +28,7 @@ TARGETS = (
     "/etc/lnmp-gopanel/tls/panel.crt",
     "/etc/lnmp-gopanel/tls/panel.key",
     "/etc/cron.d/lnmp-gopanel-backups",
+    "/usr/local/bin/lnmp-gopanel-password-check",
 )
 VHOST_COMMANDS = tuple(f"vhosts {action}" for action in ("list", "config", "format", "usage", "toggle", "options", "create", "ssl-renew-preview", "ssl-renew", "basic-auth-get", "basic-auth-set", "basic-auth-disable"))
 LNMP_INSTALL_COMMANDS = tuple(f"lnmp-install {action}" for action in ("inspect", "prepare", "start", "read"))
@@ -322,6 +323,7 @@ printf '%s\\n' "$*" >> /run/apparmor.log
         files = {
             "bin/lnmp-gopanel": panel,
             "bin/lnmp-gopanel-control": HELPER,
+            "bin/lnmp-gopanel-password-check": "#!/bin/sh\nexit 0\n",
             "deploy/lnmp-gopanel.service": (PROJECT / "deploy/lnmp-gopanel.service").read_text(),
             "deploy/lnmp-gopanel.sudoers": (PROJECT / "deploy/lnmp-gopanel.sudoers").read_text(),
             "deploy/lnmp-gopanel-backups.cron": (PROJECT / "deploy/lnmp-gopanel-backups.cron").read_text(),
@@ -1117,19 +1119,35 @@ exit 0
         legacy = record.read_text().splitlines()[:11]
         legacy[0] = "lnmp-gopanel-transaction-v1"
         record.write_text("\n".join(legacy) + "\n")
-        (transaction / "8").unlink()
+        for index in (8, 9):
+            (transaction / str(index)).unlink()
         cron = write(self.root, "/etc/cron.d/lnmp-gopanel-backups", "# unrecorded administrator file\n")
         self.run_script("--recover")
-        self.assert_previous_files({path: data for path, data in previous.items() if path != TARGETS[8]})
+        self.assert_previous_files({path: data for path, data in previous.items() if path not in TARGETS[8:]})
         self.assertEqual(cron.read_text(), "# unrecorded administrator file\n")
 
-    def test_truncated_nine_file_transaction_is_not_treated_as_legacy(self):
+    def test_legacy_nine_file_transaction_preserves_unrecorded_password_checker(self):
+        previous = self.old_installation(https=True)
+        self.arm_interruption(TARGETS[0])
+        self.run_installer(success=False)
+        transaction = self.pending_transaction()
+        record = transaction / "transaction"
+        legacy = record.read_text().splitlines()[:12]
+        legacy[0] = "lnmp-gopanel-transaction-v2"
+        record.write_text("\n".join(legacy) + "\n")
+        (transaction / "9").unlink()
+        checker = write(self.root, TARGETS[9], "# unrecorded password checker\n", 0o755)
+        self.run_script("--recover")
+        self.assert_previous_files({path: data for path, data in previous.items() if path != TARGETS[9]})
+        self.assertEqual(checker.read_text(), "# unrecorded password checker\n")
+
+    def test_truncated_ten_file_transaction_is_not_treated_as_legacy(self):
         self.old_installation(https=True)
         self.arm_interruption(TARGETS[0])
         self.run_installer(success=False)
         transaction = self.pending_transaction()
         record = transaction / "transaction"
-        record.write_text("\n".join(record.read_text().splitlines()[:11]) + "\n")
+        record.write_text("\n".join(record.read_text().splitlines()[:12]) + "\n")
         before = {p: (self.root / p.lstrip("/")).read_bytes() for p in TARGETS}
         self.run_script("--recover", success=False)
         self.assert_previous_files(before)
@@ -1620,8 +1638,9 @@ exit 1
                 self.assertFalse((self.root / "outside").exists())
 
     def test_missing_payload_and_incomplete_existing_config(self):
-        self.package(omit="bin/lnmp-gopanel-control")
-        self.run_installer("--check", success=False)
+        for missing in ("bin/lnmp-gopanel-control", "bin/lnmp-gopanel-password-check"):
+            self.package(omit=missing)
+            self.run_installer("--check", success=False)
         self.package()
         write(self.root, "/etc/lnmp-gopanel/config.yaml", "existing credentials\n")
         self.run_installer("--password-stdin", success=False)

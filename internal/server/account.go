@@ -34,6 +34,8 @@ func (s *Server) securityReply(c *gin.Context, err error) authReply {
 		status = 409
 	case errors.Is(err, auth.ErrChallenge):
 		status = 401
+	case errors.Is(err, auth.ErrPasswordCheck):
+		return authReply{status: 503, message: err.Error()}
 	}
 	if status == 503 {
 		if errors.Is(err, auth.ErrStorage) {

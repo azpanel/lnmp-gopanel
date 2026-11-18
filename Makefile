@@ -8,6 +8,7 @@ build: web
 	mkdir -p bin
 	CGO_ENABLED=0 go build -trimpath -tags embed -ldflags='$(BUILD_LDFLAGS)' -o bin/lnmp-gopanel ./cmd/panel
 	CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o bin/lnmp-gopanel-control ./cmd/control
+	CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o bin/lnmp-gopanel-password-check ./cmd/passwordcheck
 
 web:
 	cd web && npm ci && npm run build
@@ -21,7 +22,10 @@ check:
 	cd web && npm run build
 
 dev:
-	go run ./cmd/panel -config ./config.yaml -services ./services.yaml
+	mkdir -p bin
+	go build -o bin/lnmp-gopanel-password-check ./cmd/passwordcheck
+	go build -o bin/lnmp-gopanel ./cmd/panel
+	./bin/lnmp-gopanel -config ./config.yaml -services ./services.yaml
 
 clean:
 	rm -rf bin web/dist

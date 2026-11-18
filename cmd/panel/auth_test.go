@@ -8,6 +8,7 @@ import (
 
 	"github.com/azpanel/lnmp-gopanel/internal/auth"
 	"github.com/azpanel/lnmp-gopanel/internal/config"
+	"github.com/azpanel/lnmp-gopanel/internal/testutil"
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
@@ -59,6 +60,7 @@ func TestOfflineTOTPRecovery(t *testing.T) {
 }
 
 func TestOfflinePasswordResetCLI(t *testing.T) {
+	testutil.PasswordChecker(t)
 	dir := t.TempDir()
 	hash, _ := bcrypt.GenerateFromPassword([]byte("legacy-password-123"), bcrypt.MinCost)
 	c := config.Config{Username: "operator", PasswordHash: string(hash), Auth: config.AuthConfig{StateDir: filepath.Join(dir, "auth")}, TLS: config.TLSConfig{CertFile: "/tls/cert", KeyFile: "/tls/key"}}

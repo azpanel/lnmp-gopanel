@@ -28,6 +28,11 @@ def main():
             package.extractall(root, filter="data")
         payload = root / "lnmp-gopanel"
         binary = payload / "bin/lnmp-gopanel"
+        checker = payload / "bin/lnmp-gopanel-password-check"
+        assert checker.is_file() and os.access(checker, os.X_OK), "Missing password checker"
+        trace = subprocess.run([str(binary), "--help"], cwd=root, capture_output=True, text=True,
+                               env={**os.environ, "GODEBUG": "inittrace=1"}, timeout=15)
+        assert "github.com/trustelem/zxcvbn" not in trace.stderr, "Panel still initializes password dictionaries"
         config_dir = root / "config"
         password = "Package-Only-Panel-Password-2026"
         subprocess.run([str(binary), "init", "--dir", str(config_dir), "--listen", "127.0.0.1:0", "--password-stdin"],
@@ -87,9 +92,31 @@ def main():
                 login = json.dumps({"username": "admin", "password": password}).encode()
                 with get("/api/v1/auth/login", {"Content-Type": "application/json", "Origin": base}, "POST", login) as response:
                     assert response.status == 200 and "Secure" in response.headers["Set-Cookie"]
+                    session = json.load(response)
                 with get("/api/v1/build") as response:
                     assert json.load(response)["version"] == (payload / "VERSION").read_text().strip()
-                print("Native package HTTPS, embedded assets, compression, ranges and version passed")
+                new_password = "N7!vQ2_zK9@pL5#sT8$xR4"
+                password_request = json.dumps({"current_password": password, "new_password": new_password}).encode()
+                password_headers = {"Content-Type": "application/json", "Origin": base,
+                                    "X-CSRF-Token": session["csrf_token"]}
+                disabled = checker.with_name(checker.name + ".disabled")
+                checker.rename(disabled)
+                try:
+                    try:
+                        get("/api/v1/auth/password", password_headers, "POST", password_request)
+                        raise AssertionError("Missing scorer accepted a password change")
+                    except urllib.error.HTTPError as error:
+                        assert error.code == 503
+                    with get("/api/v1/auth/session") as response:
+                        assert response.status == 200, "Missing scorer revoked session"
+                finally:
+                    disabled.rename(checker)
+                with get("/api/v1/auth/password", password_headers, "POST", password_request) as response:
+                    assert response.status == 204
+                new_login = json.dumps({"username": "admin", "password": new_password}).encode()
+                with get("/api/v1/auth/login", {"Content-Type": "application/json", "Origin": base}, "POST", new_login) as response:
+                    assert response.status == 200
+                print("Native package HTTPS, embedded assets, compression, ranges, version and subprocess password scoring passed")
             except BaseException:
                 log.flush()
                 print((root / "panel.log").read_text(), file=sys.stderr)

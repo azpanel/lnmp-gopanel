@@ -10,10 +10,36 @@ import (
 	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/auth"
+	"github.com/azpanel/lnmp-gopanel/internal/testutil"
 	"github.com/pquerna/otp/totp"
 )
 
 const serverNewPassword = "N7!vQ2_zK9@pL5#sT8$xR4"
+
+func TestPasswordCheckerFailureKeepsSessions(t *testing.T) {
+	s, _ := testServer(t)
+	h := s.Handler()
+	cookie, csrf := sessionFrom(t, authRequest(h, "POST", "/auth/login", map[string]string{"username": "admin", "password": "test-password-123"}, nil, ""))
+	checker := testutil.PasswordChecker(t)
+	if err := os.Rename(checker, checker+".disabled"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Rename(checker+".disabled", checker); err != nil {
+			t.Error(err)
+		}
+	})
+	w := authRequest(h, "POST", "/auth/password", map[string]string{"current_password": "test-password-123", "new_password": serverNewPassword}, cookie, csrf)
+	if w.Code != 503 {
+		t.Fatalf("checker failure returned %d", w.Code)
+	}
+	if authRequest(h, "GET", "/auth/session", nil, cookie, "").Code != 200 {
+		t.Fatal("checker failure revoked session")
+	}
+	if _, err := s.account().StartLogin("test-password-123"); err != nil {
+		t.Fatal("checker failure changed password")
+	}
+}
 
 func authRequest(h http.Handler, method, path string, body any, cookie *http.Cookie, csrf string) *httptest.ResponseRecorder {
 	data, _ := json.Marshal(body)

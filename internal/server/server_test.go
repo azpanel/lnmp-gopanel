@@ -22,6 +22,7 @@ import (
 	"github.com/azpanel/lnmp-gopanel/internal/metrics"
 	"github.com/azpanel/lnmp-gopanel/internal/releases"
 	"github.com/azpanel/lnmp-gopanel/internal/storage"
+	"github.com/azpanel/lnmp-gopanel/internal/testutil"
 	"github.com/azpanel/lnmp-gopanel/internal/vhosts"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -40,6 +41,7 @@ func (e *stubExecutor) Run(context.Context, string, string) (control.Result, err
 }
 func testServer(t *testing.T) (*Server, *stubExecutor) {
 	t.Helper()
+	testutil.PasswordChecker(t)
 	hash, err := bcrypt.GenerateFromPassword([]byte("test-password-123"), bcrypt.MinCost)
 	if err != nil {
 		t.Fatal(err)

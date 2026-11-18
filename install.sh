@@ -43,6 +43,7 @@ targets=(
   /etc/lnmp-gopanel/tls/panel.crt
   /etc/lnmp-gopanel/tls/panel.key
   /etc/cron.d/lnmp-gopanel-backups
+  /usr/local/bin/lnmp-gopanel-password-check
 )
 
 usage() {
@@ -236,12 +237,12 @@ load_transaction() {
   (( info <= 32 )) || return 1
   mapfile -t record < "$backup_dir/transaction"
   mapfile -t status_lines < "$backup_dir/status"
-  # Legacy transactions managed eight files. Recover exactly the targets they
-  # recorded; do not infer absence or remove a Cron file they never managed.
+  # Recover only recorded targets: older transactions did not manage the Cron
+  # entry or password checker. Never infer absence for those newer files.
   record_target_count=$((${#record[@]} - 3))
   [[ ${#status_lines[@]} == 1 ]] || return 1
   case "${record[0]:-}:$record_target_count" in
-    lnmp-gopanel-transaction-v1:8|lnmp-gopanel-transaction-v2:9) ;;
+    lnmp-gopanel-transaction-v1:8|lnmp-gopanel-transaction-v2:9|lnmp-gopanel-transaction-v3:10) ;;
     *) return 1 ;;
   esac
   case "${status_lines[0]}" in pending|committed|rolled-back) transaction_status="${status_lines[0]}" ;; *) return 1 ;; esac
@@ -485,7 +486,7 @@ prepare_transaction() {
   backup_dir="$backup_root/$transaction_id"
   install -d -o root -g root -m 0700 "$backup_root" || return 1
   mkdir -m 0700 -- "$backup_dir" || return 1
-  printf -v record 'lnmp-gopanel-transaction-v2\n%s\n%s' "$was_active" "$was_enabled"
+  printf -v record 'lnmp-gopanel-transaction-v3\n%s\n%s' "$was_active" "$was_enabled"
   for index in "${!targets[@]}"; do
     destination="${targets[$index]}"
     check_safe_parents "$destination" || return 1
@@ -526,6 +527,7 @@ uninstall_panel() {
   local destination parent load_state confirmation backup_units backup_unit
   local -a removals=(
     /usr/local/bin/lnmp-gopanel
+    /usr/local/bin/lnmp-gopanel-password-check
     /usr/local/libexec/lnmp-gopanel-control
     /etc/systemd/system/lnmp-gopanel.service
     /etc/systemd/system/lnmp-gopanel.service.d
@@ -957,7 +959,7 @@ done < "$work_dir/members"
 tar -tvzf "$work_dir/$asset" | awk 'substr($0,1,1)!="-" && substr($0,1,1)!="d" { bad=1 } END { exit bad }' || die "Archive contains links or special files"
 tar --no-same-owner --no-same-permissions -xzf "$work_dir/$asset" -C "$work_dir"
 payload="$work_dir/lnmp-gopanel"
-for required in bin/lnmp-gopanel bin/lnmp-gopanel-control deploy/lnmp-gopanel.service deploy/lnmp-gopanel.sudoers deploy/lnmp-gopanel-backups.cron VERSION; do
+for required in bin/lnmp-gopanel bin/lnmp-gopanel-control bin/lnmp-gopanel-password-check deploy/lnmp-gopanel.service deploy/lnmp-gopanel.sudoers deploy/lnmp-gopanel-backups.cron VERSION; do
   [[ -f "$payload/$required" ]] || die "Package is missing $required"
 done
 # Older releases support init but silently treat an unknown https subcommand as
@@ -1024,6 +1026,7 @@ install -d -o root -g lnmp-panel -m 0750 /etc/lnmp-gopanel
 [[ ! -L /var/lib/lnmp-gopanel ]] || die "Refusing a symlink screenshot state directory"
 install -d -o lnmp-panel -g lnmp-panel -m 0700 /var/lib/lnmp-gopanel
 atomic_install "$payload/bin/lnmp-gopanel" /usr/local/bin/lnmp-gopanel 0755
+atomic_install "$payload/bin/lnmp-gopanel-password-check" /usr/local/bin/lnmp-gopanel-password-check 0755
 atomic_install "$payload/bin/lnmp-gopanel-control" /usr/local/libexec/lnmp-gopanel-control 0755
 atomic_install "$payload/deploy/lnmp-gopanel.service" /etc/systemd/system/lnmp-gopanel.service 0644
 atomic_install "$payload/deploy/lnmp-gopanel.sudoers" /etc/sudoers.d/lnmp-gopanel 0440

@@ -21,10 +21,12 @@ CGO_ENABLED=0 GOOS=linux GOARCH="$target_arch" go build -trimpath -tags embed \
   -ldflags="-s -w -X github.com/azpanel/lnmp-gopanel/internal/buildinfo.Version=$build_version -X github.com/azpanel/lnmp-gopanel/internal/buildinfo.BuiltAt=$build_time" \
   -o "$payload/bin/lnmp-gopanel" ./cmd/panel
 CGO_ENABLED=0 GOOS=linux GOARCH="$target_arch" go build -trimpath -ldflags='-s -w' -o "$payload/bin/lnmp-gopanel-control" ./cmd/control
+CGO_ENABLED=0 GOOS=linux GOARCH="$target_arch" go build -trimpath -ldflags='-s -w' -o "$payload/bin/lnmp-gopanel-password-check" ./cmd/passwordcheck
 cp -R deploy "$payload/deploy"
 cp install.sh README.md "$payload/"
 printf '%s\n' "$build_version" > "$payload/VERSION"
 chmod 0755 "$payload/install.sh" "$payload/bin/lnmp-gopanel" "$payload/bin/lnmp-gopanel-control"
+chmod 0755 "$payload/bin/lnmp-gopanel-password-check"
 archive="lnmp-gopanel_linux_${target_arch}.tar.gz"
 tar --owner=0 --group=0 --numeric-owner -czf "$output_dir/$archive" -C "$stage_dir" lnmp-gopanel
 cd "$output_dir"

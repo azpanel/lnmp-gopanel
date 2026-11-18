@@ -22,18 +22,19 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/azpanel/lnmp-gopanel/internal/passwordcheck"
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
-	"github.com/trustelem/zxcvbn"
 	"golang.org/x/crypto/bcrypt"
 )
 
 var (
-	ErrProof     = errors.New("当前密码或验证码错误")
-	ErrChallenge = errors.New("验证码错误或登录验证已过期")
-	ErrInput     = errors.New("认证参数无效")
-	ErrConflict  = errors.New("认证状态已变化，请重新打开账户安全设置")
-	ErrStorage   = errors.New("认证状态保存失败，请检查状态目录后重试")
+	ErrProof         = errors.New("当前密码或验证码错误")
+	ErrChallenge     = errors.New("验证码错误或登录验证已过期")
+	ErrInput         = errors.New("认证参数无效")
+	ErrConflict      = errors.New("认证状态已变化，请重新打开账户安全设置")
+	ErrStorage       = errors.New("认证状态保存失败，请检查状态目录后重试")
+	ErrPasswordCheck = passwordcheck.ErrUnavailable
 )
 
 const PendingTTL = 5 * time.Minute
@@ -354,7 +355,11 @@ func ValidatePassword(password, username string) error {
 			return fmt.Errorf("%w：密码不能包含控制字符", ErrInput)
 		}
 	}
-	if zxcvbn.PasswordStrength(password, []string{username, "lnmp", "gopanel", "lnmp-gopanel"}).Score < 3 {
+	score, err := passwordcheck.Score(password, username)
+	if err != nil {
+		return ErrPasswordCheck
+	}
+	if score < 3 {
 		return fmt.Errorf("%w：新密码容易被猜到，请增加不相关的词语或使用随机密码", ErrInput)
 	}
 	return nil
