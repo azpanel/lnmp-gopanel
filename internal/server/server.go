@@ -43,6 +43,9 @@ type Server struct {
 	Sessions            *auth.Store
 	Metrics             *metrics.Collector
 	Widgets             *metrics.WidgetStore
+	Traffic             interface {
+		Read(context.Context, string) (*metrics.Traffic, error)
+	}
 	Services            *control.Manager
 	Components          *components.Manager
 	Docker              *docker.Manager
@@ -73,7 +76,7 @@ type Server struct {
 }
 
 func New(c config.Config, m *metrics.Collector, svc *control.Manager, assets fs.FS) *Server {
-	return &Server{BackupPolicies: control.Helper{Path: c.Helper}, backupScanSlots: make(chan struct{}, 2), Backups: control.Helper{Path: c.Helper}, Components: components.NewManager(context.Background(), control.Helper{Path: c.Helper}), Config: c, Sessions: auth.New(), Metrics: m, Services: svc, Logs: control.Helper{Path: c.Helper}, logReads: make(chan struct{}, 4), Cron: control.Helper{Path: c.Helper}, Docker: docker.NewManager(context.Background(), control.Helper{Path: c.Helper}), Releases: releases.NewManager(context.Background(), releases.NewFetcher()), Host: metrics.HostInfo(context.Background()), Storage: storage.NewManager(context.Background(), control.Helper{Path: c.Helper}), Vhosts: vhosts.NewManager(context.Background(), control.Helper{Path: c.Helper}), Assets: assets, streams: make(chan struct{}, 32)}
+	return &Server{Traffic: metrics.NewTrafficReader(), BackupPolicies: control.Helper{Path: c.Helper}, backupScanSlots: make(chan struct{}, 2), Backups: control.Helper{Path: c.Helper}, Components: components.NewManager(context.Background(), control.Helper{Path: c.Helper}), Config: c, Sessions: auth.New(), Metrics: m, Services: svc, Logs: control.Helper{Path: c.Helper}, logReads: make(chan struct{}, 4), Cron: control.Helper{Path: c.Helper}, Docker: docker.NewManager(context.Background(), control.Helper{Path: c.Helper}), Releases: releases.NewManager(context.Background(), releases.NewFetcher()), Host: metrics.HostInfo(context.Background()), Storage: storage.NewManager(context.Background(), control.Helper{Path: c.Helper}), Vhosts: vhosts.NewManager(context.Background(), control.Helper{Path: c.Helper}), Assets: assets, streams: make(chan struct{}, 32)}
 }
 func fail(c *gin.Context, status int, msg string) { c.AbortWithStatusJSON(status, gin.H{"error": msg}) }
 func (s *Server) Handler() http.Handler {

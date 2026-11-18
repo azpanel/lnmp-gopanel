@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +12,54 @@ import (
 	"github.com/azpanel/lnmp-gopanel/internal/auth"
 	"github.com/azpanel/lnmp-gopanel/internal/metrics"
 )
+
+type trafficStub func(context.Context, string) (*metrics.Traffic, error)
+
+func (f trafficStub) Read(ctx context.Context, period string) (*metrics.Traffic, error) {
+	return f(ctx, period)
+}
+
+func TestDashboardTrafficAuthPeriodsAndUnavailable(t *testing.T) {
+	s, _ := testServer(t)
+	var period string
+	s.Traffic = trafficStub(func(_ context.Context, value string) (*metrics.Traffic, error) {
+		period = value
+		return &metrics.Traffic{Interface: "eth0", Period: value, Points: []metrics.TrafficPoint{}}, nil
+	})
+	h := s.Handler()
+	path := "/api/v1/dashboard/traffic"
+	if w := request(h, "GET", path, "", nil, "", ""); w.Code != 401 {
+		t.Fatal("missing auth", w.Code)
+	}
+	id, _ := s.Sessions.Create()
+	cookie := &http.Cookie{Name: auth.CookieName, Value: id}
+	for _, value := range []string{"", "day", "hour"} {
+		w := request(h, "GET", path+"?period="+value, "", cookie, "", "")
+		if value == "" {
+			if w.Code != 400 {
+				t.Fatal("explicit empty period accepted", w.Code)
+			}
+			continue
+		}
+		if w.Code != 200 || period != value || !strings.Contains(w.Body.String(), `"interface":"eth0"`) {
+			t.Fatal(w.Code, w.Body.String(), period)
+		}
+	}
+	if w := request(h, "GET", path, "", cookie, "", ""); w.Code != 200 || period != "day" {
+		t.Fatal("default", w.Code, period)
+	}
+	if w := request(h, "GET", path+"?period=month", "", cookie, "", ""); w.Code != 400 {
+		t.Fatal(w.Code)
+	}
+	s.Traffic = trafficStub(func(context.Context, string) (*metrics.Traffic, error) { return nil, errors.New("vnstat 未安装") })
+	if w := request(h, "GET", path, "", cookie, "", ""); w.Code != 503 || !strings.Contains(w.Body.String(), "vnstat 未安装") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	s.Traffic = nil
+	if w := request(h, "GET", path, "", cookie, "", ""); w.Code != 503 {
+		t.Fatal(w.Code)
+	}
+}
 
 func TestDashboardWidgetsAuthPersistenceAndErrors(t *testing.T) {
 	s, _ := testServer(t)

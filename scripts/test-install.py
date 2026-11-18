@@ -64,6 +64,7 @@ def write(root, name, content, mode=0o644):
 SYSTEMCTL = """#!/bin/bash
 printf '%s\\n' "$*" >> /run/systemctl.log
 case "$1" in
+  enable) if [[ "$*" == "enable --now vnstat.service" ]]; then [[ ! -f /run/fail-vnstat-service ]]; exit; fi; touch /run/panel.enabled ;;
   is-active) if [[ -f /run/panel.active ]]; then exit 0; else exit 3; fi ;;
   is-enabled)
     if [[ ! -f /etc/systemd/system/lnmp-gopanel.service ]]; then
@@ -71,7 +72,6 @@ case "$1" in
       exit 4
     fi
     [[ -f /run/panel.enabled ]] ;;
-  enable) touch /run/panel.enabled ;;
   disable) rm -f /run/panel.enabled ;;
   restart) [[ ! -f /run/fail-restart ]] || exit 1; touch /run/panel.active ;;
   stop) [[ ! -f /run/fail-stop ]] || exit 1; rm -f /run/panel.active ;;
@@ -262,6 +262,7 @@ class InstallerTests(unittest.TestCase):
         write(cls.template, "/etc/sudoers", "root ALL=(ALL:ALL) ALL\n@includedir /etc/sudoers.d\n", 0o440)
         write(cls.template, "/usr/bin/sudo", SUDO, 0o755)
         write(cls.template, "/usr/bin/systemctl", SYSTEMCTL, 0o755)
+        write(cls.template, "/usr/bin/vnstat", '#!/bin/bash\nprintf "vnStat 2.13\\n"\n', 0o755)
         write(cls.template, "/usr/bin/curl", """#!/bin/bash
 while (($#)); do
   case "$1" in
@@ -282,6 +283,10 @@ cp "/tmp/${url##*/}" "$output"
         write(cls.template, "/usr/bin/apt-get", """#!/bin/bash
 printf '%s\\n' "$*" >> /run/apt.log
 [[ ! -f /run/fail-apt ]] || exit 1
+if [[ "$1" == install && " $* " == *' vnstat '* ]]; then
+  printf '#!/bin/bash\\nprintf "vnStat 2.13\\\\n"\\n' > /usr/bin/vnstat
+  chmod 0755 /usr/bin/vnstat
+fi
 if [[ "$1" == install && " $* " == *' chromium '* ]]; then
   printf '#!/bin/bash\\nexit 0\\n' > /usr/bin/chromium
   chmod 0755 /usr/bin/chromium
@@ -1374,6 +1379,71 @@ fi
         self.assertFalse((self.root / "etc/lnmp-gopanel").exists())
         self.assertFalse((self.root / "run/systemctl.log").exists())
         self.assertFalse((self.root / "run/sudo.log").exists())
+        self.assertFalse((self.root / "run/apt.log").exists())
+
+    def test_vnstat_is_installed_on_fresh_install(self):
+        (self.root / "usr/bin/vnstat").unlink()
+        self.run_installer("--password-stdin", "--no-start")
+        self.assertEqual((self.root / "run/apt.log").read_text(), "update\ninstall -y --no-install-recommends vnstat\n")
+        self.assertTrue((self.root / "usr/bin/vnstat").exists())
+        self.assertIn("enable --now vnstat.service\n", (self.root / "run/systemctl.log").read_text())
+        self.assertNotIn("restart lnmp-gopanel\n", (self.root / "run/systemctl.log").read_text())
+
+    def test_vnstat_is_installed_on_upgrade(self):
+        self.old_installation(https=True)
+        (self.root / "usr/bin/vnstat").unlink()
+        self.run_script("--update", "--no-start")
+        self.assertEqual((self.root / "run/apt.log").read_text(), "update\ninstall -y --no-install-recommends vnstat\n")
+        self.assertTrue((self.root / "usr/bin/vnstat").exists())
+        self.assertIn("enable --now vnstat.service\n", (self.root / "run/systemctl.log").read_text())
+        self.assertNotIn("restart lnmp-gopanel\n", (self.root / "run/systemctl.log").read_text())
+
+    def test_existing_vnstat_is_reused_and_data_preserved(self):
+        database = write(self.root, "/var/lib/vnstat/vnstat.db", "existing traffic")
+        config = write(self.root, "/etc/vnstat.conf", "custom config")
+        self.run_installer("--password-stdin")
+        self.assertFalse((self.root / "run/apt.log").exists())
+        self.assertEqual(database.read_text(), "existing traffic")
+        self.assertEqual(config.read_text(), "custom config")
+        self.assertIn("enable --now vnstat.service\n", (self.root / "run/systemctl.log").read_text())
+
+    def test_vnstat_install_and_start_failures_do_not_block_panel(self):
+        (self.root / "usr/bin/vnstat").unlink()
+        write(self.root, "/run/fail-apt", "")
+        result = self.run_installer("--password-stdin")
+        self.assertIn("vnstat 安装失败", result.stderr)
+        self.assertTrue((self.root / "usr/local/bin/lnmp-gopanel").exists())
+        (self.root / "run/fail-apt").unlink()
+        write(self.root, "/usr/bin/vnstat", '#!/bin/bash\nprintf "vnStat 2.13\\n"\n', 0o755)
+        write(self.root, "/run/fail-vnstat-service", "")
+        result = self.run_installer(automatic_tls=False)
+        self.assertIn("vnstat 服务启用或启动失败", result.stderr)
+        write(self.root, "/usr/bin/vnstat", '#!/bin/bash\nprintf "vnStat 1.18\\n"\n', 0o755)
+        result = self.run_installer(automatic_tls=False)
+        self.assertIn("vnstat 版本不兼容", result.stderr)
+
+    def test_vnstat_check_only_never_installs_missing_package(self):
+        (self.root / "usr/bin/vnstat").unlink()
+        self.run_installer("--check")
+        self.assertFalse((self.root / "run/apt.log").exists())
+        self.assertFalse((self.root / "run/systemctl.log").exists())
+
+    def test_vnstat_dnf_yum_and_unsupported_package_manager(self):
+        (self.root / "usr/bin/apt-get").unlink()
+        (self.root / "usr/bin/vnstat").unlink()
+        for manager in ("dnf", "yum"):
+            write(self.root, f"/usr/bin/{manager}", '''#!/bin/bash
+printf '%s\\n' "$*" >> /run/package-manager.log
+printf '#!/bin/bash\\nprintf "vnStat 2.13\\\\n"\\n' > /usr/bin/vnstat
+chmod 0755 /usr/bin/vnstat
+''', 0o755)
+            self.run_installer("--password-stdin", "--no-start")
+            self.assertTrue((self.root / "usr/bin/vnstat").exists())
+            self.assertIn("install -y vnstat\n", (self.root / "run/package-manager.log").read_text())
+            (self.root / f"usr/bin/{manager}").unlink()
+            (self.root / "usr/bin/vnstat").unlink()
+        result = self.run_installer("--no-start", automatic_tls=False)
+        self.assertIn("未找到支持的包管理器", result.stderr)
 
     def test_legacy_package_is_rejected_before_prompts_or_changes(self):
         previous = self.old_installation(https=True)

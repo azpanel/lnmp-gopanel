@@ -21,10 +21,23 @@ export type WidgetID =
   | "load"
   | "swap"
   | "memory_breakdown"
+  | "website_traffic"
   | "processes"
   | "nginx"
   | "php_fpm"
   | "database";
+export type TrafficPeriod = "day" | "hour";
+export type WebsiteTraffic = {
+  interface: string;
+  period: TrafficPeriod;
+  updated_at: string;
+  points: {
+    time: string;
+    label: string;
+    rx: number | null;
+    tx: number | null;
+  }[];
+};
 export type DashboardWidgetSelection = { enabled: WidgetID[] };
 export type Rates = { read: number; write: number };
 export type NetworkInfo = {

@@ -4730,6 +4730,32 @@ body,
   margin-bottom: 21px;
   align-items: start;
 }
+
+.traffic-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 0 20px 12px;
+}
+.traffic-period {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--muted-foreground);
+}
+.traffic-period [data-active="true"] {
+  color: var(--foreground);
+}
+.traffic-legend {
+  padding: 0 20px;
+}
+.traffic-foot {
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
 .optional-widget {
   min-width: 0;
   overflow: hidden;

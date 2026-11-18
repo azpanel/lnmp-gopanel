@@ -75,6 +75,8 @@ Requires Linux amd64/arm64, systemd and root. New installations prompt for a
 Upgrades preserve credentials, services.yaml and an existing HTTPS listener.
 Monitoring setup requires a terminal and a matching panel binary. Fresh interactive
 installs optionally offer it; updates and --no-start never configure LNMP automatically.
+Install/update also installs missing vnstat 2.x and enables its service, including
+with --no-start. Failures are reported without blocking panel installation.
 EOF
 }
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
@@ -835,6 +837,39 @@ EOF
   atomic_install "$work_dir/chromium.apparmor" "$profile" 0644
   apparmor_parser -r "$profile"
 }
+install_vnstat_dependencies() {
+  local version
+  if ! command -v vnstat >/dev/null; then
+    printf 'Installing vnstat traffic monitoring dependency...\n'
+    if command -v apt-get >/dev/null; then
+      if ! (apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends vnstat); then
+        printf '警告：vnstat 安装失败，面板将继续安装。请稍后安装 vnstat 2.x 并启动 vnstat 服务。\n' >&2
+        return
+      fi
+    elif command -v dnf >/dev/null; then
+      if ! dnf install -y vnstat; then
+        printf '警告：vnstat 安装失败，请检查系统软件源并手动安装 vnstat 2.x。面板将继续安装。\n' >&2
+        return
+      fi
+    elif command -v yum >/dev/null; then
+      if ! yum install -y vnstat; then
+        printf '警告：vnstat 安装失败，请检查系统软件源并手动安装 vnstat 2.x。面板将继续安装。\n' >&2
+        return
+      fi
+    else
+      printf '警告：未找到支持的包管理器，请手动安装 vnstat 2.x 并启动 vnstat 服务。面板将继续安装。\n' >&2
+      return
+    fi
+  fi
+  if ! version="$(vnstat --version 2>&1)" || [[ ! "$version" =~ vnStat[[:space:]]2\. ]]; then
+    printf '警告：vnstat 版本不兼容，请安装 vnstat 2.x。面板将继续安装。\n' >&2
+    return
+  fi
+  if ! systemctl enable --now vnstat.service; then
+    printf '警告：vnstat 服务启用或启动失败，请检查 systemctl status vnstat.service。面板将继续安装。\n' >&2
+  fi
+}
+
 install_screenshot_dependencies() {
   local browser browser_path distro_id distro_version codename
   for browser in chromium chromium-browser google-chrome google-chrome-stable; do
@@ -978,6 +1013,7 @@ if ! getent passwd lnmp-panel >/dev/null; then
   useradd --system --gid lnmp-panel --no-create-home --home-dir /nonexistent --shell "$nologin_shell" lnmp-panel
 fi
 [[ "$(id -u lnmp-panel)" != 0 ]] || die "The panel account must not be root"
+install_vnstat_dependencies
 if "$with_screenshots"; then install_screenshot_dependencies; fi
 if systemctl is-active --quiet lnmp-gopanel >/dev/null 2>&1; then was_active=true; fi
 if systemctl is-enabled --quiet lnmp-gopanel >/dev/null 2>&1; then was_enabled=true; fi

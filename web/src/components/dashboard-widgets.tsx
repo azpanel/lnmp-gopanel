@@ -1,3 +1,4 @@
+import { WebsiteTrafficChart } from "@/components/website-traffic-chart";
 import { useSessionMutation } from "@/lib/use-session-mutation";
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -58,6 +59,11 @@ export const widgetOptions: {
     id: "memory_breakdown",
     title: "内存构成",
     description: "占用、缓存、缓冲区与空闲内存",
+  },
+  {
+    id: "website_traffic",
+    title: "网站流量",
+    description: "默认出口网卡按日/小时统计的出入流量",
   },
   {
     id: "processes",
@@ -679,6 +685,8 @@ export function DashboardWidgets({
                     {error}
                   </div>
                 );
+              else if (option.id === "website_traffic")
+                content = <WebsiteTrafficChart />;
               else if (option.id === "memory_breakdown")
                 content = <MemoryComposition snapshot={snapshot} />;
               else if (option.id === "processes")

@@ -6,6 +6,7 @@ const ids = [
   "load",
   "swap",
   "memory_breakdown",
+  "website_traffic",
   "processes",
   "nginx",
   "php_fpm",
@@ -16,6 +17,7 @@ const titles = [
   "系统负载趋势",
   "Swap 使用趋势",
   "内存构成",
+  "网站流量",
   "进程资源排行",
   "Nginx 活跃连接数",
   "PHP-FPM 进程与队列",
@@ -117,7 +119,7 @@ test("optional widgets persist on the server and render on desktop and mobile", 
       await checkbox.check();
     await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(dialog).not.toBeVisible();
-    await expect(page.locator(".optional-widget")).toHaveCount(8);
+    await expect(page.locator(".optional-widget")).toHaveCount(9);
     await expect(
       page.locator(".optional-widget").getByRole("button", { name: /^移除/ }),
     ).toHaveCount(0);
@@ -154,7 +156,7 @@ test("optional widgets persist on the server and render on desktop and mobile", 
       "排行可能不完整",
     );
     await page.reload();
-    await expect(page.locator(".optional-widget")).toHaveCount(8);
+    await expect(page.locator(".optional-widget")).toHaveCount(9);
     const other = await browser.newContext({
       storageState: await context.storageState(),
       baseURL: testInfo.project.use.baseURL,
@@ -163,7 +165,7 @@ test("optional widgets persist on the server and render on desktop and mobile", 
     try {
       const otherPage = await other.newPage();
       await otherPage.goto("/");
-      await expect(otherPage.locator(".optional-widget")).toHaveCount(8);
+      await expect(otherPage.locator(".optional-widget")).toHaveCount(9);
     } finally {
       await other.close();
     }
@@ -214,9 +216,9 @@ test("optional widgets persist on the server and render on desktop and mobile", 
     await page.unroute("**/api/v1/dashboard/widgets");
     await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(dialog).not.toBeVisible();
-    await expect(page.locator(".optional-widget")).toHaveCount(7);
+    await expect(page.locator(".optional-widget")).toHaveCount(8);
     await page.reload();
-    await expect(page.locator(".optional-widget")).toHaveCount(7);
+    await expect(page.locator(".optional-widget")).toHaveCount(8);
     expect(errors).toEqual([]);
   } finally {
     await page.request.put("/api/v1/dashboard/widgets", {

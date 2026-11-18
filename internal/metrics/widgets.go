@@ -12,7 +12,7 @@ import (
 	"syscall"
 )
 
-var WidgetIDs = []string{"disk_io", "load", "swap", "memory_breakdown", "processes", "nginx", "php_fpm", "database"}
+var WidgetIDs = []string{"disk_io", "load", "swap", "memory_breakdown", "website_traffic", "processes", "nginx", "php_fpm", "database"}
 var ErrWidgetsInput = errors.New("状态指标选择无效")
 
 type Widgets struct {
