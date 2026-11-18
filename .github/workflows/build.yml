@@ -60,9 +60,6 @@ jobs:
         run: npm ci --prefix web
       - name: Check and test frontend
         working-directory: web
-        env:
-          FRONTEND_AUDIT_MODE: ${{ steps.release.outputs.mode }}
-          FRONTEND_AUDIT_RELEASE: ${{ steps.release.outputs.version }}
         run: |
           npm run format:check
           npm test

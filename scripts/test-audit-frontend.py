@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Verify that the single-release audit exception cannot hide other findings."""
+"""Verify strict audit enforcement and report preservation."""
 
-import copy
+import contextlib
+import io
+import json
 from pathlib import Path
 import runpy
+import subprocess
+import tempfile
 import unittest
+from unittest import mock
 
 
 module = runpy.run_path(str(Path(__file__).with_name("audit-frontend.py")))
 evaluate = module["evaluate"]
-approved_exception = module["approved_exception"]
 
 
 def finding(name, via):
@@ -18,7 +22,7 @@ def finding(name, via):
 
 def report():
     return {"vulnerabilities": {
-        "picomatch": finding("picomatch", [{"name": "picomatch", "url": module["ADVISORY"], "range": "<=4.0.7"}]),
+        "picomatch": finding("picomatch", [{"name": "picomatch", "url": "https://github.com/advisories/GHSA-fc5q-39xc-vjpf", "range": "<=4.0.7"}]),
         "fdir": finding("fdir", ["picomatch"]),
         "tinyglobby": finding("tinyglobby", ["fdir", "picomatch"]),
         "vite": finding("vite", ["fdir", "picomatch", "tinyglobby"]),
@@ -27,49 +31,59 @@ def report():
 
 
 class FrontendAuditTests(unittest.TestCase):
-    def test_clean_audit_does_not_require_an_exception(self):
-        self.assertEqual(evaluate({"vulnerabilities": {}}, False), [])
+    def test_clean_audit_passes(self):
+        self.assertEqual(evaluate({"vulnerabilities": {}}), [])
 
-    def test_only_the_reviewed_advisory_and_its_dependency_chain_are_allowed(self):
-        self.assertEqual(evaluate(report(), True), sorted(module["REVIEWED_PACKAGES"]))
-        with self.assertRaises(ValueError):
-            evaluate(report(), False)
+    def test_previously_exempt_findings_and_new_vulnerabilities_block_release(self):
+        for value in (report(), {"vulnerabilities": {"unknown": finding("unknown", [])}}):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "发布已阻止"):
+                evaluate(value)
 
-    def test_new_advisories_unknown_packages_and_changed_ranges_block_release(self):
-        original = report()
-        for change in ("advisory", "package", "range", "root_name"):
-            with self.subTest(change=change), self.assertRaises(ValueError):
-                value = copy.deepcopy(original)
-                root = value["vulnerabilities"]["picomatch"]["via"][0]
-                if change == "advisory":
-                    value["vulnerabilities"]["vite"]["via"].append({"name": "vite", "url": "https://github.com/advisories/GHSA-other"})
-                elif change == "package":
-                    value["vulnerabilities"]["unknown"] = finding("unknown", ["picomatch"])
-                elif change == "range":
-                    root["range"] = "<=5.0.0"
-                else:
-                    root["name"] = "another-package"
-                evaluate(value, True)
-
-    def test_invalid_reports_missing_findings_and_cycles_fail_closed(self):
+    def test_invalid_reports_fail_closed(self):
         for value in ({}, {"error": {"code": "offline"}, "vulnerabilities": {}},
                       {"vulnerabilities": []}, {"vulnerabilities": {"vite": finding("vite", [])}},
                       {"vulnerabilities": {"vite": finding("vite", ["missing"])}},
                       {"vulnerabilities": {"vite": finding("vite", ["vitest"]), "vitest": finding("vitest", ["vite"])}}):
             with self.subTest(value=value), self.assertRaises(ValueError):
-                evaluate(value, True)
+                evaluate(value)
 
-    def test_exception_is_limited_to_the_approved_release_event_mode_and_version(self):
+    def test_old_release_environment_cannot_bypass_audit_and_report_is_preserved(self):
         env = {"GITHUB_EVENT_NAME": "workflow_dispatch", "FRONTEND_AUDIT_MODE": "fast", "FRONTEND_AUDIT_RELEASE": "v0.1.27"}
-        self.assertEqual(module["APPROVED_RELEASES"], {"v0.1.27", "v0.1.28", "v0.1.29"})
-        for release in module["APPROVED_RELEASES"]:
-            self.assertTrue(approved_exception({**env, "FRONTEND_AUDIT_RELEASE": release}, "4.0.7"))
-        for key, value in (("GITHUB_EVENT_NAME", "push"), ("GITHUB_EVENT_NAME", "pull_request"),
-                           ("FRONTEND_AUDIT_MODE", "full"), ("FRONTEND_AUDIT_RELEASE", "v0.1.30")):
-            with self.subTest(key=key, value=value):
-                self.assertFalse(approved_exception({**env, key: value}, "4.0.7"))
-        self.assertFalse(approved_exception({}, "4.0.7"))
-        self.assertFalse(approved_exception(env, "4.0.8"))
+        value = report()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "web/node_modules/picomatch/package.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('{"version": "4.0.7"}')
+            result = subprocess.CompletedProcess([], 1, json.dumps(value))
+            with mock.patch.dict("os.environ", env), \
+                    mock.patch.dict(module["main"].__globals__, {"__file__": str(root / "scripts/audit-frontend.py")}), \
+                    mock.patch.object(module["subprocess"], "run", return_value=result), \
+                    self.assertRaisesRegex(ValueError, "发布已阻止"):
+                module["main"]()
+            self.assertEqual(json.loads((root / "test-results/frontend-audit.json").read_text()), value)
+
+    def test_command_failures_and_invalid_output_block_release(self):
+        clean = json.dumps({"vulnerabilities": {}})
+        for code, output in ((2, clean), (1, clean), (0, "not json"), (0, "[]")):
+            with self.subTest(code=code, output=output), tempfile.TemporaryDirectory() as directory:
+                result = subprocess.CompletedProcess([], code, output)
+                with mock.patch.dict(module["main"].__globals__, {"__file__": str(Path(directory) / "scripts/audit-frontend.py")}), \
+                        mock.patch.object(module["subprocess"], "run", return_value=result), \
+                        self.assertRaisesRegex(ValueError, "发布已阻止"):
+                    module["main"]()
+
+    def test_clean_command_preserves_report_without_installed_picomatch(self):
+        value = {"vulnerabilities": {}}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = subprocess.CompletedProcess([], 0, json.dumps(value))
+            with mock.patch.dict(module["main"].__globals__, {"__file__": str(root / "scripts/audit-frontend.py")}), \
+                    mock.patch.object(module["subprocess"], "run", return_value=result) as run, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                module["main"]()
+            run.assert_called_once_with(["npm", "audit", "--json"], cwd=root / "web", capture_output=True, text=True)
+            self.assertEqual(json.loads((root / "test-results/frontend-audit.json").read_text()), value)
 
 
 if __name__ == "__main__":
