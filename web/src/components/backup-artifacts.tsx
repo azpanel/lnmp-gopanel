@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Tabs } from "radix-ui";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +37,8 @@ function BackupArtifactLocation({
   onConflict: () => void;
 }) {
   const [page, setPage] = useState(1);
+  const [category, setCategory] = useState("all");
+  const categoryId = useId();
   const query = useQuery({
     queryKey: ["backup-artifacts", policy.id, policy.revision, index],
     queryFn: ({ signal }) =>
@@ -46,7 +55,10 @@ function BackupArtifactLocation({
   useEffect(() => {
     if (conflict) onConflict();
   }, [conflict, onConflict]);
-  const result = artifactPage(query.data?.items ?? [], page);
+  const items = (query.data?.items ?? []).filter(
+    (file) => category === "all" || file.category === category,
+  );
+  const result = artifactPage(items, page);
   const refresh = () => {
     setPage(1);
     void query.refetch();
@@ -70,6 +82,25 @@ function BackupArtifactLocation({
           />
           刷新备份
         </Button>
+      </div>
+      <div className="backup-artifact-filter">
+        <label htmlFor={categoryId}>备份类别</label>
+        <Select
+          value={category}
+          onValueChange={(value) => {
+            setCategory(value);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger id={categoryId} className="policy-select-trigger">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="policy-select-menu">
+            <SelectItem value="all">全部类别</SelectItem>
+            <SelectItem value="databases">数据库</SelectItem>
+            <SelectItem value="files">文件</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       {query.error && (
         <div className="notice" role="alert">
@@ -100,16 +131,21 @@ function BackupArtifactLocation({
         <>
           <p className="small-note">
             {query.data.truncated ? "已展示" : "共"} {query.data.items.length}{" "}
-            个备份文件 · 查询时间：{backupRunTime(query.data.checked_at)}
+            个备份文件
+            {category !== "all" && ` · 筛选后 ${items.length} 个`}
+            {" · 查询时间："}
+            {backupRunTime(query.data.checked_at)}
           </p>
           {(query.data.warning || query.data.truncated) && (
             <p className="notice" role="status">
               {query.data.warning || "仅展示部分匹配的备份文件。"}
             </p>
           )}
-          {!query.data.items.length ? (
+          {!items.length ? (
             <p className="backup-artifact-empty">
-              此存储位置暂无当前政策的备份文件。
+              {query.data.items.length
+                ? "此存储位置暂无所选类别的备份文件。"
+                : "此存储位置暂无当前政策的备份文件。"}
             </p>
           ) : (
             <>

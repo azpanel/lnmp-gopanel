@@ -6524,19 +6524,27 @@ select,
 }
 
 .backup-artifact-dialog {
+  display: flex;
+  flex-direction: column;
   width: min(920px, calc(100vw - 24px));
   max-width: 920px;
   max-height: calc(100dvh - 24px);
   background: #fff;
   overflow: hidden;
 }
+.backup-artifact-dialog > [data-slot="dialog-header"] {
+  flex-shrink: 0;
+}
 .backup-artifact-tabs {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   min-width: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 .backup-artifact-tabs-list {
   display: flex;
+  flex-shrink: 0;
   width: 100%;
   overflow-x: auto;
   flex-wrap: nowrap;
@@ -6548,7 +6556,11 @@ select,
   font-size: 14px;
 }
 .backup-artifact-tab-content {
+  min-height: 0;
   min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
   outline: none;
 }
 .backup-artifact-toolbar {
@@ -6564,6 +6576,19 @@ select,
 .backup-artifact-destination {
   overflow-wrap: anywhere;
   min-width: 0;
+}
+.backup-artifact-filter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+}
+.backup-artifact-filter label {
+  flex-shrink: 0;
+}
+.backup-artifact-filter [data-slot="select-trigger"] {
+  width: 160px;
+  background: #fff;
 }
 .backup-artifact-location > .small-note {
   margin: 10px 0;

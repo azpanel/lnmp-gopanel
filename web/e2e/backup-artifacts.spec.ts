@@ -130,3 +130,81 @@ test("configuration conflict reloads destinations and queries the new revision",
   await expect(f.dialog.getByRole("table")).toBeVisible();
   expect(f.reads).toEqual([0, 0, 0]);
 });
+
+test("category filtering resets pagination and handles empty results", async ({
+  page,
+}) => {
+  const { dialog: d, reads } = await fixture(page);
+  await d.getByRole("button", { name: "下一页" }).click();
+  await expect(d).toContainText("第 2 / 2 页");
+  const category = d.getByRole("combobox", { name: "备份类别" });
+  await category.click();
+  await page.getByRole("option", { name: "数据库", exact: true }).click();
+  await expect(d.locator("tbody tr")).toHaveCount(10);
+  await expect(
+    d.locator("tbody tr").filter({ hasText: "-files-" }),
+  ).toHaveCount(0);
+  await expect(d).toContainText("筛选后 10 个");
+  await expect(d.getByRole("button", { name: "下一页" })).toHaveCount(0);
+  await d.getByRole("button", { name: "刷新备份" }).click();
+  await expect.poll(() => reads.length).toBe(2);
+  await expect(category).toHaveText("数据库");
+  await expect(d.locator("tbody tr")).toHaveCount(10);
+  await category.click();
+  await page.getByRole("option", { name: "文件", exact: true }).click();
+  await expect(d.locator("tbody tr")).toHaveCount(11);
+  await expect(
+    d.locator("tbody tr").filter({ hasText: "-databases-" }),
+  ).toHaveCount(0);
+  await category.click();
+  await page.getByRole("option", { name: "全部类别", exact: true }).click();
+  await expect(d).toContainText("第 1 / 2 页");
+  await expect(d.locator("tbody tr")).toHaveCount(20);
+  expect(reads).toEqual([0, 0]);
+  await d.getByRole("tab", { name: "gdrive 2" }).click();
+  await expect(d.locator("tbody tr")).toHaveCount(1);
+  await category.click();
+  await page.getByRole("option", { name: "数据库", exact: true }).click();
+  await expect(d).toContainText("此存储位置暂无所选类别的备份文件");
+  await expect(d).toContainText("筛选后 0 个");
+  await expect(d.getByRole("table")).toHaveCount(0);
+});
+
+test("long backup lists scroll inside short dialogs while the heading and tabs stay visible", async ({
+  page,
+}) => {
+  await page.setViewportSize({
+    width: page.viewportSize()!.width,
+    height: 480,
+  });
+  const { dialog: d } = await fixture(page);
+  const heading = d.getByRole("heading");
+  const headingBox = await heading.boundingBox();
+  const tab = d.getByRole("tab", { name: "本地 1" });
+  const tabBox = await tab.boundingBox();
+  const panel = d.getByRole("tabpanel");
+  const panelBox = await panel.boundingBox();
+  const dialogBox = await d.boundingBox();
+  expect(dialogBox!.y).toBeGreaterThanOrEqual(0);
+  expect(dialogBox!.y + dialogBox!.height).toBeLessThanOrEqual(480);
+  expect(
+    await panel.evaluate(
+      (element) => element.scrollHeight > element.clientHeight,
+    ),
+  ).toBe(true);
+  await page.mouse.move(
+    panelBox!.x + panelBox!.width / 2,
+    panelBox!.y + panelBox!.height / 2,
+  );
+  await page.mouse.wheel(0, 10000);
+  await expect
+    .poll(() => panel.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0);
+  await expect(d.getByRole("button", { name: "下一页" })).toBeInViewport();
+  expect(Math.abs((await heading.boundingBox())!.y - headingBox!.y)).toBeLessThan(
+    1,
+  );
+  expect(Math.abs((await tab.boundingBox())!.y - tabBox!.y)).toBeLessThan(1);
+  await d.getByRole("button", { name: "下一页" }).click();
+  await expect(d.locator("tbody tr")).toHaveCount(1);
+});
