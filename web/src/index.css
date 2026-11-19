@@ -5354,6 +5354,7 @@ body,
   }
 }
 .backup-policy-dialog,
+.policy-discard-dialog,
 .backup-runtime-dialog,
 .policy-select-menu {
   color-scheme: light;
@@ -6385,15 +6386,6 @@ select,
     transition: none;
     animation: none !important;
   }
-}
-.policy-discard {
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: #fff;
-  display: grid;
-  gap: 10px;
-  margin-bottom: 12px;
 }
 @media (max-width: 720px) {
   .backup-policy-dialog {

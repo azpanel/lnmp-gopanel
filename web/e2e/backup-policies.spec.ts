@@ -686,15 +686,43 @@ test("policy validation, file-only configuration and discard confirmation", asyn
   await dialog.getByLabel("添加文件或目录路径").fill("/srv/site");
   await dialog.getByRole("button", { name: "添加路径" }).click();
   await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  const discard = page.getByRole("dialog", { name: "放弃未保存修改" });
+  await expect(discard).toBeVisible();
+  await expect(discard.getByRole("button", { name: "继续编辑" })).toBeFocused();
+  await discard.getByRole("button", { name: "继续编辑" }).click();
+  await expect(discard).not.toBeVisible();
   await expect(
-    dialog.getByRole("alertdialog", { name: "放弃未保存修改" }),
-  ).toBeVisible();
-  await dialog.getByRole("button", { name: "继续编辑" }).click();
+    dialog.getByRole("button", { name: "取消", exact: true }),
+  ).toBeFocused();
   await addLocalDestination(page);
   await dialog.getByRole("button", { name: "保存政策" }).click();
   await expect(dialog).not.toBeVisible();
   expect(f.saves[0].databases.enabled).toBe(false);
   expect(f.saves[0].files[0].path).toBe("/srv/site");
+
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = page.getByRole("dialog", { name: "编辑备份政策" });
+  const name = editor.getByLabel("名称", { exact: true });
+  await expect(name).toHaveValue("仅文件备份");
+  await name.fill("尚未保存的名称");
+  await name.press("Escape");
+  await expect(discard).toBeVisible();
+  await discard.press("Escape");
+  await expect(discard).not.toBeVisible();
+  await expect(name).toHaveValue("尚未保存的名称");
+  await expect(name).toBeFocused();
+  await editor.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(discard).toBeVisible();
+  await discard.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(discard).not.toBeVisible();
+  await expect(name).toHaveValue("尚未保存的名称");
+  await editor.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(discard).toBeVisible();
+  await discard.getByRole("button", { name: "放弃修改", exact: true }).click();
+  await expect(editor).not.toBeVisible();
+  await expect(discard).not.toBeVisible();
+  expect(f.saves).toHaveLength(1);
+  expect([...f.policies.values()][0].name).toBe("仅文件备份");
 });
 
 test("policy advanced schedule and white fixed workspace", async ({

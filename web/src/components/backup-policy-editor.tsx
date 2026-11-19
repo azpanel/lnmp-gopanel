@@ -161,6 +161,8 @@ export function BackupPolicyEditor({
   const original = useRef(JSON.stringify(draft));
   const initialized = useRef(false);
   const panel = useRef<HTMLDivElement>(null);
+  const discardCancel = useRef<HTMLButtonElement>(null);
+  const discardOrigin = useRef<HTMLElement | null>(null);
   const notes = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (!notes.current) return;
@@ -285,6 +287,10 @@ export function BackupPolicyEditor({
   function close() {
     if (mutation.isPending) return;
     if (!readOnly && JSON.stringify(draft) !== original.current) {
+      discardOrigin.current =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
       setDiscard(true);
       return;
     }
@@ -835,23 +841,6 @@ export function BackupPolicyEditor({
               路径预检暂不可用：{pathCheck.error}。保存时将重新检查。
             </p>
           )}
-          {discard && (
-            <div
-              className="policy-discard"
-              role="alertdialog"
-              aria-label="放弃未保存修改"
-            >
-              <p>放弃本次未保存的修改？</p>
-              <div className="policy-inline">
-                <Button variant="outline" onClick={() => setDiscard(false)}>
-                  继续编辑
-                </Button>
-                <Button variant="destructive" onClick={onClose}>
-                  放弃修改
-                </Button>
-              </div>
-            </div>
-          )}
           <DialogFooter className="policy-editor-footer">
             <span className="policy-footer-note">
               保存后，启用政策将在下个计划时间执行；成功交付后按份数清理旧备份。
@@ -877,6 +866,38 @@ export function BackupPolicyEditor({
             </div>
           </DialogFooter>
         </div>
+        <Dialog open={discard} onOpenChange={setDiscard}>
+          <DialogContent
+            className="policy-discard-dialog"
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              discardCancel.current?.focus();
+            }}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              if (discardOrigin.current?.isConnected) {
+                discardOrigin.current.focus();
+              }
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>放弃未保存修改</DialogTitle>
+              <DialogDescription>放弃本次未保存的修改？</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                ref={discardCancel}
+                variant="outline"
+                onClick={() => setDiscard(false)}
+              >
+                继续编辑
+              </Button>
+              <Button variant="destructive" onClick={onClose}>
+                放弃修改
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   );
