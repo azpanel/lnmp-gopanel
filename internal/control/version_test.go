@@ -37,7 +37,7 @@ func TestVersionLookupDistinguishesPermissionsFromMissing(t *testing.T) {
 		}
 		return nil, os.ErrNotExist
 	})
-	if err != nil || program != "/available" {
+	if err != nil || program.path != "/available" {
 		t.Fatal(program, err)
 	}
 }
@@ -178,6 +178,52 @@ func TestVersionsCachedAndFailuresPreserveStatus(t *testing.T) {
 	view = m.List()[0]
 	if view.State != "running" || view.Version != "7.4.2" || view.VersionError == "" || e.versions.Load() != 2 {
 		t.Fatalf("version failure must preserve status and cached version: %+v", view)
+	}
+}
+
+func TestInstalledVersionRefreshesAfterBinaryReplacement(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "php-fpm")
+	paths := []string{path}
+	mtime := time.Now().Truncate(time.Second)
+	writeBinary := func(path, version string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(version), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	findBinary := func() *versionBinary {
+		t.Helper()
+		binary, err := versionProgram(paths, os.Stat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return binary
+	}
+
+	ctx := context.Background()
+	writeBinary(path, "8.3.36")
+	executor := &versionExecutor{info: VersionInfo{Version: "8.3.36", binary: findBinary()}}
+	manager := New([]config.Service{{Name: "php-fpm", Manager: "init"}}, executor)
+	manager.Refresh(ctx)
+	manager.Refresh(ctx)
+	if view := manager.List()[0]; view.Version != "8.3.36" || executor.versions.Load() != 1 {
+		t.Fatalf("expected one probe for unchanged binary, got %+v (%d probes)", view, executor.versions.Load())
+	}
+
+	replacement := filepath.Join(dir, "php-fpm.new")
+	writeBinary(replacement, "8.3.37")
+	if err := os.Rename(replacement, path); err != nil {
+		t.Fatal(err)
+	}
+	executor.info = VersionInfo{Version: "8.3.37", binary: findBinary()}
+	manager.Refresh(ctx)
+	manager.Refresh(ctx)
+	if view := manager.List()[0]; view.Version != "8.3.37" || executor.versions.Load() != 2 {
+		t.Fatalf("expected one additional probe after replacement, got %+v (%d probes)", view, executor.versions.Load())
 	}
 }
 

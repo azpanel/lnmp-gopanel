@@ -47,21 +47,26 @@ func parseInstalledVersion(name, output string) (string, error) {
 type VersionInfo struct {
 	Version string
 	Output  string
+	binary  *versionBinary
 }
 
 func InstalledVersion(ctx context.Context, name string, run CommandRunner) (VersionInfo, error) {
-	program, err := versionProgram(serviceBinaries(name), os.Stat)
+	binary, err := versionProgram(serviceBinaries(name), os.Stat)
 	if err != nil {
 		return VersionInfo{}, err
 	}
 	// Production probes run as the unprivileged panel user, including LNMP
 	// binaries owned by their service account. Never elevate version queries.
 	if os.Geteuid() == 0 {
-		if err := TrustedPath(program); err != nil {
+		if err := TrustedPath(binary.path); err != nil {
 			return VersionInfo{}, fmt.Errorf("服务可执行文件权限不安全")
 		}
 	}
-	return readInstalledVersion(ctx, name, program, run)
+	info, err := readInstalledVersion(ctx, name, binary.path, run)
+	if err == nil {
+		info.binary = binary
+	}
+	return info, err
 }
 
 func readInstalledVersion(ctx context.Context, name, program string, run CommandRunner) (VersionInfo, error) {
@@ -89,7 +94,23 @@ func readInstalledVersion(ctx context.Context, name, program string, run Command
 	return info, nil
 }
 
-func versionProgram(paths []string, stat func(string) (os.FileInfo, error)) (string, error) {
+type versionBinary struct {
+	candidates []string
+	path       string
+	file       os.FileInfo
+}
+
+func (previous *versionBinary) changed() bool {
+	if previous == nil {
+		return false
+	}
+	current, err := versionProgram(previous.candidates, os.Stat)
+	return err != nil || current.path != previous.path || !os.SameFile(previous.file, current.file) ||
+		previous.file.Size() != current.file.Size() || !previous.file.ModTime().Equal(current.file.ModTime()) ||
+		previous.file.Mode() != current.file.Mode()
+}
+
+func versionProgram(paths []string, stat func(string) (os.FileInfo, error)) (*versionBinary, error) {
 	denied := false
 	for _, path := range paths {
 		info, err := stat(path)
@@ -97,13 +118,13 @@ func versionProgram(paths []string, stat func(string) (os.FileInfo, error)) (str
 			denied = true
 		}
 		if err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0 {
-			return path, nil
+			return &versionBinary{candidates: paths, path: path, file: info}, nil
 		}
 	}
 	if denied {
-		return "", fmt.Errorf("服务程序或安装目录权限不足，面板账号无法访问")
+		return nil, fmt.Errorf("服务程序或安装目录权限不足，面板账号无法访问")
 	}
-	return "", fmt.Errorf("未找到服务可执行文件")
+	return nil, fmt.Errorf("未找到服务可执行文件")
 }
 
 func (h Helper) Version(ctx context.Context, name string) (VersionInfo, error) {
@@ -124,7 +145,8 @@ func (m *Manager) refreshVersion(ctx context.Context, name string) {
 	if view.VersionError != "" {
 		retry = time.Minute
 	}
-	if time.Since(view.VersionCheckedAt) < retry {
+	if time.Since(view.VersionCheckedAt) < retry &&
+		(view.VersionError != "" || !view.versionBinary.changed()) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
@@ -140,6 +162,7 @@ func (m *Manager) refreshVersion(ctx context.Context, name string) {
 	} else {
 		view.Version = version.Version
 		view.VersionOutput = version.Output
+		view.versionBinary = version.binary
 	}
 	m.views[name] = view
 }

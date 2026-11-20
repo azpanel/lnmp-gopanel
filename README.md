@@ -292,7 +292,7 @@ sudo -u lnmp-panel /usr/local/bin/lnmp-gopanel metrics check \
 <details>
 <summary>服务版本来源、查询范围与 Redis 配置</summary>
 
-服务卡片展示 Nginx、PHP-FPM、MySQL / MariaDB、Redis 的已安装版本。版本号通过固定的服务可执行文件及 `-v` / `--version` 参数读取，由面板普通用户执行，不连接数据库、不读取凭据；本机版本成功缓存 1 小时，失败后 1 分钟重试，失败不覆盖上次版本或服务运行状态。
+服务卡片展示 Nginx、PHP-FPM、MySQL / MariaDB、Redis 的已安装版本。版本号通过固定的服务可执行文件及 `-v` / `--version` 参数读取，由面板普通用户执行，不连接数据库、不读取凭据；本机版本成功缓存 1 小时，检测到可执行文件变化时立即重新读取，失败后 1 分钟重试，失败不覆盖上次版本或服务运行状态。
 
 进入“LNMP 服务”页面后，后台独立查询每个已配置服务的最新正式版本。Nginx 默认选择官方 Stable 分支（不包括 Mainline），PHP 使用 php.net 发布接口与 php-src 的 NEWS，MariaDB 使用官方发布接口与 changelog，MySQL 使用官方源码仓库的正式标签及官方 Release Notes，Redis 使用官方 GitHub Releases。默认查询可能跨越本机版本分支，不表示当前安装分支的补丁更新建议。
 

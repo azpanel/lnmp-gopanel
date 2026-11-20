@@ -35,6 +35,7 @@ type View struct {
 	VersionOutput    string    `json:"version_output,omitempty"`
 	VersionError     string    `json:"version_error,omitempty"`
 	VersionCheckedAt time.Time `json:"version_checked_at"`
+	versionBinary    *versionBinary
 }
 type Executor interface {
 	Run(context.Context, string, string) (Result, error)
