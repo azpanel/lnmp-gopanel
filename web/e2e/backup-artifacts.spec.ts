@@ -201,9 +201,9 @@ test("long backup lists scroll inside short dialogs while the heading and tabs s
     .poll(() => panel.evaluate((element) => element.scrollTop))
     .toBeGreaterThan(0);
   await expect(d.getByRole("button", { name: "下一页" })).toBeInViewport();
-  expect(Math.abs((await heading.boundingBox())!.y - headingBox!.y)).toBeLessThan(
-    1,
-  );
+  expect(
+    Math.abs((await heading.boundingBox())!.y - headingBox!.y),
+  ).toBeLessThan(1);
   expect(Math.abs((await tab.boundingBox())!.y - tabBox!.y)).toBeLessThan(1);
   await d.getByRole("button", { name: "下一页" }).click();
   await expect(d.locator("tbody tr")).toHaveCount(1);
