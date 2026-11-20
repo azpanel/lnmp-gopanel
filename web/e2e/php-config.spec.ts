@@ -40,7 +40,6 @@ test("PHP configuration drafts, function list editing, rollback and save", async
   page,
 }, testInfo) => {
   let current = snapshot();
-  current.disable_functions = ["exec", "Shell_Exec"];
   let saves = 0;
   let fail = true;
   let failRead = true;
@@ -180,13 +179,6 @@ test("PHP configuration drafts, function list editing, rollback and save", async
   const list = dialog.getByRole("list", { name: "全局禁用函数" });
   await expect(list.getByRole("listitem")).toHaveCount(2);
   await expect(list.locator('[data-slot="chip"]')).toHaveCount(2);
-  const search = dialog.getByLabel("搜索禁用函数", { exact: true });
-  await search.fill("shell");
-  await expect(list.getByRole("listitem")).toHaveCount(1);
-  await expect(
-    list.getByRole("button", { name: "Shell_Exec 函数说明", exact: true }),
-  ).toBeVisible();
-  await search.clear();
   const execHelp = list.getByRole("button", {
     name: "exec 函数说明",
     exact: true,
@@ -209,15 +201,9 @@ test("PHP configuration drafts, function list editing, rollback and save", async
   await expect(dialog.getByRole("alert")).toContainText("有效的函数名");
   await dialog
     .getByLabel("添加禁用函数", { exact: true })
-    .fill("SYSTEM,exec,system,shell_exec");
+    .fill("SYSTEM,exec,system");
   await dialog.getByRole("button", { name: "添加", exact: true }).click();
   await expect(list.getByRole("listitem")).toHaveCount(3);
-  await expect(
-    list.getByRole("button", { name: "Shell_Exec 函数说明", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    list.getByRole("button", { name: "shell_exec 函数说明", exact: true }),
-  ).toBeVisible();
   await dialog.getByLabel("搜索禁用函数", { exact: true }).fill("shell");
   await dialog.getByRole("tab", { name: /禁用函数/ }).focus();
   await page.keyboard.press("ArrowLeft");

@@ -12,18 +12,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/config"
 )
 
+const phpINIConfig = "/usr/local/php/etc/php.ini"
+
 type phpConfigController struct {
 	loggingController
-	attest func(context.Context) (int, error)
+	attest func(context.Context) error
 }
 type phpConfigState struct {
 	snapshot PHPConfigSnapshot
@@ -37,6 +39,68 @@ func defaultPHPConfigController() phpConfigController {
 	return phpConfigController{loggingController: p, attest: attestPHPConfigRuntime}
 }
 
+// PHP-FPM rewrites its process title. Verify the master binary, FPM source and
+// environment before treating the standard installation as editable.
+func attestPHPConfigRuntime(ctx context.Context) error {
+	return attestPHPConfigRuntimeAt(ctx, "/proc", loggingPHPBinary)
+}
+func attestPHPConfigRuntimeAt(ctx context.Context, proc, program string) error {
+	binary, err := filepath.EvalSymlinks(program)
+	if err != nil {
+		return errors.New("无法识别标准 PHP-FPM 程序")
+	}
+	entries, err := os.ReadDir(proc)
+	if err != nil {
+		return errors.New("无法检查 PHP-FPM 主进程")
+	}
+	masters := 0
+	for _, entry := range entries {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if _, err := strconv.Atoi(entry.Name()); err != nil {
+			continue
+		}
+		base := filepath.Join(proc, entry.Name())
+		exe, e := os.Readlink(filepath.Join(base, "exe"))
+		if e != nil || exe != binary {
+			continue
+		}
+		cmd, e := os.ReadFile(filepath.Join(base, "cmdline"))
+		if e != nil {
+			continue
+		}
+		title := strings.TrimSpace(strings.ReplaceAll(string(cmd), "\x00", " "))
+		if !strings.HasPrefix(title, "php-fpm: master process ") {
+			continue
+		}
+		masters++
+		if title != "php-fpm: master process ("+loggingPHPConfig+")" {
+			return errors.New("PHP-FPM 使用自定义配置，无法确认全局配置来源")
+		}
+		info, e := os.Stat(base)
+		if e != nil {
+			return errors.New("无法检查 PHP-FPM 主进程所有者")
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || stat.Uid != 0 {
+			return errors.New("PHP-FPM 主进程不是 root，无法确认配置来源")
+		}
+		env, e := os.ReadFile(filepath.Join(base, "environ"))
+		if e != nil {
+			return errors.New("无法检查 PHP-FPM 配置环境")
+		}
+		for _, value := range strings.Split(string(env), "\x00") {
+			if strings.HasPrefix(value, "PHPRC=") || strings.HasPrefix(value, "PHP_INI_SCAN_DIR=") {
+				return errors.New("PHP-FPM 设置了自定义 INI 环境，请通过 SSH 管理配置")
+			}
+		}
+	}
+	if masters != 1 {
+		return errors.New("未找到唯一的标准 PHP-FPM 主进程，无法确认配置来源")
+	}
+	return nil
+}
 func runPHPConfigCommand(ctx context.Context, program string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, program, args...)
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin", "LANG=C", "LC_ALL=C"}
@@ -89,7 +153,12 @@ func phpFunctions(value string) ([]string, error) {
 	if value == "" || value == "no value" {
 		return []string{}, nil
 	}
-	names := strings.FieldsFunc(value, func(ch rune) bool { return ch == ' ' || ch == ',' })
+	names := []string{}
+	for _, name := range strings.Split(value, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			names = append(names, name)
+		}
+	}
 	return NormalizePHPFunctions(names)
 }
 func (p phpConfigController) info(ctx context.Context) (map[string]string, error) {
@@ -98,7 +167,7 @@ func (p phpConfigController) info(ctx context.Context) (map[string]string, error
 	}
 	task, done := context.WithTimeout(ctx, 10*time.Second)
 	defer done()
-	output, err := p.run(task, p.path(loggingPHPBinary), "-i", "-c", p.path(phpINIConfig))
+	output, err := p.run(task, p.path(loggingPHPBinary), "-i")
 	if err != nil {
 		return nil, fmt.Errorf("无法读取 PHP-FPM 配置：%w", err)
 	}
@@ -327,15 +396,15 @@ func (p phpConfigController) snapshot(ctx context.Context) (phpConfigState, erro
 	status, statusErr := p.execute(ctx, state.service, "status")
 	view.Editable = statusErr == nil && status.State == "running"
 	view.Message = "修改全局 PHP 配置，保存后自动重载 PHP-FPM；网站和进程池可覆盖部分参数。"
-	if view.Editable {
-		pidFile, e := p.masterPID(ctx)
-		if e != nil {
+	if view.Editable && p.attest != nil {
+		if e := p.attest(ctx); e != nil {
 			view.Editable = false
 			view.Message = e.Error()
-		} else {
-			pidFile.file.Close()
+			state.snapshot, state.sources = view, sources
+			return state, nil
 		}
-	} else {
+	}
+	if !view.Editable {
 		view.Message = "PHP-FPM 未运行或状态无法确认，请启动服务后保存配置。"
 	}
 	state.snapshot, state.sources = view, sources
@@ -421,13 +490,38 @@ func phpEquivalent(key, a, b string) bool {
 func (p phpConfigController) check(ctx context.Context) error {
 	task, done := context.WithTimeout(ctx, 10*time.Second)
 	defer done()
-	_, err := p.run(task, p.path(loggingPHPBinary), "-t", "-y", p.path(loggingPHPConfig), "-c", p.path(phpINIConfig))
+	_, err := p.run(task, p.path(loggingPHPBinary), "-t", "-y", p.path(loggingPHPConfig))
 	if err != nil {
 		return fmt.Errorf("PHP-FPM 配置检查未通过：%w", err)
 	}
 	return nil
 }
 
+// Reload commands may return as soon as the signal is sent. Require several
+// running observations before reading the final configuration snapshot.
+func (p phpConfigController) waitReload(ctx context.Context, s config.Service) error {
+	task, done := context.WithTimeout(ctx, 8*time.Second)
+	defer done()
+	ticker := time.NewTicker(150 * time.Millisecond)
+	defer ticker.Stop()
+	consecutive := 0
+	for {
+		result, err := p.execute(task, s, "status")
+		if err == nil && result.State == "running" {
+			consecutive++
+		} else {
+			consecutive = 0
+		}
+		if consecutive >= 3 {
+			return nil
+		}
+		select {
+		case <-task.Done():
+			return errors.New("PHP-FPM 重载后未恢复运行")
+		case <-ticker.C:
+		}
+	}
+}
 func (p phpConfigController) update(ctx context.Context, r PHPConfigRequest) (result PHPConfigResponse, err error) {
 	if err = r.Validate(); err != nil {
 		return result, err
@@ -461,15 +555,7 @@ func (p phpConfigController) update(ctx context.Context, r PHPConfigRequest) (re
 		if !state.snapshot.DisableFunctionsEditable {
 			return result, errors.New("禁用函数被扫描 INI 覆盖，无法在此修改")
 		}
-		names := slices.Clone(*r.DisableFunctions)
-		for i, name := range names {
-			name = strings.TrimSpace(name)
-			if _, exists := slices.BinarySearch(state.snapshot.DisableFunctions, name); !exists {
-				name = strings.ToLower(name)
-			}
-			names[i] = name
-		}
-		names, _ = NormalizePHPFunctions(names)
+		names, _ := NormalizePHPFunctions(*r.DisableFunctions)
 		if strings.Join(names, ",") != strings.Join(state.snapshot.DisableFunctions, ",") {
 			values["disable_functions"] = strings.Join(names, ",")
 		}
@@ -525,7 +611,10 @@ func (p phpConfigController) update(ctx context.Context, r PHPConfigRequest) (re
 		}
 		if reloaded {
 			if e = p.check(recovery); e == nil {
-				_, e = p.reload(recovery, state.service)
+				_, e = p.execute(recovery, state.service, "reload")
+			}
+			if e == nil {
+				e = p.waitReload(recovery, state.service)
 			}
 			if e != nil {
 				err = fmt.Errorf("%w；已恢复原配置，服务恢复失败；备份：%s", err, backup)
@@ -571,7 +660,11 @@ func (p phpConfigController) update(ctx context.Context, r PHPConfigRequest) (re
 			return result, errors.New("配置发生并发修改，未执行重载")
 		}
 	}
-	if reloaded, err = p.reload(ctx, state.service); err != nil {
+	reloaded = true
+	if _, err = p.execute(ctx, state.service, "reload"); err != nil {
+		return result, fmt.Errorf("PHP-FPM 重载失败：%w", err)
+	}
+	if err = p.waitReload(ctx, state.service); err != nil {
 		return result, err
 	}
 	final, err := p.snapshot(ctx)

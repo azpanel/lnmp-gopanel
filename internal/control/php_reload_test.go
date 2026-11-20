@@ -29,7 +29,7 @@ func TestPHPReloadChecksBeforeManagerAction(t *testing.T) {
 				} else if err != nil || len(calls) != 2 || !strings.HasPrefix(calls[1], s.Program) || !strings.Contains(calls[1], "reload") {
 					t.Fatal(calls, err)
 				}
-				if calls[0] != "/usr/local/php/sbin/php-fpm -t -y /usr/local/php/etc/php-fpm.conf -c /usr/local/php/etc/php.ini" {
+				if calls[0] != "/usr/local/php/sbin/php-fpm -t -y /usr/local/php/etc/php-fpm.conf" {
 					t.Fatal(calls)
 				}
 			}

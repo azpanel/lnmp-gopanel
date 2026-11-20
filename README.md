@@ -269,16 +269,9 @@ sudo -u lnmp-panel /usr/local/bin/lnmp-gopanel metrics check \
 
 在「LNMP 服务」的 PHP-FPM 卡片点击「配置管理」，可查看和修改全局上传大小、POST 大小、内存限制、执行超时、输入超时、时区和错误显示。禁用函数页支持搜索 `disable_functions`、逗号分隔批量添加和逐项删除；这些操作先保留为草稿，点击「保存并重载」后统一生效。
 
-配置管理支持标准 `/usr/local/php` 安装，修改 `/usr/local/php/etc/php.ini`。扫描 INI 覆盖的字段和进程池额外配置均只读。进程池会在全局规则基础上追加自身的禁用函数，网站配置还可能覆盖部分参数。禁用函数列表保留现有名称的大小写，重新添加同名函数会把旧条目改为小写。
+配置管理支持标准 `/usr/local/php` 安装，修改 `/usr/local/php/etc/php.ini`。页面标明配置来源，扫描 INI 覆盖的字段只读；进程池额外配置只读展示，其中的禁用函数会追加到全局禁用列表。网站配置仍可能覆盖部分参数，页面展示的是已保存的全局配置，不是每个网站的请求运行值。服务停止、主进程不唯一或使用自定义 INI 环境时不允许保存。
 
-PHP-FPM 会改写进程标题，面板需要通过标准启动入口确认实际使用的 INI。既有实例在切换启动入口前只读。管理员可以按当前服务管理方式启用保存功能。
-
-- 使用 LNMP init 脚本时，将 `/etc/init.d/php-fpm` 启动分支中执行 PHP-FPM 的命令替换为 `/usr/local/libexec/lnmp-gopanel-control php-fpm-launch daemon`。保留脚本原有的 PID 路径、等待流程和其他分支，在维护窗口通过现有服务管理方式重启 PHP-FPM。
-- 使用 systemd 前台运行 PHP-FPM 时，在现有 unit 的 drop-in 中先用空的 `ExecStart=` 清除旧命令，再设置 `ExecStart=/usr/local/libexec/lnmp-gopanel-control php-fpm-launch foreground`。如果 unit 使用 `PIDFile=`，应与 `/usr/local/php/var/run/php-fpm.pid` 一致。执行 `systemctl daemon-reload` 并在维护窗口重启相应 unit。
-
-启动入口固定使用标准 `php.ini`、`php-fpm.conf` 和 PID 文件。使用自定义启动参数、`PHPRC` 或 `PHP_INI_SCAN_DIR` 的实例请继续通过 SSH 管理。安装器验证辅助程序授权，切换启动入口和服务重启由管理员执行。
-
-保存前检查原配置并备份到 `/var/backups/lnmp-gopanel/php-config-*`，修改后再次检查 PHP/FPM 配置和值，再通过原有管理方式重载。面板确认 PHP-FPM 重建了 PID 文件、主进程身份匹配且服务运行后才报告成功。检查或重载失败时恢复原配置，已尝试重载时再尝试恢复服务。错误信息会说明恢复结果及备份位置。升级时需同步更新面板、特权辅助程序和 sudoers。
+保存前检查原配置并备份到 `/var/backups/lnmp-gopanel/php-config-*`，修改后再次检查 PHP/FPM 配置和值，再通过已有管理方式重载。检查或重载失败时恢复原配置；已尝试重载时再尝试恢复服务。管理员并发修改不会被回滚覆盖，错误信息会说明恢复结果及备份位置。升级时需同步更新面板、特权辅助程序和 sudoers；安装器只验证新增命令授权，不修改 PHP 配置或重载服务。
 
 </details>
 

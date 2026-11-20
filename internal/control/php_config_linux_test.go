@@ -10,11 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/azpanel/lnmp-gopanel/internal/config"
 )
@@ -34,11 +32,7 @@ type phpConfigFixture struct {
 func newPHPConfigFixture(t *testing.T) *phpConfigFixture {
 	t.Helper()
 	files := newLoggingFixture(t)
-	f := &phpConfigFixture{files: files, p: phpConfigController{
-		loggingController: files.p,
-		attest:            func(context.Context) (int, error) { return 100, nil },
-	}}
-	files.put(t, phpFPMPIDFile, "100")
+	f := &phpConfigFixture{files: files, p: phpConfigController{loggingController: files.p}}
 	files.put(t, phpINIConfig, "; keep me\n[PHP]\nupload_max_filesize = 50M\npost_max_size = 50M\nmemory_limit = 128M\nmax_execution_time = 300\nmax_input_time = 60\ndate.timezone = PRC\ndisplay_errors = Off\ndisable_functions = exec,shell_exec\n[PATH=/example]\nmemory_limit = 32M\n")
 	files.put(t, loggingPHPConfig, "[global]\npid = /run/php-fpm.pid\n[www]\nlisten=/tmp/php.sock\nphp_admin_value[disable_functions] = system,exec\nphp_admin_value[memory_limit] = 64M\n")
 	f.p.run = func(_ context.Context, _ string, args ...string) (string, error) {
@@ -52,7 +46,7 @@ func newPHPConfigFixture(t *testing.T) *phpConfigFixture {
 			}
 			return "", nil
 		}
-		if !slices.Equal(args, []string{"-i", "-c", f.p.path(phpINIConfig)}) {
+		if len(args) != 1 || args[0] != "-i" {
 			t.Fatal("unexpected command", args)
 		}
 		data := files.data(t, phpINIConfig)
@@ -88,10 +82,6 @@ func newPHPConfigFixture(t *testing.T) *phpConfigFixture {
 			if f.failReload && f.reloads == 1 {
 				return Result{}, errors.New("reload failed")
 			}
-			if err := os.Remove(f.p.path(phpFPMPIDFile)); err != nil {
-				t.Fatal(err)
-			}
-			files.put(t, phpFPMPIDFile, "100")
 		}
 		state := "running"
 		if files.stopped {
@@ -101,63 +91,6 @@ func newPHPConfigFixture(t *testing.T) *phpConfigFixture {
 	}
 	return f
 }
-
-func TestPHPConfigCorrectsFunctionCase(t *testing.T) {
-	f := newPHPConfigFixture(t)
-	ini := strings.Replace(string(f.files.data(t, phpINIConfig)), "exec,shell_exec", "EXEC Shell_Exec", 1)
-	f.files.put(t, phpINIConfig, ini)
-	f.files.put(t, loggingPHPConfig, "[www]\nphp_admin_value[disable_functions] = SYSTEM\n")
-	state, err := f.p.snapshot(context.Background())
-	if err != nil || !slices.Equal(state.snapshot.DisableFunctions, []string{"EXEC", "Shell_Exec"}) ||
-		len(state.snapshot.Pools) != 1 || !slices.Equal(state.snapshot.Pools[0].DisableFunctions, []string{"SYSTEM"}) {
-		t.Fatal(state, err)
-	}
-
-	r := f.request(t)
-	names := []string{"exec", "Shell_Exec"}
-	r.DisableFunctions = &names
-	result, err := f.p.update(context.Background(), r)
-	if err != nil || f.reloads != 1 || !slices.Equal(result.DisableFunctions, []string{"Shell_Exec", "exec"}) {
-		t.Fatal(result, err, f.reloads)
-	}
-	if data := f.files.data(t, phpINIConfig); !bytes.Contains(data, []byte(`disable_functions = "Shell_Exec,exec"`)) {
-		t.Fatal(string(data))
-	}
-}
-
-func TestPHPConfigWaitsForNewPIDFile(t *testing.T) {
-	f := newPHPConfigFixture(t)
-	before, err := f.p.masterPID(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer before.file.Close()
-	service := config.Service{Name: "php-fpm"}
-	ctx, cancel := context.WithTimeout(context.Background(), 350*time.Millisecond)
-	defer cancel()
-	if err := f.p.waitReload(ctx, service, before.info); err == nil {
-		t.Fatal("status of the old master was accepted")
-	}
-
-	if _, err := f.p.execute(context.Background(), service, "reload"); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if err := f.p.waitReload(ctx, service, before.info); err != nil {
-		t.Fatal("a new PID file with the same master PID must be accepted", err)
-	}
-}
-
-func TestPHPConfigRejectsMismatchedPIDFile(t *testing.T) {
-	f := newPHPConfigFixture(t)
-	f.files.put(t, phpFPMPIDFile, "999")
-	state, err := f.p.snapshot(context.Background())
-	if err != nil || state.snapshot.Editable || !strings.Contains(state.snapshot.Message, "PID 文件与主进程不匹配") {
-		t.Fatal(state, err)
-	}
-}
-
 func (f *phpConfigFixture) request(t *testing.T) PHPConfigRequest {
 	t.Helper()
 	state, err := f.p.snapshot(context.Background())
@@ -364,7 +297,7 @@ func TestPHPConfigRuntimeAttestation(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("root master ownership")
 	}
-	for _, scenario := range []string{"standard", "unverified-arguments", "custom-config", "unreadable-descriptors", "multiple", "absent"} {
+	for _, scenario := range []string{"standard", "custom-config", "ini-env", "scan-env", "missing-env", "multiple", "absent"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := t.TempDir()
 			program := filepath.Join(root, "php-fpm")
@@ -389,33 +322,20 @@ func TestPHPConfigRuntimeAttestation(t *testing.T) {
 					path = "/other/php-fpm.conf"
 				}
 				os.WriteFile(filepath.Join(base, "cmdline"), []byte("php-fpm: master process ("+path+")\x00"), 0600)
-				if scenario != "unreadable-descriptors" {
-					dir := filepath.Join(base, "fd")
-					if err := os.Mkdir(dir, 0700); err != nil {
-						t.Fatal(err)
-					}
-					if scenario != "unverified-arguments" {
-						if err := os.Symlink(phpFPMLaunchFDTarget, filepath.Join(dir, "3")); err != nil {
-							t.Fatal(err)
-						}
-					}
+				env := "LANG=C\x00"
+				if scenario == "ini-env" {
+					env += "PHPRC=/other\x00"
+				}
+				if scenario == "scan-env" {
+					env += "PHP_INI_SCAN_DIR=\x00"
+				}
+				if scenario != "missing-env" {
+					os.WriteFile(filepath.Join(base, "environ"), []byte(env), 0600)
 				}
 			}
-			pid, err := attestPHPConfigRuntimeAt(context.Background(), proc, program)
-			if scenario == "standard" && (err != nil || pid != 100) ||
-				scenario != "standard" && (err == nil || pid != 0) {
-				t.Fatal(scenario, pid, err)
-			}
-		})
-	}
-}
-
-func TestPHPConfigLauncherRejectsCustomINIEnvironment(t *testing.T) {
-	for _, key := range []string{"PHPRC", "PHP_INI_SCAN_DIR"} {
-		t.Run(key, func(t *testing.T) {
-			t.Setenv(key, "")
-			if err := LaunchStandardPHPFPM("foreground"); err == nil || !strings.Contains(err.Error(), "自定义 INI 环境") {
-				t.Fatal(err)
+			err := attestPHPConfigRuntimeAt(context.Background(), proc, program)
+			if (err == nil) != (scenario == "standard") {
+				t.Fatal(scenario, err)
 			}
 		})
 	}
@@ -423,8 +343,7 @@ func TestPHPConfigLauncherRejectsCustomINIEnvironment(t *testing.T) {
 
 func TestPHPConfigBlocksUnverifiedRuntimeAndNewInclude(t *testing.T) {
 	f := newPHPConfigFixture(t)
-	attest := f.p.attest
-	f.p.attest = func(context.Context) (int, error) { return 0, errors.New("自定义配置来源") }
+	f.p.attest = func(context.Context) error { return errors.New("自定义配置来源") }
 	state, err := f.p.snapshot(context.Background())
 	if err != nil || state.snapshot.Editable || !strings.Contains(state.snapshot.Message, "自定义配置来源") {
 		t.Fatal(state, err)
@@ -433,7 +352,7 @@ func TestPHPConfigBlocksUnverifiedRuntimeAndNewInclude(t *testing.T) {
 	if _, err = f.p.update(context.Background(), r); err == nil || f.reloads != 0 {
 		t.Fatal(err)
 	}
-	f.p.attest = attest
+	f.p.attest = nil
 	f.scans = "/usr/local/php/conf.d"
 	if err = os.MkdirAll(f.p.path(f.scans), 0755); err != nil {
 		t.Fatal(err)

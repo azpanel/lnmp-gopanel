@@ -169,12 +169,6 @@ function FunctionChip({
         content={
           <>
             <strong className="font-mono">{name}</strong>
-            {name !== name.toLowerCase() && (
-              <p>
-                此条目含有大写字母。PHP
-                区分禁用函数名的大小写，请使用小写函数名。
-              </p>
-            )}
             <p>{phpFunctionDescription(name)}</p>
           </>
         }
@@ -386,11 +380,7 @@ function PHPConfigEditor({
       setLocalError("请输入有效的函数名，多个函数用半角逗号分隔。");
       return;
     }
-    const added = new Set(names);
-    const next = [
-      ...functions.filter((name) => !added.has(name.toLowerCase())),
-      ...added,
-    ].sort();
+    const next = [...new Set([...functions, ...names])].sort();
     if (next.length > 512) {
       setLocalError("禁用函数数量不能超过 512。");
       return;
@@ -593,9 +583,7 @@ function PHPConfigEditor({
               </div>
               <ul aria-label="全局禁用函数" className="php-config-chips">
                 {functions
-                  .filter((name) =>
-                    name.toLowerCase().includes(search.toLowerCase().trim()),
-                  )
+                  .filter((name) => name.includes(search.toLowerCase().trim()))
                   .map((name) => (
                     <li key={name}>
                       <FunctionChip
@@ -614,7 +602,7 @@ function PHPConfigEditor({
                 <p className="small-note">未禁用任何函数。</p>
               ) : (
                 !functions.some((name) =>
-                  name.toLowerCase().includes(search.toLowerCase().trim()),
+                  name.includes(search.toLowerCase().trim()),
                 ) && <p className="small-note">没有匹配的函数。</p>
               )}
               <p className="small-note">
