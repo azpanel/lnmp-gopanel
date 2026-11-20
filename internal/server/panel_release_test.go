@@ -26,7 +26,8 @@ func TestPanelRelease(t *testing.T) {
 	s.PanelReleases = panelReleaseSource(func(ctx context.Context, current string) (releases.PanelRelease, error) {
 		calls++
 		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 12*time.Second || current != buildinfo.Version {
-			t.Fatalf("unexpected check context or version: %q", current)
+			t.Errorf("unexpected check context or version: %q", current)
+			return releases.PanelRelease{}, errors.New("unexpected check context or version")
 		}
 		return want, nil
 	})
@@ -34,22 +35,37 @@ func TestPanelRelease(t *testing.T) {
 	if w := request(h, "GET", "/api/v1/panel/release", "", nil, "", ""); w.Code != 401 || calls != 0 {
 		t.Fatalf("anonymous check: status=%d calls=%d", w.Code, calls)
 	}
-	id, _ := s.Sessions.Create()
-	cookie := &http.Cookie{Name: auth.CookieName, Value: id}
 	for range 2 {
+		id, _ := s.Sessions.Create()
+		cookie := &http.Cookie{Name: auth.CookieName, Value: id}
 		w := request(h, "GET", "/api/v1/panel/release", "", cookie, "", "")
 		var got releases.PanelRelease
 		if json.Unmarshal(w.Body.Bytes(), &got) != nil || w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" || got != want {
 			t.Fatalf("release response: status=%d body=%s", w.Code, w.Body.String())
 		}
 	}
-	if calls != 2 {
-		t.Fatalf("login checks must not use a six-hour cache: calls=%d", calls)
+	if calls != 1 {
+		t.Fatalf("repeated login checks must share the short-lived cache: calls=%d", calls)
 	}
+}
+
+func TestPanelReleaseFailureIsCached(t *testing.T) {
+	s, _ := testServer(t)
+	calls := 0
 	s.PanelReleases = panelReleaseSource(func(context.Context, string) (releases.PanelRelease, error) {
+		calls++
 		return releases.PanelRelease{}, errors.New("upstream timeout")
 	})
-	if w := request(h, "GET", "/api/v1/panel/release", "", cookie, "", ""); w.Code != 502 {
-		t.Fatalf("failed check: status=%d", w.Code)
+	h := s.Handler()
+	id, _ := s.Sessions.Create()
+	cookie := &http.Cookie{Name: auth.CookieName, Value: id}
+	for range 2 {
+		w := request(h, "GET", "/api/v1/panel/release", "", cookie, "", "")
+		if w.Code != 502 || w.Header().Get("Cache-Control") != "no-store" || w.Body.String() != `{"error":"面板更新检查失败：upstream timeout"}` {
+			t.Fatalf("failed check: status=%d body=%s", w.Code, w.Body.String())
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("failed checks must back off: calls=%d", calls)
 	}
 }

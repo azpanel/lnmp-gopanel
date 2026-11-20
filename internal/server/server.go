@@ -58,6 +58,7 @@ type Server struct {
 	PanelReleases   interface {
 		FetchPanel(context.Context, string) (releases.PanelRelease, error)
 	}
+	panelReleaseCache   panelReleaseCache
 	Storage             *storage.Manager
 	Vhosts              *vhosts.Manager
 	VhostJobs           *vhosts.Jobs
