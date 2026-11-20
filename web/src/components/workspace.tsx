@@ -1,6 +1,8 @@
 import { AccountSecurity } from "@/components/account-security";
 import { LoadBoundary } from "@/components/load-boundary";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -12,17 +14,24 @@ import {
 } from "@/components/ui/dialog";
 import { api, logout } from "@/lib/api";
 import { formatBuildTime } from "@/lib/build-info";
+import {
+  dismissPanelUpdate,
+  setPanelUpdatesEnabled,
+} from "@/lib/panel-updates";
 import { SessionCancelledError } from "@/lib/session-scope";
 import type { BuildInfo, Host, Service, Session } from "@/lib/types";
 import { useMonitor } from "@/lib/use-monitor";
+import { usePanelUpdates } from "@/lib/use-panel-updates";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   Archive,
+  ArrowUpCircle,
   ChevronRight,
   Clock3,
   Container,
+  ExternalLink,
   FileText,
   Globe2,
   HardDrive,
@@ -43,7 +52,7 @@ import {
   X,
 } from "lucide-react";
 import { Tooltip } from "radix-ui";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   Navigate,
   NavLink,
@@ -97,10 +106,33 @@ export default function Workspace({
   setTheme: (theme: Theme) => void;
 }) {
   const monitor = useMonitor(session.csrf_token);
+  const updates = usePanelUpdates(session);
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const avatarRef = useRef<HTMLButtonElement>(null);
+  const panelRelease = updates.session?.release;
+  const showUpdate =
+    updates.enabled && panelRelease?.has_update && !updates.session?.dismissed;
+  useEffect(() => {
+    if (!updates.enabled) setUpdateOpen(false);
+  }, [updates.enabled]);
   const { pathname } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false),
     [loggingOut, setLoggingOut] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [hostnameTitle, setHostnameTitle] = useState(() => {
+    try {
+      return localStorage.getItem("use-hostname-title") === "true";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("use-hostname-title", String(hostnameTitle));
+    } catch {
+      // The title can still change for this visit without browser storage.
+    }
+  }, [hostnameTitle]);
   const [sidebarHidden, setSidebarHidden] = useState(() => {
     try {
       return localStorage.getItem("sidebar-hidden") === "true";
@@ -150,6 +182,15 @@ export default function Workspace({
     queryFn: () => api<Host>("/host"),
     staleTime: Infinity,
   });
+  useEffect(() => {
+    document.title =
+      hostnameTitle && host.data?.hostname
+        ? host.data.hostname
+        : "LNMP GoPanel";
+    return () => {
+      document.title = "LNMP GoPanel";
+    };
+  }, [hostnameTitle, host.data?.hostname]);
   const services = useQuery({
     queryKey: ["services"],
     queryFn: () => api<Service[]>("/services"),
@@ -193,15 +234,91 @@ export default function Workspace({
         aria-hidden={!sidebarVisible}
         inert={!sidebarVisible}
       >
-        <NavLink to="/" className="brand" onClick={() => setMobileOpen(false)}>
-          <div className="brand-logo">
-            <Activity size={21} />
-          </div>
-          <span>
-            LNMP<span className="brand-secondary"> GoPanel</span>
-          </span>
-          <span className="brand-tag">BETA</span>
-        </NavLink>
+        <div className="brand-row">
+          <NavLink
+            to="/"
+            className="brand"
+            onClick={() => setMobileOpen(false)}
+          >
+            <div className="brand-logo">
+              <Activity size={21} />
+            </div>
+            <span>
+              LNMP<span className="brand-secondary"> GoPanel</span>
+            </span>
+          </NavLink>
+          <Dialog>
+            <DialogTrigger asChild>
+              <button
+                type="button"
+                className="brand-tag"
+                aria-label="打开界面设置"
+              >
+                BETA
+              </button>
+            </DialogTrigger>
+            <DialogContent className="interface-settings-dialog">
+              <DialogHeader>
+                <DialogTitle>界面设置</DialogTitle>
+                <DialogDescription>
+                  设置即时生效，并保存在当前浏览器。
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex items-center justify-between gap-6 rounded-lg border p-4">
+                <div className="min-w-0 space-y-2">
+                  <Label
+                    htmlFor="use-hostname-title"
+                    className="leading-normal"
+                  >
+                    使用系统主机名作为网页标题
+                  </Label>
+                  <p
+                    id="hostname-title-description"
+                    className="text-sm text-muted-foreground"
+                  >
+                    开启后，浏览器标签页标题仅显示系统主机名。
+                  </p>
+                  <p className="break-all text-sm text-muted-foreground">
+                    {host.data?.hostname
+                      ? `当前主机名：${host.data.hostname}`
+                      : host.isError
+                        ? "主机名读取失败，暂时使用默认标题。"
+                        : "正在读取系统主机名…"}
+                  </p>
+                </div>
+                <Switch
+                  id="use-hostname-title"
+                  aria-describedby="hostname-title-description"
+                  checked={hostnameTitle}
+                  onCheckedChange={setHostnameTitle}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-6 rounded-lg border p-4">
+                <div className="min-w-0 space-y-2">
+                  <Label
+                    htmlFor="check-panel-updates"
+                    className="leading-normal"
+                  >
+                    检查更新
+                  </Label>
+                  <p
+                    id="panel-updates-description"
+                    className="text-sm text-muted-foreground"
+                  >
+                    登录成功后自动检查 GitHub
+                    Release，发现新版本时在头像上方提示。重新开启时立即检查一次。
+                  </p>
+                </div>
+                <Switch
+                  id="check-panel-updates"
+                  aria-describedby="panel-updates-description"
+                  checked={updates.enabled}
+                  onCheckedChange={setPanelUpdatesEnabled}
+                />
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
         <button
           className="mobile-close"
           aria-label="关闭导航"
@@ -265,54 +382,72 @@ export default function Workspace({
         </nav>
         <div className="sidebar-bottom">
           <div className="sidebar-profile">
-            <Tooltip.Provider delayDuration={150}>
-              <Tooltip.Root
-                open={buildOpen && sidebarVisible}
-                onOpenChange={setBuildOpen}
-              >
-                <Tooltip.Trigger asChild>
-                  <button
-                    type="button"
-                    className="avatar"
-                    aria-label="查看版本和构建时间"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      setBuildOpen(true);
-                    }}
-                  >
-                    {session.username.slice(0, 1).toUpperCase()}
-                  </button>
-                </Tooltip.Trigger>
-                <Tooltip.Portal>
-                  <Tooltip.Content
-                    className="profile-build-tooltip"
-                    aria-hidden={!buildOpen || !sidebarVisible}
-                    side="top"
-                    align="start"
-                    sideOffset={10}
-                    collisionPadding={16}
-                  >
-                    <dl className="profile-build-info" aria-label="构建信息">
-                      <div>
-                        <dt>
-                          <Tag size={14} aria-hidden="true" />
-                          版本
-                        </dt>
-                        <dd className="build-version">{buildVersion}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Clock3 size={14} aria-hidden="true" />
-                          构建时间
-                        </dt>
-                        <dd className="build-time">{buildTime}</dd>
-                      </div>
-                    </dl>
-                    <Tooltip.Arrow className="profile-build-arrow" />
-                  </Tooltip.Content>
-                </Tooltip.Portal>
-              </Tooltip.Root>
-            </Tooltip.Provider>
+            <div className="profile-avatar">
+              {showUpdate && (
+                <button
+                  type="button"
+                  className="panel-update-notice"
+                  aria-label={`发现新版本 ${panelRelease.latest_version}，查看更新日志`}
+                  onClick={() => {
+                    setBuildOpen(false);
+                    setUpdateOpen(true);
+                    dismissPanelUpdate();
+                  }}
+                >
+                  <ArrowUpCircle size={15} aria-hidden="true" />
+                  发现新版本 {panelRelease.latest_version}
+                </button>
+              )}
+              <Tooltip.Provider delayDuration={150}>
+                <Tooltip.Root
+                  open={buildOpen && sidebarVisible}
+                  onOpenChange={setBuildOpen}
+                >
+                  <Tooltip.Trigger asChild>
+                    <button
+                      ref={avatarRef}
+                      type="button"
+                      className="avatar"
+                      aria-label="查看版本和构建时间"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        setBuildOpen(true);
+                      }}
+                    >
+                      {session.username.slice(0, 1).toUpperCase()}
+                    </button>
+                  </Tooltip.Trigger>
+                  <Tooltip.Portal>
+                    <Tooltip.Content
+                      className="profile-build-tooltip"
+                      aria-hidden={!buildOpen || !sidebarVisible}
+                      side="top"
+                      align="start"
+                      sideOffset={10}
+                      collisionPadding={16}
+                    >
+                      <dl className="profile-build-info" aria-label="构建信息">
+                        <div>
+                          <dt>
+                            <Tag size={14} aria-hidden="true" />
+                            版本
+                          </dt>
+                          <dd className="build-version">{buildVersion}</dd>
+                        </div>
+                        <div>
+                          <dt>
+                            <Clock3 size={14} aria-hidden="true" />
+                            构建时间
+                          </dt>
+                          <dd className="build-time">{buildTime}</dd>
+                        </div>
+                      </dl>
+                      <Tooltip.Arrow className="profile-build-arrow" />
+                    </Tooltip.Content>
+                  </Tooltip.Portal>
+                </Tooltip.Root>
+              </Tooltip.Provider>
+            </div>
             <div>
               <strong>{session.username}</strong>
               <span>系统管理员</span>
@@ -372,6 +507,42 @@ export default function Workspace({
           </div>
         </div>
       </aside>
+      <Dialog open={updateOpen} onOpenChange={setUpdateOpen}>
+        <DialogContent
+          className="panel-update-dialog"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            if (sidebarVisible) avatarRef.current?.focus();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>新版本更新日志</DialogTitle>
+            <DialogDescription>
+              当前版本 {panelRelease?.current_version} / 最新版本{" "}
+              {panelRelease?.latest_version}
+            </DialogDescription>
+          </DialogHeader>
+          <pre className="panel-update-changelog">
+            {panelRelease?.changelog ||
+              "该版本暂未提供更新日志，请查看 GitHub Release 原文。"}
+          </pre>
+          <DialogFooter>
+            {panelRelease && (
+              <Button variant="outline" asChild>
+                <a
+                  href={panelRelease.release_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  查看 GitHub Release
+                  <ExternalLink size={14} aria-hidden="true" />
+                </a>
+              </Button>
+            )}
+            <Button onClick={() => setUpdateOpen(false)}>关闭</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="main-shell">
         <header className="topbar">
           <div className="breadcrumb">

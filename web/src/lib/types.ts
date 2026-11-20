@@ -1,4 +1,11 @@
 export type BuildInfo = { version: string; built_at: string };
+export type PanelRelease = {
+  current_version: string;
+  latest_version: string;
+  has_update: boolean;
+  changelog: string;
+  release_url: string;
+};
 export type Memory = {
   used: number;
   total: number;

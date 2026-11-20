@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { LoginShowcase } from "@/components/login-showcase";
 import { captureSession, SessionCancelledError } from "@/lib/session-scope";
 import { login, loginTOTP } from "@/lib/api";
+import { beginPanelUpdates } from "@/lib/panel-updates";
 import type { LoginChallenge } from "@/lib/types";
 
 export function Login() {
@@ -50,6 +51,7 @@ export function Login() {
       await client.cancelQueries({ queryKey: ["session"] });
       scope.assert();
       setCode("");
+      beginPanelUpdates(session);
       client.setQueryData(["session"], session);
     } catch (e) {
       if (!(e instanceof SessionCancelledError)) setError((e as Error).message);

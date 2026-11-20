@@ -46,15 +46,18 @@ type Server struct {
 	Traffic             interface {
 		Read(context.Context, string) (*metrics.Traffic, error)
 	}
-	Services            *control.Manager
-	Components          *components.Manager
-	Docker              *docker.Manager
-	LoginLog            LoginLogStore
-	Logs                logs.Reader
-	CustomLogs          *logs.Registry
-	CustomLogsError     string
-	Cron                cron.Reader
-	Releases            *releases.Manager
+	Services        *control.Manager
+	Components      *components.Manager
+	Docker          *docker.Manager
+	LoginLog        LoginLogStore
+	Logs            logs.Reader
+	CustomLogs      *logs.Registry
+	CustomLogsError string
+	Cron            cron.Reader
+	Releases        *releases.Manager
+	PanelReleases   interface {
+		FetchPanel(context.Context, string) (releases.PanelRelease, error)
+	}
 	Storage             *storage.Manager
 	Vhosts              *vhosts.Manager
 	VhostJobs           *vhosts.Jobs
@@ -117,6 +120,7 @@ func (s *Server) Handler() http.Handler {
 	private := api.Group("")
 	private.Use(s.requireAuth)
 	private.GET("/build", func(c *gin.Context) { c.JSON(200, buildinfo.Current()) })
+	private.GET("/panel/release", s.panelRelease)
 	private.GET("/auth/session", func(c *gin.Context) {
 		v, _ := s.session(c)
 		c.JSON(200, gin.H{"username": s.Config.Username, "csrf_token": v.CSRF, "expires_at": v.Expires})
