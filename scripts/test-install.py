@@ -845,6 +845,16 @@ exit 0
         self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\ncomponents snapshot\n")
         self.assertEqual((self.root / "usr/local/libexec/lnmp-gopanel-control").read_text(), HELPER)
 
+    def test_php_config_upgrade_checks_permissions_without_changing_php(self):
+        self.old_installation(https=True)
+        self.run_installer(automatic_tls=False)
+        sudoers = (self.root / "etc/sudoers.d/lnmp-gopanel").read_text()
+        sudo_log = (self.root / "run/sudo.log").read_text()
+        for command in ("php-config get", "php-config update"):
+            self.assertIn(f"/usr/local/libexec/lnmp-gopanel-control {command},", sudoers)
+            self.assertIn(f"-n -l -- /usr/local/libexec/lnmp-gopanel-control {command}\n", sudo_log)
+        self.assertEqual((self.root / "run/helper.log").read_text(), "docker snapshot\ncomponents snapshot\n")
+
     def test_vhost_upgrade_checks_all_permissions_without_touching_sites(self):
         previous = self.old_installation(https=True)
         preserved = [write(self.root, path, "keep") for path in (

@@ -87,6 +87,32 @@ func run() error {
 	if len(os.Args) == 3 && os.Args[1] == "logs" {
 		return handleLogs(os.Args[2])
 	}
+	if len(os.Args) == 3 && os.Args[1] == "php-config" {
+		parent, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		ctx, cancel := context.WithTimeout(parent, 65*time.Second)
+		defer cancel()
+		switch os.Args[2] {
+		case "get":
+			result, err := control.RootPHPConfig(ctx)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(os.Stdout).Encode(result)
+		case "update":
+			request, err := control.DecodePHPConfigRequest(os.Stdin)
+			if err != nil {
+				return err
+			}
+			result, err := control.RootUpdatePHPConfig(ctx, request)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(os.Stdout).Encode(result)
+		default:
+			return control.ErrUnsupported
+		}
+	}
 	if len(os.Args) == 3 && os.Args[1] == "logging" {
 		parent, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()

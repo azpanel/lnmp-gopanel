@@ -265,6 +265,17 @@ sudo -u lnmp-panel /usr/local/bin/lnmp-gopanel metrics check \
 “编程组件”展示 phpMyAdmin、Python 3、Go、Node.js、Codex CLI、Composer 的版本与路径。服务和组件都可后台查询最新正式版本及更新日志；Nginx、PHP、MariaDB、Node.js、Python 3 支持指定大版本或中版本范围。版本检查只提供信息，组件安装和升级需自行处理。
 
 <details>
+<summary>PHP-FPM 常用配置与禁用函数</summary>
+
+在「LNMP 服务」的 PHP-FPM 卡片点击「配置管理」，可查看和修改全局上传大小、POST 大小、内存限制、执行超时、输入超时、时区和错误显示。禁用函数页支持搜索 `disable_functions`、逗号分隔批量添加和逐项删除；这些操作先保留为草稿，点击「保存并重载」后统一生效。
+
+配置管理支持标准 `/usr/local/php` 安装，修改 `/usr/local/php/etc/php.ini`。页面标明配置来源，扫描 INI 覆盖的字段只读；进程池额外配置只读展示，其中的禁用函数会追加到全局禁用列表。网站配置仍可能覆盖部分参数，页面展示的是已保存的全局配置，不是每个网站的请求运行值。服务停止、主进程不唯一或使用自定义 INI 环境时不允许保存。
+
+保存前检查原配置并备份到 `/var/backups/lnmp-gopanel/php-config-*`，修改后再次检查 PHP/FPM 配置和值，再通过已有管理方式重载。检查或重载失败时恢复原配置；已尝试重载时再尝试恢复服务。管理员并发修改不会被回滚覆盖，错误信息会说明恢复结果及备份位置。升级时需同步更新面板、特权辅助程序和 sudoers；安装器只验证新增命令授权，不修改 PHP 配置或重载服务。
+
+</details>
+
+<details>
 <summary>服务状态判定、操作限制与 Nginx 管理修复</summary>
 
 - LNMP 的 Nginx/PHP-FPM init 脚本可能不支持 `status`；这两类服务使用 `/proc` 中的完整可执行文件路径检查进程，避免将 usage 输出当作运行状态。systemd 服务使用对应 unit 状态；Nginx 额外核对真实主进程、MainPID 和进程组归属。实际进程运行在所配置 unit 之外时显示“管理状态异常”，页面和辅助程序均阻止启停、重启及重载，避免重复启动。

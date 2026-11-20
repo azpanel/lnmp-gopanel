@@ -30,6 +30,8 @@ Cmnd_Alias LNMP_PANEL = /usr/local/libexec/lnmp-gopanel-control nginx status, \
  /usr/local/libexec/lnmp-gopanel-control cron toggle, \
  /usr/local/libexec/lnmp-gopanel-control logs list, \
  /usr/local/libexec/lnmp-gopanel-control logs read, \
+ /usr/local/libexec/lnmp-gopanel-control php-config get, \
+ /usr/local/libexec/lnmp-gopanel-control php-config update, \
  /usr/local/libexec/lnmp-gopanel-control logging status, \
  /usr/local/libexec/lnmp-gopanel-control logging enable-php, \
  /usr/local/libexec/lnmp-gopanel-control logging enable-database, \

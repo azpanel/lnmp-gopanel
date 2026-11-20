@@ -108,6 +108,9 @@ func (s *Server) Handler() http.Handler {
 			if c.Request.Method == http.MethodPost && (c.Request.URL.Path == "/api/v1/vhosts/ssl/renew" || c.Request.URL.Path == "/api/v1/vhosts/ssl/renew/preview") {
 				limit = 1024 * 1024
 			}
+			if c.Request.Method == http.MethodPut && c.Request.URL.Path == "/api/v1/services/php-fpm/config" {
+				limit = control.PHPConfigRequestLimit
+			}
 			if c.Request.Method == http.MethodPut && c.Request.URL.Path == "/api/v1/vhosts/screenshot" {
 				limit = 128 * 1024
 			}
@@ -140,6 +143,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerBackupPolicies(private)
 	s.registerDashboard(private)
 	s.registerLNMPInstallation(private)
+	private.GET("/services/php-fpm/config", s.phpConfig)
+	private.PUT("/services/php-fpm/config", s.csrf, s.updatePHPConfig)
 	private.GET("/system/logging", s.loggingStatus)
 	private.POST("/system/logging/:kind/enable", s.csrf, s.enableLogging)
 	private.GET("/host", func(c *gin.Context) { c.JSON(200, s.Host) })

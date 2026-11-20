@@ -23,11 +23,20 @@ func Execute(ctx context.Context, s config.Service, action string, run CommandRu
 		return Result{}, ErrUnsupported
 	}
 	if action == "reload" {
-		if s.Name != "nginx" || s.CheckProgram == "" {
+		switch s.Name {
+		case "nginx":
+			if s.CheckProgram == "" {
+				return Result{}, ErrUnsupported
+			}
+			if _, err := run(ctx, s.CheckProgram, "-t"); err != nil {
+				return Result{State: "unknown", Message: "Nginx 配置检查失败，未执行重载"}, fmt.Errorf("nginx config test: %w", err)
+			}
+		case "php-fpm":
+			if _, err := run(ctx, "/usr/local/php/sbin/php-fpm", "-t", "-y", "/usr/local/php/etc/php-fpm.conf"); err != nil {
+				return Result{State: "unknown", Message: "PHP-FPM 配置检查失败，未执行重载"}, fmt.Errorf("php-fpm config test: %w", err)
+			}
+		default:
 			return Result{}, ErrUnsupported
-		}
-		if _, err := run(ctx, s.CheckProgram, "-t"); err != nil {
-			return Result{State: "unknown", Message: "Nginx 配置检查失败，未执行重载"}, fmt.Errorf("nginx config test: %w", err)
 		}
 	}
 	var args []string

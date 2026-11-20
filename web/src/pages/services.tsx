@@ -30,6 +30,7 @@ import {
 import { ServiceIcon, serviceInfo, ServiceStatus } from "@/components/status";
 import { api } from "@/lib/api";
 import { LNMPInstallNotice } from "@/components/lnmp-install-notice";
+import { PHPConfig } from "@/components/php-config";
 import { ServiceManagementRepair } from "@/components/service-management-repair";
 import { clock } from "@/lib/format";
 import { hasNewerStableVersion } from "@/lib/service-version";
@@ -311,7 +312,9 @@ export function Services({
                 </span>
                 {service.message || "等待状态更新"}
               </div>
-              {(service.actions.length > 0 || service.name === "nginx") && (
+              {(service.actions.length > 0 ||
+                service.name === "nginx" ||
+                service.name === "php-fpm") && (
                 <div className="service-actions">
                   {service.actions.map((action) => {
                     const item = actions[action as Action];
@@ -343,6 +346,13 @@ export function Services({
                   })}
                   {service.name === "nginx" && (
                     <NginxBuildInfo service={service} />
+                  )}
+                  {service.name === "php-fpm" && (
+                    <PHPConfig
+                      disabled={
+                        service.busy || mutation.isPending || Boolean(error)
+                      }
+                    />
                   )}
                 </div>
               )}
