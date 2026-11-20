@@ -703,13 +703,13 @@ exit 0
             " /usr/local/libexec/lnmp-gopanel-control cron list, \\\n",
             (self.root / "etc/sudoers.d/lnmp-gopanel").read_text(),
         )
-        for command in ("logs list", "logs read", "components snapshot") + VHOST_COMMANDS + LOGGING_COMMANDS + BACKUP_COMPONENT_COMMANDS + BACKUP_POLICY_COMMANDS:
+        for command in ("cron toggle", "logs list", "logs read", "components snapshot") + VHOST_COMMANDS + LOGGING_COMMANDS + BACKUP_COMPONENT_COMMANDS + BACKUP_POLICY_COMMANDS:
             self.assertIn(f"/usr/local/libexec/lnmp-gopanel-control {command}", (self.root / "etc/sudoers.d/lnmp-gopanel").read_text())
         self.assertTrue((self.root / "run/panel.active").exists())
         self.assertTrue((self.root / "run/panel.enabled").exists())
         self.assertTrue((self.root / "usr/local/bin/lnmp-gopanel").read_text().startswith("#!/bin/bash"))
         sudo_log = (self.root / "run/sudo.log").read_text()
-        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read") + VHOST_COMMANDS + LOGGING_COMMANDS + BACKUP_COMPONENT_COMMANDS + BACKUP_POLICY_COMMANDS:
+        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "cron toggle", "logs list", "logs read") + VHOST_COMMANDS + LOGGING_COMMANDS + BACKUP_COMPONENT_COMMANDS + BACKUP_POLICY_COMMANDS:
             self.assertIn(f"-n -u lnmp-panel -- /usr/bin/sudo -n -l -- /usr/local/libexec/lnmp-gopanel-control {command}\n", sudo_log)
         self.assertIn("-n -u lnmp-panel -- /usr/bin/sudo -n -- /usr/local/libexec/lnmp-gopanel-control docker snapshot\n", sudo_log)
         self.assertIn("-n -u lnmp-panel -- /usr/bin/sudo -n -- /usr/local/libexec/lnmp-gopanel-control components snapshot\n", sudo_log)
@@ -957,7 +957,7 @@ exit 0
 
     def test_missing_helper_permissions_rolls_back(self):
         previous = self.old_installation()
-        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "logs list", "logs read") + VHOST_COMMANDS + LNMP_INSTALL_COMMANDS + NGINX_REPAIR_COMMANDS + LOGGING_COMMANDS + BACKUP_COMPONENT_COMMANDS + BACKUP_POLICY_COMMANDS:
+        for command in ("nginx status", "docker snapshot", "components snapshot", "storage scan", "cron list", "cron toggle", "logs list", "logs read") + VHOST_COMMANDS + LNMP_INSTALL_COMMANDS + NGINX_REPAIR_COMMANDS + LOGGING_COMMANDS + BACKUP_COMPONENT_COMMANDS + BACKUP_POLICY_COMMANDS:
             with self.subTest(command=command):
                 write(self.root, "/run/deny-helper-command", f"/usr/local/libexec/lnmp-gopanel-control {command}\n")
                 result = self.run_installer(success=False)

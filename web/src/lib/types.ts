@@ -266,6 +266,7 @@ export interface CronTask {
   line: number;
   schedule: string;
   command: string;
+  enabled: boolean;
 }
 
 export interface CronSnapshot {
@@ -273,6 +274,7 @@ export interface CronSnapshot {
   raw: string;
   warnings: string[];
   updated_at: string;
+  revision: string;
 }
 
 export interface CronPreview {

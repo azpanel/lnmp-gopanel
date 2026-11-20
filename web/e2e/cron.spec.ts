@@ -6,10 +6,11 @@ const command = `/root/backup  'directory with spaces' %data # literal ${"long-p
 const raw = `SHELL=/bin/bash\n# backup\n0 2 * * * ${command}\n@reboot /root/start\nunknown entry\n`;
 const snapshot = {
   tasks: [
-    { line: 3, schedule: "0 2 * * *", command },
-    { line: 4, schedule: "@reboot", command: "/root/start" },
+    { line: 3, schedule: "0 2 * * *", command, enabled: true },
+    { line: 4, schedule: "@reboot", command: "/root/start", enabled: true },
   ],
   raw,
+  revision: "a".repeat(64),
   warnings: ["第 5 行未识别为定时任务，请查看 crontab 原文。"],
   updated_at: "2026-10-26T01:02:03Z",
 };
@@ -24,6 +25,81 @@ async function login(page: Page) {
     page.getByRole("heading", { name: "系统概览", exact: true }),
   ).toBeVisible();
 }
+
+test("cron switches persist commented tasks and retain state on failure", async ({
+  page,
+}) => {
+  let current = structuredClone(snapshot);
+  let fail = false;
+  let release: () => void = () => {};
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/v1/cron", (route) =>
+    route.fulfill({ json: current }),
+  );
+  let writes = 0;
+  await page.route("**/api/v1/cron/toggle", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    const input = route.request().postDataJSON();
+    expect(input).toEqual({
+      line: 3,
+      enabled: writes !== 0,
+      revision: current.revision,
+    });
+    writes++;
+    if (writes === 1) await pending;
+    if (fail)
+      return route.fulfill({
+        status: 409,
+        json: { error: "任务配置已变化，请刷新列表后重试" },
+      });
+    current = {
+      ...current,
+      revision: (input.enabled ? "a" : "b").repeat(64),
+      updated_at: `2026-10-26T01:02:0${writes + 3}Z`,
+      raw: input.enabled ? raw : raw.replace("0 2 * * *", "#0 2 * * *"),
+      tasks: current.tasks.map((task) =>
+        task.line === input.line ? { ...task, enabled: input.enabled } : task,
+      ),
+    };
+    return route.fulfill({ json: current });
+  });
+  await login(page);
+  await page.goto("/cron");
+  await page.getByText("查看 crontab 原文", { exact: true }).click();
+  const toggle = page.getByRole("switch", {
+    name: "启用第 3 行定时任务",
+    exact: true,
+  });
+  await expect(toggle).toBeChecked();
+  await toggle.click();
+  await expect(toggle).toBeDisabled();
+  await expect(page.getByRole("switch").nth(1)).toBeDisabled();
+  release();
+  await expect(toggle).not.toBeChecked();
+  await expect(toggle).toBeEnabled();
+  await expect(page.getByRole("switch")).toHaveCount(2);
+  await expect(page.locator(".cron-source pre")).toHaveText(current.raw);
+  await expect(
+    page.getByRole("button", {
+      name: "查看 0 2 * * * 的执行时间",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await page.reload();
+  await expect(toggle).not.toBeChecked();
+  fail = true;
+  await toggle.click();
+  await expect(page.getByRole("alert")).toContainText("任务配置已变化");
+  await expect(toggle).not.toBeChecked();
+  fail = false;
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByText("查看 crontab 原文", { exact: true }).click();
+  await expect(page.locator(".cron-source pre")).toHaveText(raw);
+});
 
 test("cron navigation, source, refresh failures, retry and empty state", async ({
   page,

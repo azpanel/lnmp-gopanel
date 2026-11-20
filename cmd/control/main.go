@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"time"
@@ -25,6 +27,13 @@ func main() {
 		state := "unknown"
 		if errors.Is(err, control.ErrManagementConflict) {
 			state = "unmanaged"
+		}
+		if errors.Is(err, cron.ErrConflict) {
+			state = "cron-conflict"
+		} else if errors.Is(err, cron.ErrInvalid) {
+			state = "cron-invalid"
+		} else if errors.Is(err, control.ErrBusy) && len(os.Args) == 3 && os.Args[1] == "cron" {
+			state = "busy"
 		}
 		_ = json.NewEncoder(os.Stdout).Encode(control.Result{State: state, Message: err.Error()})
 		os.Exit(1)
@@ -105,10 +114,26 @@ func run() error {
 		}
 		return json.NewEncoder(os.Stdout).Encode(result)
 	}
-	if len(os.Args) == 3 && os.Args[1] == "cron" && os.Args[2] == "list" {
+	if len(os.Args) == 3 && os.Args[1] == "cron" && (os.Args[2] == "list" || os.Args[2] == "toggle") {
 		ctx, cancel := context.WithTimeout(context.Background(), cron.Timeout)
 		defer cancel()
-		result, err := control.RootCrontab(ctx)
+		var result cron.Snapshot
+		var err error
+		if os.Args[2] == "toggle" {
+			var request cron.ToggleRequest
+			data, readErr := io.ReadAll(io.LimitReader(os.Stdin, 4097))
+			if readErr != nil || len(data) > 4096 {
+				return cron.ErrInvalid
+			}
+			decoder := json.NewDecoder(bytes.NewReader(data))
+			decoder.DisallowUnknownFields()
+			if decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF || request.Validate() != nil {
+				return cron.ErrInvalid
+			}
+			result, err = control.RootToggleCron(ctx, request)
+		} else {
+			result, err = control.RootCrontab(ctx)
+		}
 		if err != nil {
 			return err
 		}

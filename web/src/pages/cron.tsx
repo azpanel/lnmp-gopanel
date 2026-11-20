@@ -1,7 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSessionMutation } from "@/lib/use-session-mutation";
 import { lazy, Suspense, useState } from "react";
 import { Clock3, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -22,27 +24,44 @@ const CronSource = lazy(() =>
 );
 
 export function Cron() {
+  const client = useQueryClient();
   const [sourceOpen, setSourceOpen] = useState(false);
   const query = useQuery({
     queryKey: ["cron"],
-    queryFn: () => api<CronSnapshot>("/cron"),
+    queryFn: ({ signal }) => api<CronSnapshot>("/cron", { signal }),
     retry: false,
     refetchOnWindowFocus: false,
   });
   const data = query.data;
+  const toggle = useSessionMutation({
+    mutationFn: (input: { line: number; enabled: boolean; revision: string }) =>
+      api<CronSnapshot>("/cron/toggle", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onMutate: async () => {
+      await client.cancelQueries({ queryKey: ["cron"] });
+    },
+    onSuccess: (snapshot) => {
+      client.setQueryData(["cron"], snapshot);
+    },
+  });
   return (
     <>
       <div className="page-heading">
         <div>
           <div className="eyebrow muted">SCHEDULED TASKS</div>
           <h1>定时任务</h1>
-          <p>查看 root 用户的 crontab 配置。</p>
+          <p>查看和开关 root 用户的定时任务。</p>
         </div>
         <Button
           variant="outline"
           size="sm"
-          disabled={query.isFetching}
-          onClick={() => void query.refetch()}
+          disabled={query.isFetching || toggle.isPending}
+          onClick={() => {
+            toggle.reset();
+            void query.refetch();
+          }}
         >
           <RefreshCw
             size={14}
@@ -55,6 +74,11 @@ export function Cron() {
         <div className="notice" role="alert">
           定时任务读取失败：{query.error.message}
           {data ? "。下方保留上次读取的数据，可能已过期。" : ""}
+        </div>
+      )}
+      {toggle.error && (
+        <div className="notice" role="alert">
+          定时任务开关失败：{toggle.error.message}
         </div>
       )}
       {data?.warnings.map((warning, index) => (
@@ -83,6 +107,7 @@ export function Cron() {
                 <TableHead>行号</TableHead>
                 <TableHead>执行周期</TableHead>
                 <TableHead>执行命令</TableHead>
+                <TableHead>启用</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -92,16 +117,36 @@ export function Cron() {
                     {task.line}
                   </TableCell>
                   <TableCell className="font-mono">
-                    <CronSchedule task={task} revision={data.updated_at} />
+                    {task.enabled ? (
+                      <CronSchedule task={task} revision={data.updated_at} />
+                    ) : (
+                      <span title="任务已关闭，不会执行">{task.schedule}</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <code className="cron-command">{task.command}</code>
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      aria-label={`启用第 ${task.line} 行定时任务`}
+                      checked={task.enabled}
+                      disabled={
+                        toggle.isPending || query.isFetching || !!query.error
+                      }
+                      onCheckedChange={(enabled) =>
+                        toggle.mutate({
+                          line: task.line,
+                          enabled,
+                          revision: data.revision,
+                        })
+                      }
+                    />
                   </TableCell>
                 </TableRow>
               ))}
               {!data?.tasks.length && (
                 <TableRow>
-                  <TableCell colSpan={3} className="empty-cell">
+                  <TableCell colSpan={4} className="empty-cell">
                     {query.isPending
                       ? "正在读取定时任务…"
                       : !data

@@ -170,6 +170,7 @@ func (s *Server) Handler() http.Handler {
 		c.JSON(200, result)
 	})
 	private.GET("/cron/preview", s.cronPreview)
+	private.POST("/cron/toggle", s.csrf, s.cronToggle)
 	private.GET("/logs", s.logList)
 	private.POST("/logs/read", s.csrf, s.logRead)
 	private.POST("/logs/custom", s.csrf, s.logAdd)

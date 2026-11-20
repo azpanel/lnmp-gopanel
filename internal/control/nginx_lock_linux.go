@@ -19,7 +19,7 @@ func LockService(name string) (func(), error) {
 	switch name {
 	case "mysql", "mariadb":
 		name = "database"
-	case "nginx", "php-fpm":
+	case "nginx", "php-fpm", "cron":
 	default:
 		return nil, ErrUnsupported
 	}

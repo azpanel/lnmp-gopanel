@@ -3,12 +3,77 @@ package control
 import (
 	"context"
 	"errors"
+	"io"
 	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/azpanel/lnmp-gopanel/internal/cron"
 )
+
+func TestToggleRootCrontab(t *testing.T) {
+	raw := "# comment\nPATH=/usr/bin\n\t@daily /root/backup  %data # literal\n"
+	for _, tc := range []struct {
+		name             string
+		stale, failWrite bool
+	}{
+		{name: "disable and enable"},
+		{name: "stale revision", stale: true},
+		{name: "write failure", failWrite: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			current := raw
+			writes := 0
+			run := func(_ context.Context, _ int, input io.Reader, program string, args ...string) (string, string, error) {
+				if program != "/trusted/crontab" {
+					t.Fatal(program)
+				}
+				if reflect.DeepEqual(args, []string{"-u", "root", "-l"}) && input == nil {
+					return current, "", nil
+				}
+				if !reflect.DeepEqual(args, []string{"-u", "root", "-"}) || input == nil {
+					t.Fatalf("unexpected write command: %v", args)
+				}
+				writes++
+				if tc.failWrite {
+					return "", "invalid crontab", errors.New("exit 1")
+				}
+				data, err := io.ReadAll(input)
+				current = string(data)
+				return "", "", err
+			}
+			enabled := false
+			request := cron.ToggleRequest{Line: 3, Revision: cron.Parse(raw).Revision, Enabled: &enabled}
+			if tc.stale {
+				current = "# added elsewhere\n" + raw
+			}
+			view, err := toggleRootCrontab(context.Background(), "/trusted/crontab", request, run)
+			if tc.stale {
+				if !errors.Is(err, cron.ErrConflict) || writes != 0 {
+					t.Fatalf("stale config overwritten: %d %v", writes, err)
+				}
+				return
+			}
+			if tc.failWrite {
+				if err == nil || current != raw {
+					t.Fatal("write failure hidden or original changed")
+				}
+				return
+			}
+			if err != nil || view.Raw != current || view.Tasks[0].Enabled || current != strings.Replace(raw, "\t@daily", "\t#@daily", 1) {
+				t.Fatalf("invalid disabled state: %+v %v", view, err)
+			}
+			enabled = true
+			request.Revision = view.Revision
+			view, err = toggleRootCrontab(context.Background(), "/trusted/crontab", request, run)
+			if err != nil || !view.Tasks[0].Enabled || current != raw || writes != 2 {
+				t.Fatalf("invalid restored state: %+v %v", view, err)
+			}
+		})
+	}
+}
 
 func TestReadRootCrontab(t *testing.T) {
 	exitOne := exec.Command("/bin/sh", "-c", "exit 1").Run()

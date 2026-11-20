@@ -14,7 +14,7 @@
 | LNMP 安装 | 准备源码、选择数据库与 PHP、可选 Nginx 模块、后台安装任务和实时日志                                                    |
 | 网站管理  | 查看配置与证书、启停站点、添加 PHP / 静态站点、可选建库、SSL 申请与批量提前续签、Basic Auth、配置格式化、网站截图      |
 | 日志读取  | 登录、网站、慢查询与 PHP 错误日志，以及自定义文本日志；历史加载、实时追踪、关键词／正则筛选、表格与 IP 属地展示        |
-| 定时任务  | 只读查看 root crontab、原文及之后 5 次预计执行时间                                                                     |
+| 定时任务  | 查看和开关 root crontab 任务、原文及之后 5 次预计执行时间                                                                     |
 | Docker    | 只读查看运行中容器及镜像、容器、数据卷、构建缓存空间统计                                                               |
 | 硬盘空间  | 挂载容量、筛选与排序、主文件系统大文件 Top 30 与矩形树图                                                               |
 | 账户安全  | 单管理员、密码修改、TOTP 双重验证、一次性恢复码和登录审计                                                              |
@@ -526,7 +526,7 @@ screenshots:
 
 “日志读取”支持内置日志与自定义 `.log` / `.txt` 文件，按需加载、追踪新增内容、暂停和筛选。Nginx 访问日志与登录日志可格式化为表格并展示离线 IP 属地，Nginx 表格还支持 HTTP 状态码筛选。筛选针对已加载范围，不搜索整个文件；页面不提供日志编辑、清空或下载。
 
-“定时任务”只读展示 root crontab，可展开原文、手动刷新和预览之后 5 次预计执行时间。此处不包含其他用户、系统 Cron 目录或 systemd timer，也不提供任务编辑或执行。
+“定时任务”展示 root crontab，可通过“启用”开关添加或移除规则前的 `#`，也可展开原文、手动刷新和预览已启用任务之后 5 次预计执行时间。此处不包含其他用户、系统 Cron 目录或 systemd timer，也不提供任务编辑或执行。
 
 <details>
 <summary>日志来源、自定义路径、登录审计与读取协议</summary>
@@ -574,13 +574,13 @@ IP 地址位置数据由[纯真 CZ88](https://www.cz88.net/) 提供支持，使�
 <details>
 <summary>Cron 解析、时区与执行时间预览</summary>
 
-左侧“定时任务”页面只读展示 root 用户的 crontab，包含执行周期、执行命令、原始行号、任务数量和最近读取时间，可手动刷新并展开查看原文。支持五字段 Cron 表达式及 `@reboot` 等特殊周期；环境变量、注释和空行不计为任务，未识别内容会显示提示并保留原文。此页面不包含其他用户、`/etc/crontab`、系统 Cron 目录或 systemd timer，也不提供编辑或立即执行功能。
+左侧“定时任务”页面展示 root 用户的 crontab，包含执行周期、执行命令、启用开关、原始行号、任务数量和最近读取时间，可手动刷新并展开查看原文。支持五字段 Cron 表达式及 `@reboot` 等特殊周期；注释中可识别的任务以关闭状态保留在列表，环境变量、普通注释和空行不计为任务，未识别内容会显示提示并保留原文。此页面不包含其他用户、`/etc/crontab`、系统 Cron 目录或 systemd timer，也不提供编辑或立即执行功能。
 
-接口 `GET /api/v1/cron` 需要登录，返回 `tasks`、`raw`、`warnings` 和 `updated_at`。读取失败会明确提示，刷新失败时保留上次成功的数据并标记可能过期；没有 root crontab 时显示空列表。辅助程序仅接受固定的 `cron list`，在可信路径下执行 `crontab -u root -l`，有超时及输出大小限制，不接受用户输入的参数。
+接口 `GET /api/v1/cron` 需要登录，返回 `tasks`（含 `enabled`）、`raw`、`warnings`、`updated_at` 和内容版本 `revision`。读取失败会明确提示，刷新失败时保留上次成功的数据并标记可能过期；没有 root crontab 时显示空列表。辅助程序接受固定的 `cron list` 和 `cron toggle`，在可信路径下读取 root crontab，有超时及输出大小限制。启停接口 `POST /api/v1/cron/toggle` 需要登录和 CSRF，接收 `line`、`enabled` 和 `revision`；辅助程序加锁、重新读取并校验完整内容版本，只修改目标规则前的 `#`，再通过 `crontab -u root -` 安装。版本冲突返回 409，避免按旧行号修改其他任务；写入失败会明确提示。
 
-升级时同步更新面板、辅助程序和 `deploy/lnmp-gopanel.sudoers`，新增精确授权 `/usr/local/libexec/lnmp-gopanel-control cron list`，先通过 `visudo -cf` 验证再安装并重启面板。安装脚本会检查该只读操作的 sudo 授权；未安装 crontab 不影响安装，页面会提示无法读取。
+升级时同步更新面板、辅助程序和 `deploy/lnmp-gopanel.sudoers`，需要精确授权 `/usr/local/libexec/lnmp-gopanel-control cron list` 和 `/usr/local/libexec/lnmp-gopanel-control cron toggle`，先通过 `visudo -cf` 验证再安装并重启面板。安装脚本仅检查这两项操作的 sudo 授权，不实际修改定时任务；未安装 crontab 不影响安装，页面会提示无法读取。
 
-定时任务表达式支持鼠标悬停、键盘聚焦或手机点击预览之后 5 次预计执行时间。预览接口 `GET /api/v1/cron/preview?line=行号` 需要登录，以服务器当前时间重新读取并计算，默认使用服务器时区，任务前的 `CRON_TZ` 声明可覆盖时区；每个时间保留时区偏移。`@reboot`、无效表达式、无效时区和没有匹配日期时会显示说明。预览不检查 Cron 守护进程是否运行，不代表任务已执行或执行成功。原文展开后按需加载 Prism，对周期、环境变量、注释和 Shell 语法高亮，保留原始文本并由 React 安全渲染。此更新沿用 `cron list` 授权，安装脚本无需新增权限。
+定时任务表达式支持鼠标悬停、键盘聚焦或手机点击预览之后 5 次预计执行时间。预览接口 `GET /api/v1/cron/preview?line=行号` 需要登录，以服务器当前时间重新读取并计算，默认使用服务器时区，任务前的 `CRON_TZ` 声明可覆盖时区；每个时间保留时区偏移。`@reboot`、无效表达式、无效时区和没有匹配日期时会显示说明。预览不检查 Cron 守护进程是否运行，不代表任务已执行或执行成功。原文展开后按需加载 Prism，对周期、环境变量、注释和 Shell 语法高亮，保留原始文本并由 React 安全渲染。已关闭任务不显示预计执行时间。
 
 </details>
 
@@ -870,7 +870,7 @@ bash scripts/package.sh arm64 vX.Y.Z
 
 包内包含 `bin/lnmp-gopanel`、`bin/lnmp-gopanel-control`、`deploy/`、`install.sh`、`README.md` 和 `VERSION`；本机配置、账号密码、依赖目录、测试截图和构建缓存不会提交或打包。
 
-从当前源码升级本机时，先构建前端，再运行上述打包命令，最后使用项目中的安装脚本执行 `sudo bash install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz`（arm64 使用对应文件名）。这样两个二进制、systemd 单元及 sudoers 会一起更新，并使用相同的备份、授权检查及失败回滚流程。定时任务、日志与虚拟主机仅检查 `cron list`、`logs list/read`、`vhosts list/config/format/usage/toggle/options/create/ssl-renew-preview/ssl-renew/basic-auth-get/basic-auth-set/basic-auth-disable` 的精确授权，不读取业务内容、不创建站点或申请证书；缺少可选组件或业务文件不会阻止安装。旧版 HTTP 安装非交互升级时需追加 `--tls-mode self-signed`，或指定现有证书。
+从当前源码升级本机时，先构建前端，再运行上述打包命令，最后使用项目中的安装脚本执行 `sudo bash install.sh --archive ./dist/lnmp-gopanel_linux_amd64.tar.gz`（arm64 使用对应文件名）。这样两个二进制、systemd 单元及 sudoers 会一起更新，并使用相同的备份、授权检查及失败回滚流程。定时任务、日志与虚拟主机仅检查 `cron list/toggle`、`logs list/read`、`vhosts list/config/format/usage/toggle/options/create/ssl-renew-preview/ssl-renew/basic-auth-get/basic-auth-set/basic-auth-disable` 的精确授权，不读取业务内容、不创建站点或申请证书；缺少可选组件或业务文件不会阻止安装。旧版 HTTP 安装非交互升级时需追加 `--tls-mode self-signed`，或指定现有证书。
 
 </details>
 
@@ -909,7 +909,7 @@ bash scripts/package.sh arm64 vX.Y.Z
 | 站点认证       | `GET /vhosts/basic-auth`、`PUT /vhosts/basic-auth`、`DELETE /vhosts/basic-auth`                                                                                                                                            |
 | 截图           | `GET /vhosts/screenshots`、`PUT /vhosts/screenshot`、`POST /vhosts/screenshot/refresh`、`DELETE /vhosts/screenshot`、`GET /vhosts/screenshot/image`                                                                        |
 | 日志           | `GET /logs`、`POST /logs/read`、`POST /logs/custom`、`DELETE /logs/custom`                                                                                                                                                 |
-| 定时任务       | `GET /cron`、`GET /cron/preview`                                                                                                                                                                                           |
+| 定时任务       | `GET /cron`、`GET /cron/preview`、`POST /cron/toggle`                                                                                                                                                                                           |
 | Docker         | `GET /docker`、`POST /docker/refresh`                                                                                                                                                                                      |
 | 存储           | `GET /storage/mounts`、`GET /storage/scan`、`POST /storage/scan`                                                                                                                                                           |
 

@@ -15,6 +15,8 @@ func TestCronRejectsOtherArguments(t *testing.T) {
 		{"cron", "list", "root"},
 		{"cron", "list", "--user=other"},
 		{"cron", "list", "; touch /tmp/unwanted"},
+		{"cron", "toggle", "root"},
+		{"cron", "toggle", "--user=other"},
 	} {
 		os.Args = append([]string{"lnmp-gopanel-control"}, args...)
 		if err := run(); err == nil {

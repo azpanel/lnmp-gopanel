@@ -1,8 +1,10 @@
-// Package cron describes the read-only root crontab view.
+// Package cron describes root crontab tasks and their enabled state.
 package cron
 
 import (
 	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -15,6 +17,7 @@ type Task struct {
 	Line     int    `json:"line"`
 	Schedule string `json:"schedule"`
 	Command  string `json:"command"`
+	Enabled  bool   `json:"enabled"`
 }
 
 type Snapshot struct {
@@ -22,10 +25,61 @@ type Snapshot struct {
 	Raw       string    `json:"raw"`
 	Warnings  []string  `json:"warnings"`
 	UpdatedAt time.Time `json:"updated_at"`
+	Revision  string    `json:"revision"`
 }
 
 type Reader interface {
 	Cron(context.Context) (Snapshot, error)
+}
+
+type ToggleRequest struct {
+	Line     int    `json:"line"`
+	Revision string `json:"revision"`
+	Enabled  *bool  `json:"enabled"`
+}
+
+var ErrInvalid = errors.New("定时任务参数无效")
+var ErrConflict = errors.New("任务配置已变化，请刷新列表后重试")
+
+func (r ToggleRequest) Validate() error {
+	if r.Line <= 0 || r.Enabled == nil || len(r.Revision) != 64 {
+		return ErrInvalid
+	}
+	for _, c := range r.Revision {
+		if !strings.ContainsRune("0123456789abcdef", c) {
+			return ErrInvalid
+		}
+	}
+	return nil
+}
+
+// Toggle changes only the comment marker of an existing task. Checking the
+// complete revision prevents stale line numbers from changing another task.
+func Toggle(view Snapshot, request ToggleRequest) (string, error) {
+	if err := request.Validate(); err != nil {
+		return "", err
+	}
+	if request.Revision != view.Revision {
+		return "", ErrConflict
+	}
+	for _, task := range view.Tasks {
+		if task.Line != request.Line {
+			continue
+		}
+		if task.Enabled == *request.Enabled {
+			return view.Raw, nil
+		}
+		lines := strings.Split(view.Raw, "\n")
+		line := lines[task.Line-1]
+		offset := len(line) - len(strings.TrimLeft(line, " \t"))
+		if *request.Enabled {
+			lines[task.Line-1] = line[:offset] + strings.TrimPrefix(line[offset:], "#")
+		} else {
+			lines[task.Line-1] = line[:offset] + "#" + line[offset:]
+		}
+		return strings.Join(lines, "\n"), nil
+	}
+	return "", ErrConflict
 }
 
 var environment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\s*=`)
@@ -34,10 +88,14 @@ var numericField = regexp.MustCompile(`^[0-9*/,\-]+$`)
 // Parse preserves commands verbatim, including shell whitespace, % and comments.
 // It recognizes cron field syntax without attempting to predict execution times.
 func Parse(raw string) Snapshot {
-	view := Snapshot{Tasks: []Task{}, Raw: raw, Warnings: []string{}, UpdatedAt: time.Now()}
+	view := Snapshot{Tasks: []Task{}, Raw: raw, Warnings: []string{}, UpdatedAt: time.Now(), Revision: fmt.Sprintf("%x", sha256.Sum256([]byte(raw)))}
 	for i, line := range strings.Split(raw, "\n") {
 		line = strings.TrimLeft(strings.TrimSuffix(line, "\r"), " \t")
-		if line == "" || strings.HasPrefix(line, "#") || environment.MatchString(line) {
+		enabled := !strings.HasPrefix(line, "#")
+		if !enabled {
+			line = strings.TrimLeft(strings.TrimPrefix(line, "#"), " \t")
+		}
+		if line == "" || environment.MatchString(line) {
 			continue
 		}
 		first, rest := token(line)
@@ -68,10 +126,13 @@ func Parse(raw string) Snapshot {
 			command = rest
 		}
 		if !valid || strings.TrimSpace(command) == "" {
+			if !enabled {
+				continue
+			}
 			view.Warnings = append(view.Warnings, fmt.Sprintf("第 %d 行未识别为定时任务，请查看 crontab 原文。", i+1))
 			continue
 		}
-		view.Tasks = append(view.Tasks, Task{Line: i + 1, Schedule: schedule, Command: command})
+		view.Tasks = append(view.Tasks, Task{Line: i + 1, Schedule: schedule, Command: command, Enabled: enabled})
 	}
 	return view
 }
