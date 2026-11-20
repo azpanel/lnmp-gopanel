@@ -35,7 +35,7 @@ func TestPHPConfigValidation(t *testing.T) {
 		}
 	}
 	names, err := NormalizePHPFunctions([]string{"EXEC", "shell_exec", " exec "})
-	if err != nil || strings.Join(names, ",") != "exec,shell_exec" {
+	if err != nil || strings.Join(names, ",") != "EXEC,exec,shell_exec" {
 		t.Fatal(names, err)
 	}
 }

@@ -24,6 +24,7 @@ var phpSize = regexp.MustCompile(`(?i)^[0-9]+[KMG]?$`)
 var phpConfigKeys = []string{"upload_max_filesize", "post_max_size", "memory_limit", "max_execution_time", "max_input_time", "date.timezone", "display_errors"}
 
 const PHPConfigRequestLimit = 32 * 1024
+const phpINIConfig = "/usr/local/php/etc/php.ini"
 
 type PHPConfigField struct {
 	Value    string `json:"value"`
@@ -69,7 +70,7 @@ func NormalizePHPFunctions(names []string) ([]string, error) {
 	seen := map[string]bool{}
 	out := []string{}
 	for _, name := range names {
-		name = strings.ToLower(strings.TrimSpace(name))
+		name = strings.TrimSpace(name)
 		if len(name) > 128 || !phpFunctionName.MatchString(name) {
 			return nil, fmt.Errorf("%w：函数名 %q 无效", ErrPHPConfigInvalid, name)
 		}

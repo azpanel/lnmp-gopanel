@@ -32,7 +32,7 @@ func Execute(ctx context.Context, s config.Service, action string, run CommandRu
 				return Result{State: "unknown", Message: "Nginx 配置检查失败，未执行重载"}, fmt.Errorf("nginx config test: %w", err)
 			}
 		case "php-fpm":
-			if _, err := run(ctx, "/usr/local/php/sbin/php-fpm", "-t", "-y", "/usr/local/php/etc/php-fpm.conf"); err != nil {
+			if _, err := run(ctx, "/usr/local/php/sbin/php-fpm", "-t", "-y", "/usr/local/php/etc/php-fpm.conf", "-c", phpINIConfig); err != nil {
 				return Result{State: "unknown", Message: "PHP-FPM 配置检查失败，未执行重载"}, fmt.Errorf("php-fpm config test: %w", err)
 			}
 		default:

@@ -87,6 +87,9 @@ func run() error {
 	if len(os.Args) == 3 && os.Args[1] == "logs" {
 		return handleLogs(os.Args[2])
 	}
+	if len(os.Args) == 3 && os.Args[1] == "php-fpm-launch" {
+		return control.LaunchStandardPHPFPM(os.Args[2])
+	}
 	if len(os.Args) == 3 && os.Args[1] == "php-config" {
 		parent, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
