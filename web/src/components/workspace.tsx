@@ -42,8 +42,10 @@ import {
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelTop,
   Pause,
   Play,
+  RefreshCw,
   Server,
   Settings2,
   ShieldCheck,
@@ -270,6 +272,11 @@ export default function Workspace({
                     htmlFor="use-hostname-title"
                     className="leading-normal"
                   >
+                    <PanelTop
+                      size={16}
+                      className="shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
                     使用系统主机名作为网页标题
                   </Label>
                   <p
@@ -299,6 +306,11 @@ export default function Workspace({
                     htmlFor="check-panel-updates"
                     className="leading-normal"
                   >
+                    <RefreshCw
+                      size={16}
+                      className="shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
                     检查更新
                   </Label>
                   <p
